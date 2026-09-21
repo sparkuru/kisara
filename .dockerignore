@@ -1,0 +1,10 @@
+.git
+.env
+.devhome
+.pytest_cache
+__pycache__
+*.py[cod]
+*.egg-info
+data
+tests
+design.md

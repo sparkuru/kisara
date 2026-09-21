@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kisara"
+version = "0.1.0"
+description = "A QQ bot with switchable OneBot 11 and official platform adapters."
+readme = "readme.md"
+requires-python = ">=3.8"
+dependencies = [
+    "websockets>=11,<14",
+]
+
+[project.optional-dependencies]
+official = [
+    "qq-botpy==1.2.1",
+]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

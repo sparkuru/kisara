@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# hako - Run Kisara's Python and engine commands in python:3.12-slim.
+# The host does not need Python, pip, or qq-botpy. The repo is mounted at /app
+# with uid mapping, and package caches plus the Python user base stay in .devhome/.
+#
+# Usage:
+#   ./hako python -m pip install --user -e ".[dev]"
+#   ./hako python --version
+#   ./hako python -m pytest
+#   KISARA_ENGINE=onebot HAKO_SERVICE=bot ./hako python -m kisara
+#   ./dev.sh
+#
+# The selected engine connects outbound to QQ, so PORT_FLAGS stays empty and no
+# host port is published. HAKO_BIND_HOST, BOT_HOST_PORT, and
+# BOT_CONTAINER_PORT are kept as editable settings for a future local service;
+# BOT_* are intentionally unused.
+# If a future service is added, it must listen on 0.0.0.0 before host access.
+#
+# The bot service loads the repository's .env as engine configuration. One-off
+# commands do not receive that file unless HAKO_SERVICE=bot is set.
+set -Eeuo pipefail
+
+IMAGE="python:3.12-slim"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STEP_INDEX=0
+
+# Editable defaults. Override temporarily with environment variables when
+# several agents run similar projects on the same host.
+HAKO_BIND_HOST="${HAKO_BIND_HOST:-127.0.0.1}"
+BOT_HOST_PORT="${BOT_HOST_PORT:-0}"
+BOT_CONTAINER_PORT="${BOT_CONTAINER_PORT:-0}"
+
+quote_command() {
+	local arg
+
+	for arg in "$@"; do
+		printf '%q ' "$arg"
+	done
+}
+
+log_step() {
+	local label=$1
+	shift
+
+	STEP_INDEX=$((STEP_INDEX + 1))
+	printf '#%s [hako %s] %s\n' \
+		"$STEP_INDEX" "$label" "$(quote_command "$@")" >&2
+}
+
+require_command() {
+	command -v "$1" >/dev/null 2>&1 || {
+		printf '[hako] required command not found: %s\n' "$1" >&2
+		exit 127
+	}
+}
+
+run_step() {
+	local label=$1
+	shift
+
+	log_step "$label" "$@"
+	"$@"
+}
+
+main() {
+	local devhome="${REPO_ROOT}/.devhome"
+	local env_file="${REPO_ROOT}/.env"
+	local user_id
+	local group_id
+	local -a env_file_flags=()
+	local -a engine_env_flags=()
+	local -a port_flags=()
+	local -a tty_flags=()
+	local -a docker_cmd=()
+
+	require_command docker
+	require_command id
+	require_command mkdir
+	run_step internal mkdir -p "${devhome}"
+
+	user_id=$(id -u)
+	group_id=$(id -g)
+
+	if [[ -f "${env_file}" && "${HAKO_SERVICE:-}" == bot ]]; then
+		env_file_flags=(--env-file "${env_file}")
+	fi
+
+	if [[ -n "${KISARA_ENGINE:-}" ]]; then
+		engine_env_flags=(-e "KISARA_ENGINE=${KISARA_ENGINE}")
+	fi
+
+	case "${HAKO_SERVICE:-}" in
+	"") ;;
+	bot)
+		if [[ "${BOT_HOST_PORT}" != 0 || "${BOT_CONTAINER_PORT}" != 0 ]]; then
+			printf '[hako] bot has no inbound service; BOT_* port settings are reserved\n' >&2
+		fi
+		;;
+	*)
+		printf '[hako] unknown service for port mapping: %s\n' \
+			"${HAKO_SERVICE}" >&2
+		exit 2
+		;;
+	esac
+
+	[[ -t 0 ]] && tty_flags+=(-i)
+	[[ -t 0 && -t 1 ]] && tty_flags+=(-t)
+
+	docker_cmd=(
+		docker run --rm
+		"${tty_flags[@]}"
+		--user "${user_id}:${group_id}"
+		-e HOME=/app/.devhome
+		-e PYTHONPATH=/app/src
+		-e PYTHONUSERBASE=/app/.devhome/.local
+		-e PIP_CACHE_DIR=/app/.devhome/.cache/pip
+		-e PYTHONDONTWRITEBYTECODE=1
+		-v "${REPO_ROOT}:/app"
+		-w /app
+		--label "hako.repo=${REPO_ROOT}"
+		--label "hako.scope=${HAKO_SCOPE:-manual}"
+		--label "hako.service=${HAKO_SERVICE:-}"
+		"${env_file_flags[@]}"
+		"${engine_env_flags[@]}"
+		"${port_flags[@]}"
+		"${IMAGE}"
+		"$@"
+	)
+
+	log_step run "${docker_cmd[@]}"
+	exec "${docker_cmd[@]}"
+}
+
+main "$@"
