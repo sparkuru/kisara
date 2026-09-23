@@ -11,7 +11,7 @@ is the feature inventory and the reference for deliberate behavior changes.
 | `data/foods.json`, `apps/main.js` food command | Packaged `foods.json`; `/eat` and Chinese food command aliases. |
 | `data/chatLibrary`, `apps/chat.js`, `default/chat.chat.yaml` | Packaged original CSV phrasebooks and optional historical mixed JSON; exact and similar matching in `application/services/chat.py`. Global settings use environment variables; optional `config/groups.json` covers the old per-group overrides. |
 | `apps/dice.js` | `/roll`, `/r`, `/dice` and old hash aliases. Multiple dice are independent draws; the old three-argument implementation sampled without replacement. Its TRPG methods were empty. |
-| `apps/tarot.js`, `default/tarot.tarot.yaml` | `/tarot`, `占卜`, 78 card interpretations and spreads in the Python package; group spread probabilities in `config/groups.json`. Readings are stable per user and China Standard Time day, including across restarts. The old `刷新占卜` reset a Redis daily lock; the new repeatable daily reading has no lock to reset, so that command is retired. |
+| `apps/tarot.js`, `default/tarot.tarot.yaml`, `data/tarotCards` | `/tarot`, `占卜`, 78 card interpretations and spreads in the Python package; group spread probabilities in `config/groups.json`. The optional local card pictures live at `data/kisara/tarotCards` and are sent through OneBot. Readings are stable per user and China Standard Time day, including across restarts. The old `刷新占卜` reset a Redis daily lock; the new repeatable daily reading has no lock to reset, so that command is retired. |
 | `apps/apis.js` | `/love`, `/source`, `/wallpaper`, `/music`, and `/ba` in `application/services/public.py`; image/music segments on OneBot. The old love endpoint failed and was replaced with TianAPI, which needs a key. Source search and music also need configured providers. |
 | `apps/schedule.js` | `/news` fetches a current provider. Optional daily push uses a persistent SQLite delivery record. Old delete-news removed a local image cache; there is no local news image cache now, so it is retired. Manual `推送每日简报` is replaced by `/news` plus configured scheduled groups. |
 | `apps/main.js` help and recall | `/help` and OneBot `/recall` of a quoted bot message; older `ahelp` and `撤回` aliases are accepted. |
@@ -25,9 +25,14 @@ and tarot switches, provider credentials, and bounded HTTP requests. A new
 command-specific switch or cooldown can be added in Kisara if operations need
 one; the old Yunzai configuration is not needed to do so.
 
-The archived snapshot had no `data/tarotCards` art. Current tarot replies use
-the bundled interpretation data and text; card images cannot be recovered from
-that snapshot. `{segment}` phrasebook replies are rendered as line breaks in a
+The separately stored `05-kisara-plugin/data/tarotCards` directory contained
+109 PNG files and a 78-card image manifest. The art was copied into the ignored
+runtime directory `data/kisara/tarotCards`; a corrected image name index is
+packaged in `tarot_images.json`. Card meanings and spreads already matched the
+packaged deck. OneBot uses the local images when available; the official adapter
+still returns text. The source repository described the art as collected from
+the internet and distributed separately, so it is not included in the Python
+package or Docker image. `{segment}` phrasebook replies are rendered as line breaks in a
 single reply rather than separate delayed messages. Source search, music,
 TianAPI, and real QQ send/recall behavior still need end-to-end verification
 with configured credentials and an active OneBot account.

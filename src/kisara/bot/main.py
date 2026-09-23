@@ -81,12 +81,22 @@ def main() -> int:
         music_api_url=settings.music_api_url,
         tianapi_key=settings.tianapi_key,
     )
+    tarot_reader = None
+    if settings.tarot_enabled:
+        try:
+            tarot_reader = TarotReader(
+                settings.tarot_spread_rate,
+                image_dir=settings.tarot_image_dir if settings.engine == "onebot" else None,
+            )
+        except ValueError as error:
+            _log.error("Cannot load tarot images: %s", error)
+            return 2
     dispatcher = Dispatcher(
         allowed_users=settings.allowed_users,
         groups_enabled=settings.groups_enabled,
         allowed_groups=settings.allowed_groups,
         chat_responder=chat_responder,
-        tarot_reader=TarotReader(settings.tarot_spread_rate) if settings.tarot_enabled else None,
+        tarot_reader=tarot_reader,
         tarot_group_rates={
             group_id: override.tarot_spread_rate
             for group_id, override in settings.group_overrides.items()

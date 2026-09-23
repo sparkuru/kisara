@@ -15,5 +15,8 @@
   `8281c762c270ef8273fbaf9d362b66171b0a446fa0e947fbc25ed9f3d177ea9d`.
   The upstream plugin credits several sources for the card interpretations;
   its MIT license notice is preserved in `tarot-LICENSE.txt`. Only the card
-  names, interpretations, and spread descriptions are bundled here. No card
-  images were present in the local Kisara snapshot.
+  names, interpretations, and spread descriptions are bundled here. The legacy
+  card images were kept as optional, ignored runtime data under
+  `data/kisara/tarotCards` because the old plugin distributed them separately.
+  `tarot_images.json` is a corrected image name index derived from that local
+  directory; it fixes the duplicated magician variant and a priestess filename.

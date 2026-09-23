@@ -49,6 +49,7 @@ class Settings:
     chat_reply_to_mentions: bool = True
     tarot_enabled: bool = True
     tarot_spread_rate: int = 5
+    tarot_image_dir: str = "data/kisara/tarotCards"
     saucenao_key: str = ""
     music_api_url: str = ""
     tianapi_key: str = ""
@@ -104,6 +105,9 @@ class Settings:
         tarot_options = {
             "tarot_enabled": _read_bool("KISARA_TAROT_ENABLED", default=True),
             "tarot_spread_rate": _read_percent("KISARA_TAROT_SPREAD_RATE", 5),
+            "tarot_image_dir": os.environ.get(
+                "KISARA_TAROT_IMAGE_DIR", "data/kisara/tarotCards"
+            ).strip(),
         }
         public_options = {
             "saucenao_key": os.environ.get("SAUCENAO_API_KEY", "").strip(),

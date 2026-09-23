@@ -112,7 +112,8 @@ The shared dispatcher supports these commands for allowed users:
   messages can also trigger phrasebook replies when chat is enabled.
 - `/tarot [single|spread]` draws a daily tarot reading. The same user receives
   the same result on repeated requests that day, including after a restart.
-  Readings use the bundled card descriptions and are currently text only.
+  Readings use the bundled card descriptions. With the local legacy art installed,
+  OneBot also sends one picture per drawn card.
 
 Aliases `/r` and `/dice` are accepted for `/roll`. In groups, every sender and
 group must be allowlisted. When phrasebook chat is enabled, ordinary group
@@ -126,6 +127,14 @@ separate, so their two styles do not mix during conversion. `mixed` preserves
 the old generated JSON for users who want its original reply pool.
 Tarot day boundaries use China Standard Time; `KISARA_TAROT_SPREAD_RATE`
 controls how often plain `/tarot` selects a spread rather than one card.
+Place the legacy `tarotCards` directory at `data/kisara/tarotCards` to enable
+OneBot tarot pictures. It must contain the card image folders; the image name
+index is bundled with Kisara, so the old `tarot.json` is optional.
+The pictures are ignored by Git and excluded from the Python package and Docker
+image. Compose mounts this directory read-only into Kisara and NapCat at the
+same path. For a standalone OneBot run, set `KISARA_TAROT_IMAGE_DIR` to a path
+that both Kisara and the OneBot implementation can read. Without the directory,
+tarot replies remain text only. The official adapter currently sends text only.
 For per-group chat and tarot settings, copy `config/groups.example.json` to
 `config/groups.json`, replace the sample ID with an ID in `KISARA_ALLOWED_GROUPS`,
 and enable groups. Each group may contain `chat` and `tarot` objects. Chat

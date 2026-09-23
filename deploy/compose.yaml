@@ -19,6 +19,7 @@ services:
       - ./napcat-entrypoint.sh:/opt/kisara/napcat-entrypoint.sh:ro
       - ../data/napcat/config:/app/napcat/config
       - ../data/napcat/QQ:/app/.config/QQ
+      - ../data/kisara/tarotCards:/app/tarot-cards:ro
     networks:
       - kisara_network
 
@@ -54,6 +55,7 @@ services:
       KISARA_CHAT_REPLY_TO_MENTIONS: ${KISARA_CHAT_REPLY_TO_MENTIONS:-true}
       KISARA_TAROT_ENABLED: ${KISARA_TAROT_ENABLED:-true}
       KISARA_TAROT_SPREAD_RATE: ${KISARA_TAROT_SPREAD_RATE:-5}
+      KISARA_TAROT_IMAGE_DIR: /app/tarot-cards
       SAUCENAO_API_KEY: ${SAUCENAO_API_KEY:-}
       KISARA_MUSIC_API_URL: ${KISARA_MUSIC_API_URL:-}
       TIANAPI_KEY: ${TIANAPI_KEY:-}
@@ -66,6 +68,7 @@ services:
       - napcat
     volumes:
       - ../config:/app/config:ro
+      - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - kisara_state:/app/state
     networks:
       - kisara_network
@@ -95,6 +98,7 @@ services:
       KISARA_CHAT_REPLY_TO_MENTIONS: ${KISARA_CHAT_REPLY_TO_MENTIONS:-true}
       KISARA_TAROT_ENABLED: ${KISARA_TAROT_ENABLED:-true}
       KISARA_TAROT_SPREAD_RATE: ${KISARA_TAROT_SPREAD_RATE:-5}
+      KISARA_TAROT_IMAGE_DIR: /app/tarot-cards
       SAUCENAO_API_KEY: ${SAUCENAO_API_KEY:-}
       KISARA_MUSIC_API_URL: ${KISARA_MUSIC_API_URL:-}
       TIANAPI_KEY: ${TIANAPI_KEY:-}
@@ -109,6 +113,7 @@ services:
     volumes:
       - ../src:/app/src:ro
       - ../config:/app/config:ro
+      - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - kisara_state:/app/state
     depends_on:
       - napcat

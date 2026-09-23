@@ -119,11 +119,13 @@ class Dispatcher:
             mode = arguments.strip().lower() or "auto"
             if mode not in {"auto", "single", "spread"}:
                 raise CommandInputError("Usage: /tarot [single|spread]")
+            reading, images = self._tarot_reader.reading_with_images(
+                event.sender_id, event.instance_id, mode,
+                self._tarot_group_rates.get(event.conversation_id, -1)
+            )
             return DispatchResult(
-                "handled", self._tarot_reader.reading(
-                    event.sender_id, event.instance_id, mode,
-                    self._tarot_group_rates.get(event.conversation_id, -1)
-                )
+                "handled", reading,
+                image_urls=images if event.engine == "onebot" else (),
             )
         if command == "chat" and self._chat_responder is not None:
             if not arguments.strip():
