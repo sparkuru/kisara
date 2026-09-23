@@ -1,7 +1,33 @@
 """Protocol-neutral message and adapter contracts."""
 
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Optional, Protocol, Tuple
+from typing import Any, Callable, Mapping, Optional, Protocol, Tuple, Union
+
+
+class CommandInputError(ValueError):
+    """A recognized command received invalid arguments."""
+
+
+@dataclass(frozen=True)
+class DispatchResult:
+    """A routing outcome independent of the user-facing reply text."""
+
+    status: str
+    reply: Optional[str]
+    reason: str = ""
+    image_urls: Tuple[str, ...] = ()
+    music_id: Optional[str] = None
+    recall_message_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class OutgoingMessage:
+    """A protocol-neutral reply containing text and remote images."""
+
+    text: str
+    image_urls: Tuple[str, ...] = ()
+    music_id: Optional[str] = None
+    recall_message_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -40,7 +66,7 @@ class MessageEvent:
         return "".join(segment.text for segment in self.segments)
 
 
-MessageHandler = Callable[[MessageEvent], Optional[str]]
+MessageHandler = Callable[[MessageEvent], Optional[Union[str, OutgoingMessage]]]
 
 
 class MessageAdapter(Protocol):
@@ -59,5 +85,7 @@ class MessageAdapter(Protocol):
     def close(self) -> None:
         """Release adapter resources."""
 
-    async def send_reply(self, event: MessageEvent, content: str) -> None:
+    async def send_reply(
+        self, event: MessageEvent, content: Union[str, OutgoingMessage]
+    ) -> None:
         """Send a reply using the source event's adapter-specific context."""

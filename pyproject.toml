@@ -23,5 +23,8 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"kisara.resources" = ["foods.json", "chat_cute.csv", "chat_tsundere.csv", "chat_mixed.json", "tarot.json", "tarot-LICENSE.txt", "legacy-LICENSE.txt", "SOURCES.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

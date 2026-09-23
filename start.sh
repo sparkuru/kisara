@@ -92,7 +92,7 @@ main() {
 
 	export KISARA_ENGINE="${selected_engine}"
 	printf '[%s] starting engine: %s\n' "${SCRIPT_NAME}" "${KISARA_ENGINE}" >&2
-	exec "${REPO_ROOT}/dev.sh" start
+	exec "${REPO_ROOT}/preview.sh" start
 }
 
 main "$@"

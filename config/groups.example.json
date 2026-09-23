@@ -1,0 +1,13 @@
+{
+  "123456789": {
+    "chat": {
+      "bot_name": "Kisara",
+      "trigger_rate": 80,
+      "ignored_phrases": ["图片", "呵呵"],
+      "enabled": true
+    },
+    "tarot": {
+      "spread_rate": 20
+    }
+  }
+}

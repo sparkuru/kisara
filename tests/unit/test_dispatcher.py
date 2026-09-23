@@ -98,3 +98,34 @@ def test_dispatcher_requires_group_allowlist_and_trigger() -> None:
 
     assert dispatcher.dispatch(unmentioned) is None
     assert dispatcher.dispatch(mentioned) == "Kisara received: hello"
+
+
+def test_recall_requires_quoted_bot_message_and_group_authority() -> None:
+    """Only an allowed group admin may request deletion of a bot message."""
+
+    dispatcher = Dispatcher(
+        allowed_users=frozenset({"user-1"}),
+        groups_enabled=True,
+        allowed_groups=frozenset({"group-1"}),
+    )
+    event = _event(
+        message_id="recall-1", text="/recall",
+        conversation_kind="group", conversation_id="group-1",
+        reply_context={
+            "self_id": "bot-1", "quoted_message_id": "42",
+            "quoted_sender_id": "bot-1", "sender_role": "member",
+        },
+    )
+    assert dispatcher.dispatch_result(event).status == "error"
+
+    authorized = _event(
+        message_id="recall-2", text="/recall",
+        conversation_kind="group", conversation_id="group-1",
+        reply_context={
+            "self_id": "bot-1", "quoted_message_id": "42",
+            "quoted_sender_id": "bot-1", "sender_role": "admin",
+        },
+    )
+    result = dispatcher.dispatch_payload(authorized)
+    assert result is not None
+    assert result.recall_message_id == "42"

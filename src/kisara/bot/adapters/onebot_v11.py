@@ -5,13 +5,16 @@ import json
 import logging
 import random
 import uuid
-from typing import Any, Dict, Mapping, Optional, Set, Tuple
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Dict, Mapping, Optional, Set, Tuple, Union
 
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment
+from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment, OutgoingMessage
 from kisara.config import Settings
+from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 
 
 _log = logging.getLogger("kisara.onebot")
@@ -33,6 +36,8 @@ class OneBotV11Adapter:
         settings: Settings,
         message_handler: MessageHandler,
         request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        daily_news_factory: Optional[Callable[[], OutgoingMessage]] = None,
+        delivery_store: Optional[NewsDeliveryStore] = None,
     ) -> None:
         """Create a forward-WebSocket adapter for the selected OneBot instance."""
 
@@ -47,6 +52,14 @@ class OneBotV11Adapter:
         self._pending: Dict[str, asyncio.Future] = {}
         self._message_tasks: Set[asyncio.Task] = set()
         self._conversation_tasks: Dict[str, asyncio.Task] = {}
+        self._daily_news_factory = daily_news_factory
+        self._delivery_store = delivery_store
+        self._news_push_groups = tuple(sorted(settings.news_push_groups))
+        self._news_push_hour = settings.news_push_hour
+        self._news_push_minute = settings.news_push_minute
+        self._allowed_users = settings.allowed_users
+        self._allowed_groups = settings.allowed_groups
+        self._groups_enabled = settings.groups_enabled
 
     def start(self) -> None:
         """Run the reconnecting adapter loop until interrupted or closed."""
@@ -106,12 +119,18 @@ class OneBotV11Adapter:
             self._websocket = websocket
             self._status = "connected"
             _log.info("OneBot WebSocket connected")
+            news_task = None
+            if self._daily_news_factory and self._delivery_store and self._news_push_groups:
+                news_task = asyncio.create_task(self._run_daily_news())
             try:
                 async for raw_packet in websocket:
                     packet = self._decode_packet(raw_packet)
                     if packet is not None:
                         self._handle_packet(packet)
             finally:
+                if news_task is not None:
+                    news_task.cancel()
+                    await asyncio.gather(news_task, return_exceptions=True)
                 self._websocket = None
                 if not self._stop_requested:
                     self._status = "disconnected"
@@ -186,11 +205,76 @@ class OneBotV11Adapter:
         """Run shared routing and reply through the source conversation."""
 
         try:
-            response = self._message_handler(event)
-            if response is not None:
+            if self._should_enrich_quote(event):
+                event = await self._enrich_quoted_message(event)
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, self._message_handler, event)
+            if isinstance(response, OutgoingMessage) and response.recall_message_id:
+                try:
+                    await self._request("delete_msg", {
+                        "message_id": _as_api_identifier(response.recall_message_id),
+                    })
+                except OneBotError:
+                    _log.exception("Could not recall quoted bot message")
+                    await self.send_reply(event, "Could not recall that bot message.")
+                    return
+                if response.text or response.image_urls or response.music_id:
+                    await self.send_reply(event, response)
+            elif response is not None:
                 await self.send_reply(event, response)
         except Exception:
             _log.exception("OneBot message handling failed")
+
+    def _should_enrich_quote(self, event: MessageEvent) -> bool:
+        """Limit history lookups to authorized image search and recall commands."""
+
+        if event.sender_id not in self._allowed_users:
+            return False
+        if event.conversation_kind == "group" and (
+            not self._groups_enabled or event.conversation_id not in self._allowed_groups
+        ):
+            return False
+        if not event.reply_context.get("quoted_message_id"):
+            return False
+        parts = event.text.strip().split(maxsplit=1)
+        if not parts:
+            return False
+        command = parts[0].lower().lstrip("/")
+        if command in {"source", "sauce"}:
+            return not any(segment.kind == "image" for segment in event.segments)
+        return command == "recall"
+
+    async def _enrich_quoted_message(self, event: MessageEvent) -> MessageEvent:
+        """Fetch a quoted message for image search or ownership validation."""
+
+        quoted_id = str(event.reply_context.get("quoted_message_id") or "")
+        try:
+            response = await self._request("get_msg", {
+                "message_id": _as_api_identifier(quoted_id),
+            })
+        except OneBotError:
+            _log.warning("Quoted message %s could not be retrieved", quoted_id)
+            return event
+        data = response.get("data")
+        if not isinstance(data, dict):
+            return event
+        if data.get("message_type") not in {None, event.conversation_kind}:
+            return event
+        group_id = _as_identifier(data.get("group_id"))
+        if group_id and event.conversation_kind == "group" and group_id != event.conversation_id:
+            return event
+        sender = data.get("sender") or {}
+        quoted_sender = _as_identifier(data.get("user_id"))
+        if not quoted_sender and isinstance(sender, dict):
+            quoted_sender = _as_identifier(sender.get("user_id"))
+        context = dict(event.reply_context)
+        context["quoted_sender_id"] = quoted_sender
+        segments = event.segments
+        if not any(segment.kind == "image" for segment in segments):
+            quoted_segments = _read_segments(data.get("message"))
+            segments += tuple(segment for segment in quoted_segments
+                              if segment.kind == "image")
+        return replace(event, reply_context=context, segments=segments)
 
     def _to_event(self, packet: Mapping[str, Any]) -> Optional[MessageEvent]:
         """Convert a OneBot message event into the shared message contract."""
@@ -209,6 +293,12 @@ class OneBotV11Adapter:
 
         group_id = _as_identifier(packet.get("group_id"))
         conversation_id = group_id if message_type == "group" else sender_id
+        segments = _read_segments(packet.get("message"))
+        quoted_id = next(
+            (_as_identifier(segment.data.get("id")) for segment in segments
+             if segment.kind == "reply"),
+            "",
+        )
         return MessageEvent(
             engine=self.engine,
             instance_id=self.instance_id,
@@ -216,32 +306,97 @@ class OneBotV11Adapter:
             conversation_kind=message_type,
             conversation_id=conversation_id,
             sender_id=sender_id,
-            segments=_read_segments(packet.get("message")),
+            segments=segments,
             reply_context={
                 "self_id": self_id,
                 "user_id": sender_id,
                 "group_id": group_id,
+                "sender_role": str(sender.get("role", "")) if isinstance(sender, dict) else "",
+                "quoted_message_id": quoted_id,
             },
         )
 
-    async def send_reply(self, event: MessageEvent, content: str) -> None:
-        """Send a text reply and require a successful OneBot API response."""
+    async def send_reply(
+        self, event: MessageEvent, content: Union[str, OutgoingMessage]
+    ) -> None:
+        """Send text or image segments and require a successful API response."""
+
+        message = self._encode_message(content)
 
         if event.conversation_kind == "private":
             action = "send_private_msg"
             params = {
                 "user_id": _as_api_identifier(event.sender_id),
-                "message": content,
+                "message": message,
             }
         else:
             action = "send_group_msg"
             params = {
                 "group_id": _as_api_identifier(event.conversation_id),
-                "message": content,
+                "message": message,
             }
         await self._request(action, params)
 
-    async def _request(self, action: str, params: Mapping[str, Any]) -> None:
+    @staticmethod
+    def _encode_message(content: Union[str, OutgoingMessage]) -> Any:
+        """Render a shared reply into OneBot text and media segments."""
+
+        if isinstance(content, str):
+            return content
+        segments = []
+        if content.text:
+            segments.append({"type": "text", "data": {"text": content.text}})
+        for image_url in content.image_urls:
+            segments.append({"type": "image", "data": {"file": image_url}})
+        if content.music_id:
+            segments.append({
+                "type": "music", "data": {"type": "163", "id": content.music_id},
+            })
+        return segments
+
+    async def _run_daily_news(self) -> None:
+        """Push each day's brief once per configured group after its due time."""
+
+        factory = self._daily_news_factory
+        store = self._delivery_store
+        if factory is None or store is None:
+            return
+        zone = timezone(timedelta(hours=8))
+        while not self._stop_requested:
+            now = datetime.now(zone)
+            due = now.replace(
+                hour=self._news_push_hour, minute=self._news_push_minute,
+                second=0, microsecond=0,
+            )
+            if now < due:
+                await asyncio.sleep((due - now).total_seconds())
+                continue
+            day = now.date().isoformat()
+            pending = list(self._news_push_groups)
+            try:
+                pending = [group for group in self._news_push_groups
+                           if not store.was_sent(day, group)]
+                if pending:
+                    loop = asyncio.get_running_loop()
+                    content = await loop.run_in_executor(None, factory)
+                    for group in pending:
+                        try:
+                            await self._request("send_group_msg", {
+                                "group_id": _as_api_identifier(group),
+                                "message": self._encode_message(content),
+                            })
+                            store.mark_sent(day, group)
+                        except Exception:
+                            _log.exception("Daily brief send failed for group %s", group)
+            except Exception:
+                _log.exception("Daily brief is unavailable; retrying later")
+            await asyncio.sleep(900 if pending else max(
+                1.0, (due + timedelta(days=1) - datetime.now(zone)).total_seconds()
+            ))
+
+    async def _request(
+        self, action: str, params: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
         """Send a OneBot API request and wait for its correlated response."""
 
         websocket = self._websocket
@@ -269,6 +424,7 @@ class OneBotV11Adapter:
                         action, retcode
                     )
                 )
+            return response
         except asyncio.TimeoutError as error:
             raise OneBotError(
                 "OneBot API request timed out: {}".format(action)

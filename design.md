@@ -3,6 +3,8 @@
 日期：2026-09-19  
 状态：M1 部署集成与 OneBot 开发热重载已落地；真实账号收发与连续运行验收仍待实施。
 
+迁移后的功能现状与旧插件取舍见 [docs/legacy-migration.md](docs/legacy-migration.md)。下文是双引擎接入的原始阶段设计；其中“首版不引入数据库/外部服务”和“群内仅 @ 或命令”等阶段性约束已由迁移实现更新：当前用 SQLite 记录定时简报发送，允许已授权群的词库随机回复，并提供外部内容命令。
+
 ## 1. 目标与范围
 
 Kisara 面向个人和少数熟人的 QQ 小窗交互。以 NapCatQQ 接入个人 QQ 账号为主要运行方式，保留腾讯官方 Bot 引擎，两种接入共用同一套命令和业务逻辑。
@@ -26,12 +28,13 @@ Kisara 面向个人和少数熟人的 QQ 小窗交互。以 NapCatQQ 接入个�
 | --- | --- |
 | `src/kisara/bot/main.py` | 按配置延迟加载并组装选中的 adapter |
 | `src/kisara/bot/adapters/` | 提供官方 botpy 与 OneBot 11 两条协议接入 |
-| `src/kisara/bot/contracts.py`、`dispatcher.py` | 提供统一消息契约、白名单、去重和共享回声/`/ping` 路由 |
+| `src/kisara/bot/contracts.py`、`dispatcher.py` | 提供统一消息契约、白名单、去重和共享文本命令路由（`/ping`、`/help`、`/eat`、`/roll`） |
 | `src/kisara/config/settings.py` | 按引擎读取配置；默认 OneBot，仅校验当前引擎 |
-| `src/kisara/application/`、`domain/` | 基本为预留结构，尚无实际业务 |
+| `src/kisara/application/services/` | 提供无外部依赖的骰子和食物推荐用例；食物列表随 Python 包发布 |
+| `src/kisara/domain/` | 仍为预留结构，当前本地命令不需要持久化领域模型 |
 | `hako`、`dev.sh` | 以 Docker 运行 Python 工具和单个官方 Bot 服务 |
 | `deploy/compose.yaml`、`deploy/onebot.sh`、`deploy/kisara-dev-watch.sh` | 提供 Kisara + NapCat OneBot Compose 栈、开发源码热重载；QQ 登录态和 NapCat 配置持久化 |
-| `tests/unit/test_settings.py` | 覆盖官方凭据读取与缺失检查 |
+| `tests/unit/` | 使用合成消息事件覆盖分发与本地命令；离线场景不创建 adapter、不读取引擎凭据 |
 
 OneBot 的协议转换、正向 WebSocket、回执等待和重连骨架已在本仓库实现；NapCat 的 Compose 部署集成已在仓库内实现：NapCat 与 Kisara 使用同一网络，启动脚本生成 NapCat 的 OneBot 11 正向 WebSocket 配置，并将 Token 与 Kisara 配置保持一致。NapCat 首次 QQ 登录和真实好友私聊仍需部署验证。官方 adapter 继续只覆盖已有频道 @ 消息，不能据此认定官方 SDK 不支持群或单聊。
 
@@ -100,7 +103,7 @@ flowchart LR
 │   │       ├── official.py           # 从现有 client.py 迁入官方 SDK 对接
 │   │       └── onebot_v11.py         # OneBot 事件转换、请求回执、重连
 │   ├── application/
-│   │   └── services/                 # 后续共享业务用例
+│   │   └── services/                 # 共享业务用例，例如骰子和食物推荐
 │   ├── domain/                       # 有真实领域概念后再填充
 │   │   ├── models/
 │   │   └── repositories/
@@ -108,6 +111,7 @@ flowchart LR
 │   │   ├── integrations/            # 后续外部服务，不重复放 QQ 适配器
 │   │   ├── persistence/             # 有持久化需求后再实现
 │   │   └── logging/                 # 脱敏与运行日志配置
+│   ├── resources/                    # 版本管理的静态资源，例如食物列表
 │   └── shared/                      # 仅存放实际复用的基础定义
 └── tests/
     ├── unit/                        # 配置、转换、路由、访问规则

@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, List
 
 from kisara.bot.adapters.onebot_v11 import OneBotError, OneBotV11Adapter
+from kisara.bot.contracts import MessageEvent, MessageSegment, OutgoingMessage
 from kisara.config import Settings
 
 
@@ -130,3 +131,64 @@ async def _test_request_timeout_is_reported() -> None:
         assert "timed out" in str(error)
     else:
         raise AssertionError("missing response did not time out")
+
+
+def test_media_reply_uses_onebot_segments() -> None:
+    """A normalized rich reply should become image and music segments."""
+
+    asyncio.run(_test_media_reply_uses_onebot_segments())
+
+
+async def _test_media_reply_uses_onebot_segments() -> None:
+    """Capture a media send without a live WebSocket server."""
+
+    adapter = _adapter()
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    event = MessageEvent(
+        engine="onebot", instance_id="test", message_id="1",
+        conversation_kind="private", conversation_id="123", sender_id="123",
+        segments=(), reply_context={},
+    )
+    reply = OutgoingMessage(
+        "Here it is", ("https://i.pixiv.re/42.jpg",), "1234"
+    )
+    task = asyncio.create_task(adapter.send_reply(event, reply))
+    await _wait_for_requests(websocket, 1)
+    message = websocket.sent[0]["params"]["message"]
+    assert [segment["type"] for segment in message] == ["text", "image", "music"]
+    adapter._resolve_pending(
+        {"echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0}
+    )
+    await task
+
+
+def test_quoted_image_is_loaded_for_source_search() -> None:
+    """An image in a quoted message should reach the shared handler."""
+
+    asyncio.run(_test_quoted_image_is_loaded_for_source_search())
+
+
+async def _test_quoted_image_is_loaded_for_source_search() -> None:
+    """Resolve the standard get_msg response through the echo path."""
+
+    adapter = _adapter()
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    event = MessageEvent(
+        engine="onebot", instance_id="test", message_id="2",
+        conversation_kind="private", conversation_id="123", sender_id="123",
+        segments=(MessageSegment("text", {"text": "/source"}),),
+        reply_context={"quoted_message_id": "42", "self_id": "999"},
+    )
+    task = asyncio.create_task(adapter._enrich_quoted_message(event))
+    await _wait_for_requests(websocket, 1)
+    assert websocket.sent[0]["action"] == "get_msg"
+    adapter._resolve_pending({
+        "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "sender": {"user_id": 999},
+                 "message": [{"type": "image", "data": {"url": "https://example.com/image.jpg"}}]},
+    })
+    enriched = await task
+    assert enriched.reply_context["quoted_sender_id"] == "999"
+    assert enriched.segments[-1].data["url"] == "https://example.com/image.jpg"

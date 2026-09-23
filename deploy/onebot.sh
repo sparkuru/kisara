@@ -10,7 +10,7 @@ PROJECT_NAME="${COMPOSE_PROJECT_NAME:-kisara}"
 compose_command=()
 
 usage() {
-	printf 'Usage: %s [up|dev|down|logs|ps|pull]\n' "${SCRIPT_NAME}" >&2
+	printf 'Usage: %s [up|dev|deploy|down|logs|ps|pull]\n' "${SCRIPT_NAME}" >&2
 	printf '       up and dev require a configured repository .env file.\n' >&2
 }
 
@@ -41,6 +41,7 @@ run_compose() {
 	(
 		cd "${REPO_ROOT}"
 		"${compose_command[@]}" \
+			--env-file "${REPO_ROOT}/.env" \
 			--project-name "${PROJECT_NAME}" \
 			--file "${COMPOSE_FILE}" \
 			"$@"
@@ -75,7 +76,7 @@ start_stack() {
 
 	prepare_data_directories
 	stop_service_if_present kisara-dev
-	run_compose up --build napcat kisara
+	run_compose up --build "$@" napcat kisara
 }
 
 start_dev_stack() {
@@ -96,6 +97,12 @@ start_dev_stack() {
 main() {
 	local command="${1:-up}"
 
+	[[ $# -le 1 ]] || die "expected at most one command"
+	if [[ "${command}" == --help || "${command}" == -h ]]; then
+		usage
+		return 0
+	fi
+	set -- "${command}"
 	require_command docker
 	resolve_compose
 
@@ -103,6 +110,9 @@ main() {
 	up | start)
 		[[ $# -eq 1 ]] || die "up accepts no additional arguments"
 		start_stack
+		;;
+	deploy)
+		start_stack --detach
 		;;
 	dev)
 		[[ $# -eq 1 ]] || die "dev accepts no additional arguments"

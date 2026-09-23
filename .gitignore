@@ -8,3 +8,7 @@ __pycache__/
 .venv/
 *.egg-info/
 botpy.log
+
+# Keep any reintroduced historical snapshot out of Git
+/legacy-kisara-plugin/
+/config/groups.json

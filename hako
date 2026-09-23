@@ -70,7 +70,7 @@ main() {
 	local -a env_file_flags=()
 	local -a engine_env_flags=()
 	local -a port_flags=()
-	local -a tty_flags=()
+	local -a tty_flags=(-i)
 	local -a docker_cmd=()
 
 	require_command docker
@@ -103,7 +103,6 @@ main() {
 		;;
 	esac
 
-	[[ -t 0 ]] && tty_flags+=(-i)
 	[[ -t 0 && -t 1 ]] && tty_flags+=(-t)
 
 	docker_cmd=(

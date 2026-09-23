@@ -1,8 +1,8 @@
-version: "3.8"
-
 services:
   napcat:
     image: ${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
+    hostname: ${NAPCAT_HOSTNAME:-kisara-qq}
+    mac_address: ${NAPCAT_MAC_ADDRESS:-02:42:0a:a0:d0:02}
     restart: unless-stopped
     entrypoint:
       - /bin/bash
@@ -22,6 +22,14 @@ services:
     networks:
       - kisara_network
 
+  music:
+    profiles:
+      - music
+    image: ${KISARA_MUSIC_IMAGE:-moefurina/ncm-api:latest}
+    restart: unless-stopped
+    networks:
+      - kisara_network
+
   kisara:
     build:
       context: ..
@@ -31,12 +39,34 @@ services:
       KISARA_ENGINE: onebot
       KISARA_INSTANCE_ID: ${KISARA_INSTANCE_ID:-personal}
       KISARA_ALLOWED_USERS: ${KISARA_ALLOWED_USERS:-}
+      KISARA_ADMIN_USERS: ${KISARA_ADMIN_USERS:-}
       KISARA_GROUPS_ENABLED: ${KISARA_GROUPS_ENABLED:-false}
       KISARA_ALLOWED_GROUPS: ${KISARA_ALLOWED_GROUPS:-}
+      KISARA_CHAT_ENABLED: ${KISARA_CHAT_ENABLED:-true}
+      KISARA_CHAT_BOT_NAME: ${KISARA_CHAT_BOT_NAME:-Kisara}
+      KISARA_CHAT_SENDER_NAME: ${KISARA_CHAT_SENDER_NAME:-you}
+      KISARA_CHAT_LIBRARY: ${KISARA_CHAT_LIBRARY:-cute}
+      KISARA_CHAT_TRIGGER_RATE: ${KISARA_CHAT_TRIGGER_RATE:-30}
+      KISARA_CHAT_SIMILARITY_RATE: ${KISARA_CHAT_SIMILARITY_RATE:-60}
+      KISARA_CHAT_IGNORED_PHRASES: ${KISARA_CHAT_IGNORED_PHRASES:-}
+      KISARA_CHAT_BANNED_USERS: ${KISARA_CHAT_BANNED_USERS:-}
+      KISARA_CHAT_ALWAYS_REPLY_USERS: ${KISARA_CHAT_ALWAYS_REPLY_USERS:-}
+      KISARA_CHAT_REPLY_TO_MENTIONS: ${KISARA_CHAT_REPLY_TO_MENTIONS:-true}
+      KISARA_TAROT_ENABLED: ${KISARA_TAROT_ENABLED:-true}
+      KISARA_TAROT_SPREAD_RATE: ${KISARA_TAROT_SPREAD_RATE:-5}
+      SAUCENAO_API_KEY: ${SAUCENAO_API_KEY:-}
+      KISARA_MUSIC_API_URL: ${KISARA_MUSIC_API_URL:-}
+      TIANAPI_KEY: ${TIANAPI_KEY:-}
+      KISARA_NEWS_PUSH_GROUPS: ${KISARA_NEWS_PUSH_GROUPS:-}
+      KISARA_NEWS_PUSH_TIME: ${KISARA_NEWS_PUSH_TIME:-10:30}
+      KISARA_STATE_DIR: /app/state
       ONEBOT_WS_URL: ${ONEBOT_WS_URL:-ws://napcat:3001}
       ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}
     depends_on:
       - napcat
+    volumes:
+      - ../config:/app/config:ro
+      - kisara_state:/app/state
     networks:
       - kisara_network
 
@@ -50,8 +80,27 @@ services:
       KISARA_ENGINE: onebot
       KISARA_INSTANCE_ID: ${KISARA_INSTANCE_ID:-personal}
       KISARA_ALLOWED_USERS: ${KISARA_ALLOWED_USERS:-}
+      KISARA_ADMIN_USERS: ${KISARA_ADMIN_USERS:-}
       KISARA_GROUPS_ENABLED: ${KISARA_GROUPS_ENABLED:-false}
       KISARA_ALLOWED_GROUPS: ${KISARA_ALLOWED_GROUPS:-}
+      KISARA_CHAT_ENABLED: ${KISARA_CHAT_ENABLED:-true}
+      KISARA_CHAT_BOT_NAME: ${KISARA_CHAT_BOT_NAME:-Kisara}
+      KISARA_CHAT_SENDER_NAME: ${KISARA_CHAT_SENDER_NAME:-you}
+      KISARA_CHAT_LIBRARY: ${KISARA_CHAT_LIBRARY:-cute}
+      KISARA_CHAT_TRIGGER_RATE: ${KISARA_CHAT_TRIGGER_RATE:-30}
+      KISARA_CHAT_SIMILARITY_RATE: ${KISARA_CHAT_SIMILARITY_RATE:-60}
+      KISARA_CHAT_IGNORED_PHRASES: ${KISARA_CHAT_IGNORED_PHRASES:-}
+      KISARA_CHAT_BANNED_USERS: ${KISARA_CHAT_BANNED_USERS:-}
+      KISARA_CHAT_ALWAYS_REPLY_USERS: ${KISARA_CHAT_ALWAYS_REPLY_USERS:-}
+      KISARA_CHAT_REPLY_TO_MENTIONS: ${KISARA_CHAT_REPLY_TO_MENTIONS:-true}
+      KISARA_TAROT_ENABLED: ${KISARA_TAROT_ENABLED:-true}
+      KISARA_TAROT_SPREAD_RATE: ${KISARA_TAROT_SPREAD_RATE:-5}
+      SAUCENAO_API_KEY: ${SAUCENAO_API_KEY:-}
+      KISARA_MUSIC_API_URL: ${KISARA_MUSIC_API_URL:-}
+      TIANAPI_KEY: ${TIANAPI_KEY:-}
+      KISARA_NEWS_PUSH_GROUPS: ${KISARA_NEWS_PUSH_GROUPS:-}
+      KISARA_NEWS_PUSH_TIME: ${KISARA_NEWS_PUSH_TIME:-10:30}
+      KISARA_STATE_DIR: /app/state
       ONEBOT_WS_URL: ${ONEBOT_WS_URL:-ws://napcat:3001}
       ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}
       PYTHONPATH: /app/src
@@ -59,6 +108,8 @@ services:
       KISARA_WATCH_INTERVAL: ${KISARA_WATCH_INTERVAL:-0.5}
     volumes:
       - ../src:/app/src:ro
+      - ../config:/app/config:ro
+      - kisara_state:/app/state
     depends_on:
       - napcat
     networks:
@@ -67,3 +118,6 @@ services:
 networks:
   kisara_network:
     driver: bridge
+
+volumes:
+  kisara_state:

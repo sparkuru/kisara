@@ -1,11 +1,12 @@
 """Adapter for Tencent's official botpy platform."""
 
-from typing import Any, Optional
+import asyncio
+from typing import Any, Optional, Union
 
 import botpy
 from botpy import logging as bot_logging
 
-from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment
+from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment, OutgoingMessage
 from kisara.config import Settings
 
 
@@ -61,18 +62,23 @@ class OfficialAdapter(botpy.Client):
         if event is None:
             return
         try:
-            response = self._message_handler(event)
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, self._message_handler, event)
             if response is not None:
                 await self.send_reply(event, response)
         except Exception:
             _log.exception("Official message handling failed")
 
-    async def send_reply(self, event: MessageEvent, content: str) -> None:
-        """Send text through the original botpy message context."""
+    async def send_reply(
+        self, event: MessageEvent, content: Union[str, OutgoingMessage]
+    ) -> None:
+        """Send text and image URLs through the original botpy context."""
 
         message = event.reply_context.get("message")
         if message is None:
             raise RuntimeError("Official reply context is missing the message")
+        if isinstance(content, OutgoingMessage):
+            content = "\n".join((content.text,) + content.image_urls).strip()
         await message.reply(content=content)
 
     def _to_event(self, message: Any) -> Optional[MessageEvent]:
