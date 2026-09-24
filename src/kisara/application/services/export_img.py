@@ -1,4 +1,11 @@
-"""Export quoted OneBot pictures as saveable file attachments."""
+"""Export quoted OneBot images or stickers as saveable file attachments.
+
+An allowed user quotes an image or sticker and sends /export-img or a supported
+legacy export phrase. Each original is sent as a file attachment, preserving
+bytes and animation; QQ may otherwise classify a resent image as a sticker.
+This flow does not enter the merged-forward setu archive and works even when
+setu is disabled. It stores no application files or database records.
+"""
 
 from pathlib import PurePosixPath
 from typing import Any, Mapping, Protocol, Sequence, Tuple

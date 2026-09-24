@@ -1,7 +1,20 @@
-"""Public image, music, and briefing use cases."""
+"""Provider-backed /wallpaper, /ba, /source, /music, and /love commands.
+
+/wallpaper fetches a non-adult Pixiv illustration. /ba <name> finds a Blue
+Archive guide. /source [similarity] needs an image attachment, or on OneBot a
+reply to an image, and config/features/source/config.toml api_key for SauceNAO.
+/music <song> needs config/features/music/config.toml api_url for a compatible
+search API; the optional Compose music profile serves http://music:3000 within
+its network. /love needs config/features/love/config.toml api_key for TianAPI.
+
+Responses carry text and optional image URLs or a music ID. OneBot sends native
+image/music segments; the official adapter renders media links as text. HTTP
+reads have a ten-second timeout and unavailable providers produce an error
+reply. These queries do not create application database records. Daily /news
+is implemented separately in application/services/daily_news.py.
+"""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional, Sequence, Tuple
 from urllib.parse import quote, urlsplit
 
@@ -133,29 +146,6 @@ class PublicServices:
         if len(lines) == 1:
             return RemoteResult("No image source met the {}% threshold.".format(similarity))
         return RemoteResult("\n".join(lines))
-
-    def daily_news(self, require_today: bool = False) -> RemoteResult:
-        """Fetch the maintained daily brief and reject a stale scheduled push."""
-
-        payload = self._reader.get_json("https://60s.viki.moe/v2/60s")
-        if not isinstance(payload, dict) or payload.get("code") != 200:
-            raise RemoteServiceError("Daily brief provider returned an error.")
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise RemoteServiceError("Daily brief provider returned invalid data.")
-        published = str(data.get("date") or "")
-        current = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
-        if require_today and published != current:
-            raise RemoteServiceError("Today's daily brief is not yet available.")
-        news = data.get("news")
-        if not isinstance(news, list) or not news:
-            raise RemoteServiceError("Daily brief provider omitted the news.")
-        image = _trusted_image(str(data.get("image") or ""),
-                               ("cdn.jsdmirror.com", "mmbiz.qpic.cn"))
-        lines = ["Daily brief for {}:".format(published)]
-        lines.extend("{}. {}".format(index, item) for index, item in
-                     enumerate(news[:15], 1) if isinstance(item, str))
-        return RemoteResult("\n".join(lines), (image,) if image else ())
 
     def music(self, query: str) -> RemoteResult:
         """Search a configured local Netease API and return a native music card."""

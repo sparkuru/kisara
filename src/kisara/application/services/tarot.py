@@ -1,4 +1,23 @@
-"""Daily tarot readings backed by a packaged card and spread catalog."""
+"""Draw a stable daily /tarot reading from packaged cards and spreads.
+
+/tarot [single|spread] chooses one card or a spread; plain /tarot selects a
+spread according to spread_rate. The same instance and user receive the same
+result throughout a China Standard Time day, including after restart, because
+the draw is derived from a stable seed rather than a database lock. The
+packaged tarot.json contains 78 card descriptions and spread definitions.
+
+config/features/tarot/config.toml controls enabled, spread_rate, and image_dir.
+An optional [groups."GROUP_ID"] spread_rate overrides an allowed group's rate;
+all rates are 0-100. TOML overrides matching legacy environment and
+config/groups.json settings. Restart after changing the file.
+
+Optional art is installed at data/kisara/tarotCards outside Docker, mounted
+read-only at /app/tarot-cards for Kisara and NapCat in Compose. The package
+contains the image-name index, so a legacy image-directory tarot.json is
+unnecessary. OneBot sends an image for each drawn card when art exists; missing
+art leaves a text reading. The official adapter sends text only. A standalone
+OneBot run needs image_dir readable by both the bot and OneBot implementation.
+"""
 
 import hashlib
 import json

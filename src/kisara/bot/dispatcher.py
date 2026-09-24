@@ -1,4 +1,11 @@
-"""Access control, de-duplication, and shared message routing."""
+"""Apply allowlists, de-duplicate messages, and route shared commands.
+
+/recall is a OneBot-only action: quote a bot message; in groups, the caller
+must be an admin, owner, or KISARA_ADMIN_USERS member. The adapter executes
+the deletion after this module validates the request. Legacy Chinese and hash
+aliases are normalized here before command routing.
+Messages without command text, including file-status events, stay silent.
+"""
 
 import re
 import time
@@ -7,6 +14,7 @@ from collections import OrderedDict
 from typing import Callable, FrozenSet, Mapping, Optional, Union
 
 from kisara.application.services.chat import ChatResponder
+from kisara.application.services.daily_news import DailyNews
 from kisara.application.services.public import PublicServices, RemoteResult
 from kisara.application.services.tarot import TarotReader
 from kisara.bot.commands.eat import execute as execute_eat
@@ -33,6 +41,7 @@ class Dispatcher:
         chat_responder: Optional[ChatResponder] = None,
         tarot_reader: Optional[TarotReader] = None,
         public_services: Optional[PublicServices] = None,
+        daily_news: Optional[DailyNews] = None,
         admin_users: FrozenSet[str] = frozenset(),
         tarot_group_rates: Optional[Mapping[str, int]] = None,
     ) -> None:
@@ -49,6 +58,7 @@ class Dispatcher:
         self._chat_responder = chat_responder
         self._tarot_reader = tarot_reader
         self._public_services = public_services
+        self._daily_news = daily_news
         self._admin_users = admin_users
         self._tarot_group_rates = tarot_group_rates or {}
 
@@ -113,6 +123,7 @@ class Dispatcher:
                     self._chat_responder is not None,
                     self._tarot_reader is not None,
                     self._public_services is not None,
+                    self._daily_news is not None,
                 )
             )
         if command in {"tarot", "占卜"} and self._tarot_reader is not None:
@@ -137,6 +148,12 @@ class Dispatcher:
             return DispatchResult("handled", response or "No phrasebook reply found.")
         if command == "recall":
             return self._recall(event, arguments)
+        if command in {"news", "brief"} and self._daily_news is not None:
+            if arguments:
+                raise CommandInputError("Usage: /news")
+            result = self._daily_news.get()
+            images = (result.onebot_image(),) if event.engine == "onebot" else ()
+            return DispatchResult("handled", result.text, image_urls=images)
         if self._public_services is not None:
             remote = self._route_public(command, arguments, event)
             if remote is not None:
@@ -145,7 +162,7 @@ class Dispatcher:
                for segment in event.segments):
             return DispatchResult("unhandled", None, "Media without a matching command.")
         if not content:
-            return DispatchResult("unhandled", "Kisara is online.", "Empty message.")
+            return DispatchResult("unhandled", None, "Empty message.")
         if self._chat_responder is not None and not is_slash_command:
             response = self._chat_responder.reply(
                 content, event.sender_id, mentioned=self._mentions_bot(event),
@@ -169,10 +186,6 @@ class Dispatcher:
             if arguments:
                 raise CommandInputError("Usage: /wallpaper")
             return services.wallpaper()
-        if command in {"news", "brief"}:
-            if arguments:
-                raise CommandInputError("Usage: /news")
-            return services.daily_news()
         if command in {"ba", "guide"}:
             if not arguments.strip():
                 raise CommandInputError("Usage: /ba <name>")
@@ -322,6 +335,8 @@ def _normalize_legacy_command(content: str) -> str:
         "占卜": "/tarot",
         "简报": "/news",
         "新闻": "/news",
+        "每日新闻": "/news",
+        "news": "/news",
         "日报": "/news",
         "舔狗日志": "/love",
         "舔狗日记": "/love",

@@ -119,7 +119,7 @@ def test_independent_feature_files_override_legacy_environment(
     monkeypatch.setenv("TIANAPI_KEY", "old")
     _feature_file(tmp_path, "chat", 'trigger_rate = 42\n[groups."987"]\nsimilarity_rate = 75\n')
     _feature_file(tmp_path, "tarot", 'spread_rate = 8\n[groups."987"]\nspread_rate = 25\n')
-    _feature_file(tmp_path, "news", 'push_groups = ["987"]\npush_time = "07:15"\n')
+    _feature_file(tmp_path, "news", 'push_groups = ["987"]\npush_time = "07:15"\ncache_days = 14\nfont_paths = ["/fonts/first.ttf", "/fonts/second.ttf"]\n')
     _feature_file(tmp_path, "source", 'api_key = "new-source"\n')
     _feature_file(tmp_path, "music", 'api_url = "http://music:3000"\n')
     _feature_file(tmp_path, "love", 'api_key = "new-love"\n')
@@ -130,6 +130,8 @@ def test_independent_feature_files_override_legacy_environment(
     assert settings.tarot_spread_rate == 8
     assert settings.news_push_groups == frozenset({"987"})
     assert (settings.news_push_hour, settings.news_push_minute) == (7, 15)
+    assert settings.news_cache_days == 14
+    assert settings.news_font_paths == ("/fonts/first.ttf", "/fonts/second.ttf")
     assert settings.saucenao_key == "new-source"
     assert settings.music_api_url == "http://music:3000"
     assert settings.tianapi_key == "new-love"
@@ -147,4 +149,32 @@ def test_feature_file_rejects_unknown_key(
     _feature_file(tmp_path, "chat", "triger_rate = 42\n")
 
     with pytest.raises(ConfigurationError, match="Unknown chat feature keys"):
+        Settings.from_environment()
+
+
+def test_news_cache_days_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Retention must be a bounded integer rather than a TOML boolean."""
+
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    _feature_file(tmp_path, "news", "cache_days = false\n")
+
+    with pytest.raises(ConfigurationError, match="news.cache_days"):
+        Settings.from_environment()
+
+
+def test_news_font_paths_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Font choices must be an ordered list of usable path strings."""
+
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    _feature_file(tmp_path, "news", 'font_paths = ["/fonts/first.ttf", ""]\n')
+
+    with pytest.raises(ConfigurationError, match="news.font_paths"):
         Settings.from_environment()

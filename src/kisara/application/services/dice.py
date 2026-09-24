@@ -1,4 +1,10 @@
-"""Dice rolling use case."""
+"""Roll independent dice for /roll, /r, /dice, and legacy hash aliases.
+
+/roll [sides] draws once from 1 through sides, defaulting to 100. The form
+/roll <minimum> <maximum> [count] uses inclusive bounds and returns at most 30
+independent draws. Command parsing and user-facing errors live in
+bot/commands/roll.py; this service only chooses the numbers.
+"""
 
 import random
 from typing import Tuple

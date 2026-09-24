@@ -43,15 +43,10 @@ def test_wallpaper_and_guide_return_native_image_urls() -> None:
     assert guide.image_urls == ("https://arona.cdn.diyigemt.com/image/guide/mika.png",)
 
 
-def test_news_and_music_parse_current_provider_shapes() -> None:
-    """Briefing images and song cards should be structured for OneBot."""
+def test_music_parses_current_provider_shape() -> None:
+    """Song cards should be structured for OneBot."""
 
     reader = FakeReader({
-        "https://60s.viki.moe/v2/60s": {
-            "code": 200,
-            "data": {"date": "2026-09-23", "news": ["One headline"],
-                     "image": "https://cdn.jsdmirror.com/brief.png"},
-        },
         "http://music:3000/search": {
             "result": {"songs": [{"id": 123, "name": "Song",
                                   "artists": [{"name": "Artist"}]}]},
@@ -59,11 +54,8 @@ def test_news_and_music_parse_current_provider_shapes() -> None:
     })
     services = PublicServices(reader=reader, music_api_url="http://music:3000")
 
-    news = services.daily_news()
     music = services.music("Song")
 
-    assert "One headline" in news.text
-    assert news.image_urls == ("https://cdn.jsdmirror.com/brief.png",)
     assert music.music_id == "123"
     assert "https://music.163.com/#/song?id=123" in music.text
 

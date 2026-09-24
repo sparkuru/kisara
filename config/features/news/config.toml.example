@@ -1,3 +1,8 @@
 # Every target must be in KISARA_ALLOWED_GROUPS, with groups enabled.
 push_groups = []
 push_time = "10:30" # China Standard Time, HH:MM
+cache_days = 7
+# cache_dir = "data/daily-news" # Default outside Docker; Docker uses /app/state/daily-news.
+# First CJK-capable font wins; bundled Noto CJK fonts are always fallbacks.
+# Paths must exist inside the running container.
+# font_paths = ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"]

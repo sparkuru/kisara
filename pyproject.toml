@@ -9,6 +9,7 @@ description = "A QQ bot with switchable OneBot 11 and official platform adapters
 readme = "readme.md"
 requires-python = ">=3.8"
 dependencies = [
+    "Pillow>=10,<12",
     "websockets>=11,<14",
     "tomli>=2,<3; python_version<'3.11'",
 ]

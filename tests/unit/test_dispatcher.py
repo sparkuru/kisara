@@ -90,6 +90,31 @@ def test_unrequested_image_is_silent() -> None:
     assert dispatcher.dispatch_payload(forward) is None
 
 
+def test_file_status_and_empty_events_do_not_reply() -> None:
+    """Non-text events after an export must not trigger a status reply."""
+
+    dispatcher = Dispatcher(
+        allowed_users=frozenset({"user-1"}),
+        groups_enabled=False,
+        allowed_groups=frozenset(),
+    )
+    for index, segments in enumerate((
+        (MessageSegment("file", {"file": "pending-upload"}),),
+        (MessageSegment("reply", {"id": "quoted-image"}),),
+        (MessageSegment("text", {"text": ""}),),
+        (),
+    )):
+        event = MessageEvent(
+            engine="onebot", instance_id="personal",
+            message_id="empty-{}".format(index),
+            conversation_kind="private", conversation_id="conversation-1",
+            sender_id="user-1", segments=segments, reply_context={},
+        )
+        result = dispatcher.dispatch_result(event)
+        assert result.status == "unhandled"
+        assert result.reply is None
+
+
 def test_dispatcher_deduplicates_message_ids() -> None:
     """A repeated event from the same adapter instance should be ignored."""
 

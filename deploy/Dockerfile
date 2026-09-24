@@ -5,6 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml readme.md ./
 COPY src ./src
 COPY deploy/kisara-dev-watch.sh /opt/kisara/kisara-dev-watch.sh

@@ -1,4 +1,10 @@
-"""Food recommendation use case backed by packaged static data."""
+"""Choose five distinct /eat suggestions from packaged legacy food data.
+
+The source list is kisara.resources/foods.json, included in the Python package.
+/eat and legacy Chinese food phrases are routed by bot/dispatcher.py; this
+service samples the list and bot/commands/eat.py formats the reply. No database
+or user-specific state is kept.
+"""
 
 import json
 import pkgutil

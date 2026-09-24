@@ -1,4 +1,33 @@
-"""Private setu confirmation and save workflow."""
+"""Archive confirmed media from a quoted private OneBot merged forward.
+
+Copy config/features/setu/config.toml.example to config.toml, enable it, and
+list allowed_users already present in KISARA_ALLOWED_USERS. A missing file
+disables the feature. Ordinary media and unquoted forwards get no automatic
+archive reply. Quote a merged forward with /setu to create one immediate
+confirmation prompt; nested forwards obey max_depth and max_nodes. The prompt
+quotes the source and reports resolved media and unresolved nodes. /setu or
+confirm_words saves; cancel_words cancels before confirm_timeout_seconds.
+With several prompts, a plain confirmation selects the latest, while quoting
+an earlier prompt selects that batch. Downloads start only after confirmation;
+the result reports saved and failed counts and the actual save directory.
+Repeating confirmation retries failed items without replacing completed files.
+
+save_mode=date_original uses YYYY-MM-DD/original-name; timestamp_hash uses a
+China Standard Time timestamp and SHA-256 filename. max_file_bytes and
+max_batch_bytes bound transfers. SetuStore persists batch metadata in
+KISARA_STATE_DIR/setu.sqlite3, separate from the saved media. Compose mounts
+host data/kisara/setu at /app/setu for preview and deployment; save_root must
+name that writable container directory. The startup script prepares group
+access; direct Compose users may set KISARA_SETU_GID to their primary group ID.
+The OneBot development path shares the same archive and SQLite state.
+
+NapCat may expose video through local QQ cache paths. The read-only mount at
+/app/.config/QQ, local_media_root, and a media-directory allowlist constrain
+copies; remote media must come from approved HTTPS QQ domains. Unreadable
+sources are reported as failures. The offline console has no OneBot media.
+The older forward_archive configuration and data path must be moved to setu
+when upgrading; the new setu.sqlite3 starts with an empty batch history.
+"""
 
 import asyncio
 import json

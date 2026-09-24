@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from kisara.application.services.chat import ChatPolicy, ChatResponder
-from kisara.application.services.setu import Setu
+from kisara.application.services.daily_news import DailyNews
 from kisara.application.services.public import PublicServices
+from kisara.application.services.setu import Setu
 from kisara.application.services.tarot import TarotReader
 from kisara.bot.contracts import MessageAdapter, MessageHandler, OutgoingMessage
 from kisara.bot.dispatcher import Dispatcher
@@ -91,6 +92,10 @@ def main() -> int:
         music_api_url=settings.music_api_url,
         tianapi_key=settings.tianapi_key,
     )
+    daily_news = DailyNews(
+        cache_dir=Path(settings.news_cache_dir), cache_days=settings.news_cache_days,
+        font_paths=settings.news_font_paths or None,
+    )
     tarot_reader = None
     if settings.tarot_enabled:
         try:
@@ -113,14 +118,15 @@ def main() -> int:
             if override.tarot_spread_rate is not None
         },
         public_services=public_services,
+        daily_news=daily_news,
         admin_users=settings.admin_users,
     )
 
     def daily_news_factory() -> OutgoingMessage:
         """Build a fresh brief only when the scheduled send is due."""
 
-        result = public_services.daily_news(require_today=True)
-        return OutgoingMessage(result.text, result.image_urls)
+        result = daily_news.get()
+        return OutgoingMessage(result.text, (result.onebot_image(),))
 
     try:
         setu = (

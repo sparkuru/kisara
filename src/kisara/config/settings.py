@@ -57,6 +57,9 @@ class Settings:
     news_push_groups: FrozenSet[str] = frozenset()
     news_push_hour: int = 10
     news_push_minute: int = 30
+    news_cache_days: int = 7
+    news_cache_dir: str = "data/daily-news"
+    news_font_paths: Tuple[str, ...] = ()
     state_dir: str = "data/kisara"
     admin_users: FrozenSet[str] = frozenset()
     group_overrides: Mapping[str, GroupOverride] = field(default_factory=dict)
@@ -154,6 +157,20 @@ class Settings:
         news_time = string(news_file, "push_time",
                            lambda: os.environ.get("KISARA_NEWS_PUSH_TIME", "10:30").strip(), "news")
         news_push_hour, news_push_minute = _parse_clock_time(news_time, "news.push_time")
+        news_cache_days = news_file.get("cache_days", 7)
+        if type(news_cache_days) is not int or not 1 <= news_cache_days <= 3650:
+            raise ConfigurationError("news.cache_days must be an integer from 1 to 3650.")
+        news_cache_dir = string(
+            news_file, "cache_dir",
+            lambda: os.environ.get("KISARA_NEWS_CACHE_DIR", "data/daily-news").strip(),
+            "news",
+        )
+        font_paths = news_file.get("font_paths", [])
+        if not isinstance(font_paths, list) or any(
+            not isinstance(path, str) or not path.strip() for path in font_paths
+        ):
+            raise ConfigurationError("news.font_paths must be a list of nonempty font paths.")
+        news_font_paths = tuple(path.strip() for path in font_paths)
         group_overrides = _merge_feature_group_overrides(
             group_overrides, chat_file, tarot_file, allowed_groups
         )
@@ -164,6 +181,9 @@ class Settings:
             "news_push_groups": news_push_groups,
             "news_push_hour": news_push_hour,
             "news_push_minute": news_push_minute,
+            "news_cache_days": news_cache_days,
+            "news_cache_dir": news_cache_dir,
+            "news_font_paths": news_font_paths,
             "state_dir": state_dir,
             "admin_users": admin_users,
             "group_overrides": group_overrides,

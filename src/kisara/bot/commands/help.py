@@ -1,10 +1,16 @@
-"""Shared help command for available text features."""
+"""List available text commands for /help and its ahelp alias.
+
+The dispatcher passes enabled service flags, so the output reflects assembled
+chat, tarot, public-provider, and daily-news capabilities. This command has no
+independent configuration or persistent state.
+"""
 
 
 def execute(
     chat_enabled: bool = False,
     tarot_enabled: bool = False,
     public_enabled: bool = False,
+    news_enabled: bool = False,
 ) -> str:
     """Return a concise list of commands supported by Kisara."""
 
@@ -21,7 +27,6 @@ def execute(
         commands += "\n/tarot [single|spread] — draw a daily tarot reading"
     if public_enabled:
         commands += (
-            "\n/news — today's brief"
             "\n/wallpaper — a Pixiv illustration"
             "\n/source [similarity] + image — find an image source"
             "\n/ba <name> — find a Blue Archive guide"
@@ -29,4 +34,6 @@ def execute(
             "\n/love — fetch a short love note"
             "\n/recall — recall a quoted bot message (OneBot)"
         )
+    if news_enabled:
+        commands += "\n/news — today's daily news"
     return commands
