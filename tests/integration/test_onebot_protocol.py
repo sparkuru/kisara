@@ -7,6 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List
 
+import pytest
+
 from kisara.application.services.setu import Setu
 from kisara.bot.adapters.onebot_v11 import OneBotError, OneBotV11Adapter
 from kisara.bot.contracts import MessageEvent, MessageSegment, OutgoingMessage
@@ -283,12 +285,15 @@ async def _test_quoted_image_from_another_private_chat_is_rejected() -> None:
     await task
 
 
-def test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path) -> None:
-    """A quoted forward prompts immediately and repeated quotes do not duplicate it."""
-    asyncio.run(_test_quoted_setu_prompts_once_for_source_forward(tmp_path))
+@pytest.mark.parametrize("word", ["保存", "setu", "/setu"])
+def test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path, word: str) -> None:
+    """Each quoted start word prompts once for its source forward."""
+    asyncio.run(_test_quoted_setu_prompts_once_for_source_forward(tmp_path, word))
 
 
-async def _test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path) -> None:
+async def _test_quoted_setu_prompts_once_for_source_forward(
+    tmp_path: Path, word: str,
+) -> None:
     """Resolve the quoted forward and inspect the resulting archive prompt."""
     adapter = _adapter()
     adapter._allowed_users = frozenset({"123"})
@@ -297,7 +302,7 @@ async def _test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path) -> N
     adapter._setu = Setu(config, str(tmp_path))
     websocket = FakeWebSocket()
     adapter._websocket = websocket
-    task = asyncio.create_task(adapter._process_event(_quoted_event("/setu")))
+    task = asyncio.create_task(adapter._process_event(_quoted_event(word)))
     await _wait_for_requests(websocket, 1)
     adapter._resolve_pending({
         "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
@@ -310,7 +315,10 @@ async def _test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path) -> N
     await _wait_for_requests(websocket, 2)
     prompt = websocket.sent[1]
     assert prompt["params"]["message"][0] == {"type": "reply", "data": {"id": "42"}}
-    assert "1 张图片" in prompt["params"]["message"][1]["data"]["text"]
+    assert prompt["params"]["message"][1]["data"]["text"] == (
+        "这条合并转发共 1 张图片、0 个视频、0 个文件；\n"
+        '引用这条消息并回复 "确认" 以保存，或回复 "取消" 以撤销。'
+    )
     adapter._resolve_pending({
         "echo": prompt["echo"], "status": "ok", "retcode": 0,
         "data": {"message_id": 500},
@@ -319,7 +327,7 @@ async def _test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path) -> N
     batches = SetuStore(str(tmp_path)).awaiting("test", "123", time.time())
     assert len(batches) == 1
     assert batches[0]["first_message_id"] == "42"
-    repeat = replace(_quoted_event("/setu"), message_id="101")
+    repeat = replace(_quoted_event(word), message_id="101")
     repeat_task = asyncio.create_task(adapter._process_event(repeat))
     await _wait_for_requests(websocket, 3)
     adapter._resolve_pending({

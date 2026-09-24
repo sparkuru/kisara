@@ -117,9 +117,12 @@ def test_nested_forward_confirmation_saves_in_selected_layout(
         assert batch["first_message_id"] == "first"
         workflow = Setu(config, str(tmp_path / "state"))
         assert gateway.sent[0][2] == "first"
-        assert "1 张图片、1 个视频" in gateway.sent[0][1]
+        assert gateway.sent[0][1] == (
+            "这条合并转发共 1 张图片、1 个视频、0 个文件；\n"
+            '引用这条消息并回复 "确认" 以保存，或回复 "取消" 以撤销。'
+        )
         assert await asyncio.wait_for(workflow.handle(
-            _event("confirm", (), "保存", "prompt-1"), gateway), 15)
+            _event("confirm", (), "确认", "prompt-1"), gateway), 15)
         files = list(config.save_root.rglob("*"))
         names = [path.name for path in files if path.is_file()]
         assert len(names) == 2
@@ -132,7 +135,8 @@ def test_nested_forward_confirmation_saves_in_selected_layout(
             assert all(len(name.split("-")[-1].split(".")[0]) == 64 for name in names)
         assert "已保存 2 项，失败 0 项" in gateway.sent[-1][1]
         assert "保存目录：" in gateway.sent[-1][1]
-        assert await asyncio.wait_for(workflow.handle(_event("repeat", (), "保存"), gateway), 15)
+        assert await asyncio.wait_for(workflow.handle(
+            _event("repeat", (), "确认", "prompt-1"), gateway), 15)
         assert len([path for path in config.save_root.rglob("*") if path.is_file()]) == 2
 
     asyncio.run(scenario())
@@ -173,7 +177,7 @@ def test_plain_image_and_other_command_do_not_start_setu(tmp_path: Path) -> None
         assert not await workflow.handle(_event("source", (
             _forward_image(image),
         ), "/source"), gateway)
-        for command in ("/forward", "forward", "setu", ""):
+        for command in ("/forward", "forward", ""):
             assert not await workflow.handle(_event(
                 "old-{}".format(command), (_forward_image(image),),
                 command, "source", "source",
@@ -196,27 +200,35 @@ def test_config_validates_feature_limits_and_words(tmp_path: Path) -> None:
     path.write_text('enabled = true\ncancel_words = ["/setu"]\n')
     with pytest.raises(ConfigurationError, match="cannot be a cancellation"):
         SetuConfig.load(path)
+    path.write_text(
+        'enabled = true\nconfirm_words = ["yes", "确认"]\n'
+        'cancel_words = ["cancel", "取消"]\n'
+    )
+    assert SetuConfig.load(path).confirm_words == ("yes", "确认")
+    assert SetuConfig.load(path).cancel_words == ("cancel", "取消")
 
 
-@pytest.mark.parametrize("word,quote_id", [
-    ("/setu", ""), ("/setu", "prompt-1"),
-    ("保存", ""), ("ok", ""), ("yes", ""),
-])
-def test_setu_and_existing_words_confirm_save(
-    tmp_path: Path, word: str, quote_id: str,
+@pytest.mark.parametrize("word", ["保存", "setu", "/setu"])
+def test_quoted_forward_start_words_and_quoted_confirmation(
+    tmp_path: Path, word: str,
 ) -> None:
-    """The command and configured confirmation words save the same pending batch."""
+    """Each start word prompts; only a quoted confirmation saves its batch."""
     async def scenario() -> None:
-        config = replace(_config(tmp_path), confirm_words=frozenset({"保存", "ok", "yes"}))
+        config = _config(tmp_path)
         image = _cache_file(config, "Pic", "source.jpg")
         image.write_bytes(b"image-content")
         workflow = Setu(config, str(tmp_path / "state"))
         gateway = FakeGateway()
-        request = _event("request", (_forward_image(image),), "/setu", "source", "source")
+        request = _event("request", (_forward_image(image),), word, "source", "source")
         assert await workflow.handle(request, gateway)
-        assert "回复“/setu”、“保存”、“ok”、“yes”确认" in gateway.sent[0][1]
+        assert '引用这条消息并回复 "确认"' in gateway.sent[0][1]
         assert not config.save_root.exists()
-        assert await workflow.handle(_event("confirm", (), word, quote_id), gateway)
+        assert not await workflow.handle(_event("empty", (), "", "prompt-1"), gateway)
+        assert not config.save_root.exists()
+        assert await workflow.handle(_event("plain", (), "确认"), gateway)
+        assert gateway.sent[-1][1] == "请引用对应的归档提示后再确认。"
+        assert not config.save_root.exists()
+        assert await workflow.handle(_event("confirm", (), "确认", "prompt-1"), gateway)
         assert next(config.save_root.rglob("source.jpg")).read_bytes() == b"image-content"
         assert "已保存 1 项，失败 0 项" in gateway.sent[-1][1]
 
@@ -229,7 +241,30 @@ def test_setu_without_quote_or_pending_batch_requests_a_forward(tmp_path: Path) 
         workflow = Setu(_config(tmp_path), str(tmp_path / "state"))
         gateway = FakeGateway()
         assert await workflow.handle(_event("bare", (), "/setu"), gateway)
-        assert gateway.sent[0][1] == "请引用合并转发并发送 /setu。"
+        assert gateway.sent[0][1] == "请引用合并转发并发送保存、setu 或 /setu。"
+
+    asyncio.run(scenario())
+
+
+def test_prompt_shows_only_first_configured_action_words(tmp_path: Path) -> None:
+    """The prompt displays primary words and still accepts configured aliases."""
+    async def scenario() -> None:
+        """Start one batch with aliases configured in a deliberate order."""
+        config = replace(_config(tmp_path), confirm_words=("yes", "确认"),
+                         cancel_words=("cancel", "取消"))
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        source = _cache_file(config, "Pic", "ordered.jpg")
+        source.write_bytes(b"ordered")
+        assert await workflow.handle(_event(
+            "request", (_forward_image(source),), "保存", "source", "source",
+        ), gateway)
+        assert gateway.sent[0][1] == (
+            "这条合并转发共 1 张图片、0 个视频、0 个文件；\n"
+            '引用这条消息并回复 "yes" 以保存，或回复 "cancel" 以撤销。'
+        )
+        assert await workflow.handle(_event("save", (), "确认", "prompt-1"), gateway)
+        assert next(config.save_root.rglob("ordered.jpg")).read_bytes() == b"ordered"
 
     asyncio.run(scenario())
 
@@ -278,12 +313,13 @@ def test_failed_item_can_be_retried_without_replacing_completed_file(tmp_path: P
             ]},
         ]}),), "/setu", "media", "media")
         assert await workflow.handle(event, gateway)
-        assert await workflow.handle(_event("save-1", (), "保存", "prompt-1"), gateway)
+        assert await workflow.handle(_event("save-1", (), "确认", "prompt-1"), gateway)
         assert "已保存 1 项，失败 1 项" in gateway.sent[-1][1]
+        assert "可再次回复“确认”重试失败项。" in gateway.sent[-1][1]
         archived_first = next(config.save_root.rglob("first.jpg"))
         original_inode = archived_first.stat().st_ino
         second.write_bytes(b"second")
-        assert await workflow.handle(_event("save-2", (), "保存", "prompt-1"), gateway)
+        assert await workflow.handle(_event("save-2", (), "确认", "prompt-1"), gateway)
         assert "已保存 2 项，失败 0 项" in gateway.sent[-1][1]
         assert archived_first.stat().st_ino == original_inode
         assert next(config.save_root.rglob("second.jpg")).read_bytes() == b"second"
@@ -314,10 +350,10 @@ def test_failed_prompt_is_retried_after_reconnect(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_plain_confirmation_selects_latest_prompted_batch(tmp_path: Path) -> None:
-    """A stale failed batch does not block confirmation of a newer forward."""
+def test_confirmation_requires_matching_prompt_quote(tmp_path: Path) -> None:
+    """Plain text and another quote cannot select either pending batch."""
     async def scenario() -> None:
-        """Keep two prompts pending and confirm the latest without a quote."""
+        """Keep two prompts pending and select only the explicitly quoted one."""
         config = _config(tmp_path)
         first = _cache_file(config, "Pic", "first.jpg")
         second = _cache_file(config, "Pic", "second.jpg")
@@ -331,11 +367,40 @@ def test_plain_confirmation_selects_latest_prompted_batch(tmp_path: Path) -> Non
                            "/setu", str(index), str(index))
             assert await workflow.handle(event, gateway)
 
-        assert await workflow.handle(_event("save", (), "保存"), gateway)
+        assert await workflow.handle(_event("plain", (), "确认"), gateway)
+        assert await workflow.handle(_event("wrong", (), "确认", "other"), gateway)
+        assert not config.save_root.exists()
+        assert await workflow.handle(_event("save", (), "确认", "prompt-2"), gateway)
         assert next(config.save_root.rglob("second.jpg")).read_bytes() == b"second"
         assert not list(config.save_root.rglob("first.jpg"))
         pending = store.awaiting("personal", "user-1", time.time())
         assert len(pending) == 1
         assert pending[0]["first_message_id"] == "1"
+
+    asyncio.run(scenario())
+
+
+def test_quoted_cancellation_only_cancels_selected_batch(tmp_path: Path) -> None:
+    """A quoted cancellation removes only its matching pending batch."""
+    async def scenario() -> None:
+        """Reject a plain cancellation, then cancel the quoted prompt."""
+        config = _config(tmp_path)
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        source = _cache_file(config, "Pic", "cancel.jpg")
+        source.write_bytes(b"cancel")
+        assert await workflow.handle(_event(
+            "request", (_forward_image(source),), "setu", "source", "source",
+        ), gateway)
+        assert await workflow.handle(_event("plain", (), "取消"), gateway)
+        assert len(SetuStore(str(tmp_path / "state")).awaiting(
+            "personal", "user-1", time.time(),
+        )) == 1
+        assert await workflow.handle(_event("cancel", (), "取消", "prompt-1"), gateway)
+        assert gateway.sent[-1][1] == "已取消这批附件的保存。"
+        assert not SetuStore(str(tmp_path / "state")).awaiting(
+            "personal", "user-1", time.time(),
+        )
+        assert not config.save_root.exists()
 
     asyncio.run(scenario())

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import FrozenSet
+from typing import FrozenSet, Tuple
 
 try:
     import tomllib
@@ -19,8 +19,8 @@ class SetuConfig:
     enabled: bool
     allowed_users: FrozenSet[str]
     confirm_timeout_seconds: int
-    confirm_words: FrozenSet[str]
-    cancel_words: FrozenSet[str]
+    confirm_words: Tuple[str, ...]
+    cancel_words: Tuple[str, ...]
     save_root: Path
     save_mode: str
     max_file_bytes: int
@@ -54,9 +54,9 @@ class SetuConfig:
         if not isinstance(enabled, bool):
             raise ConfigurationError("Setu enabled must be a boolean.")
         allowed_users = _words(values.get("allowed_users", []), "allowed_users")
-        confirm_words = _words(values.get("confirm_words", ["保存", "ok"]), "confirm_words")
-        cancel_words = _words(values.get("cancel_words", ["取消"]), "cancel_words")
-        if confirm_words & cancel_words or not confirm_words or not cancel_words:
+        confirm_words = _ordered_words(values.get("confirm_words", ["确认"]), "confirm_words")
+        cancel_words = _ordered_words(values.get("cancel_words", ["取消"]), "cancel_words")
+        if set(confirm_words) & set(cancel_words) or not confirm_words or not cancel_words:
             raise ConfigurationError("Setu confirmation and cancellation words must be distinct.")
         if "/setu" in cancel_words:
             raise ConfigurationError("Setu /setu cannot be a cancellation word.")
@@ -83,7 +83,7 @@ class SetuConfig:
     def disabled(cls) -> "SetuConfig":
         """Build inert defaults for installations without a feature config."""
         return cls(False, frozenset(), 1800,
-                   frozenset({"保存", "ok"}), frozenset({"取消"}),
+                   ("确认",), ("取消",),
                    Path("data/kisara/setu"), "date_original",
                    104857600, 1073741824, 5, 500, Path("/app/.config/QQ"))
 
@@ -94,6 +94,14 @@ def _words(value: object, name: str) -> FrozenSet[str]:
                                            for item in value):
         raise ConfigurationError("Setu {} must be a string list.".format(name))
     return frozenset(item.strip().casefold() for item in value)
+
+
+def _ordered_words(value: object, name: str) -> Tuple[str, ...]:
+    """Validate words while retaining their configured display order."""
+    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip()
+                                           for item in value):
+        raise ConfigurationError("Setu {} must be a string list.".format(name))
+    return tuple(dict.fromkeys(item.strip().casefold() for item in value))
 
 
 def _positive_int(value: object, name: str) -> int:

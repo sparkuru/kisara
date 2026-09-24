@@ -1,10 +1,10 @@
 enabled = false
 allowed_users = ["123456789"]
 
-# Quoting a merged forward with /setu creates one confirmation prompt immediately.
+# Quote a merged forward and send 保存, setu, or /setu to get a confirmation prompt.
 confirm_timeout_seconds = 1800
-# /setu always confirms a pending batch; these words remain available too.
-confirm_words = ["保存", "ok", "yes"]
+# Quote the bot prompt and send 确认 or 取消. The first word is shown; later words are aliases.
+confirm_words = ["确认"]
 cancel_words = ["取消", "cancel"]
 
 # date_original: YYYY-MM-DD/original-name; timestamp_hash: timestamp-sha256.ext

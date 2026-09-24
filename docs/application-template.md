@@ -84,7 +84,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 | 定时新闻推送 | OneBot 适配器的 `_run_daily_news()`；`infrastructure/persistence/news_delivery.py` | 仅 OneBot；按中国标准时间和群组发送，以 SQLite 记录已送达日期 |
 | `/recall` | `bot/dispatcher.py` 与 OneBot 适配器 | 仅 OneBot；引用机器人消息，群内需管理员、群主或配置的管理员用户 |
 | `/export-img`、`导出`、`转图片` 等 | `application/services/export_img.py`；OneBot 适配器 | 仅 OneBot；将被引用的图片作为文件附件发送，无持久化 |
-| `/setu` | `application/services/setu.py`；`infrastructure/persistence/setu.py`、`setu_files.py` | 仅 OneBot 私聊；引用合并转发 → 提示确认 → 下载保存；SQLite 记录批次，文件另存 |
+| `保存`、`setu`、`/setu` | `application/services/setu.py`；`infrastructure/persistence/setu.py`、`setu_files.py` | 仅 OneBot 私聊；引用合并转发 → 引用 bot 提示回复“确认”或“取消” → 下载保存或撤销；SQLite 记录批次，文件另存 |
 
 旧中文和 `#` 命令别名由 `bot/dispatcher.py` 中的 `_normalize_legacy_command()` 处理；支持范围以该函数和 `docs/legacy-migration.md` 为准。外部 API 的真实可用性仍取决于服务方、网络和运行配置，不能仅凭离线测试判断。
 
