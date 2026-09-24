@@ -52,6 +52,44 @@ def test_dispatcher_rejects_disallowed_user() -> None:
     assert dispatcher.dispatch(_event()) is None
 
 
+def test_unrequested_image_is_silent() -> None:
+    """An allowed image without a recognized command should get no fallback reply."""
+    dispatcher = Dispatcher(
+        allowed_users=frozenset({"user-1"}),
+        groups_enabled=False,
+        allowed_groups=frozenset(),
+    )
+    original = _event(text="", message_id="image-1")
+    event = MessageEvent(
+        engine=original.engine, instance_id=original.instance_id,
+        message_id=original.message_id, conversation_kind=original.conversation_kind,
+        conversation_id=original.conversation_id, sender_id=original.sender_id,
+        segments=(MessageSegment("image", {"file": "sticker.gif"}),),
+        reply_context=original.reply_context,
+    )
+    assert dispatcher.dispatch_payload(event) is None
+    for index, segment in enumerate((
+        MessageSegment("mface", {"url": "https://example.com/sticker.gif"}),
+        MessageSegment("file", {"file_name": "photo.png"}),
+    ), 1):
+        media_event = MessageEvent(
+            engine=event.engine, instance_id=event.instance_id,
+            message_id="media-{}".format(index),
+            conversation_kind=event.conversation_kind,
+            conversation_id=event.conversation_id, sender_id=event.sender_id,
+            segments=(segment,), reply_context=event.reply_context,
+        )
+        assert dispatcher.dispatch_payload(media_event) is None
+    forward = MessageEvent(
+        engine=event.engine, instance_id=event.instance_id,
+        message_id="forward-1", conversation_kind=event.conversation_kind,
+        conversation_id=event.conversation_id, sender_id=event.sender_id,
+        segments=(MessageSegment("forward", {"id": "merged"}),),
+        reply_context=event.reply_context,
+    )
+    assert dispatcher.dispatch_payload(forward) is None
+
+
 def test_dispatcher_deduplicates_message_ids() -> None:
     """A repeated event from the same adapter instance should be ignored."""
 

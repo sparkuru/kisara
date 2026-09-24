@@ -13,7 +13,7 @@ RUN python -m pip install --no-cache-dir .
 
 RUN chmod 755 /opt/kisara/kisara-dev-watch.sh \
     && useradd --create-home --uid 10001 kisara \
-    && mkdir -p /app/state /app/forward-archive \
+    && mkdir -p /app/state /app/setu \
     && chown -R kisara:kisara /app /opt/kisara
 USER kisara
 

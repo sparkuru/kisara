@@ -2,7 +2,7 @@
 .env
 .devhome
 data/
-/data/kisara/forward-archive/
+/data/kisara/setu/
 .pytest_cache/
 __pycache__/
 *.py[cod]

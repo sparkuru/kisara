@@ -1,4 +1,4 @@
-"""SQLite state for private forward collection and confirmation."""
+"""SQLite state for private merged-forward confirmation."""
 
 import json
 import os
@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-class ForwardArchiveStore:
+class SetuStore:
     """Persist bounded batch metadata across reconnects and restarts."""
 
     def __init__(self, state_dir: str) -> None:
         """Create the feature database in the existing persistent state volume."""
         directory = Path(state_dir)
         directory.mkdir(parents=True, exist_ok=True)
-        self._path = directory / "forward_archive.sqlite3"
+        self._path = directory / "setu.sqlite3"
         with self._connect() as database:
             database.execute(
                 "CREATE TABLE IF NOT EXISTS batches ("
@@ -32,6 +32,9 @@ class ForwardArchiveStore:
                 "message_id TEXT NOT NULL, seen_at REAL NOT NULL, "
                 "PRIMARY KEY(instance_id, message_id))"
             )
+            if database.execute("PRAGMA user_version").fetchone()[0] < 2:
+                database.execute("UPDATE batches SET state = 'expired' WHERE state = 'collecting'")
+                database.execute("PRAGMA user_version = 2")
             database.execute("UPDATE batches SET state = 'awaiting' WHERE state = 'saving'")
         os.chmod(self._path, 0o600)
 
@@ -41,12 +44,11 @@ class ForwardArchiveStore:
         database.row_factory = sqlite3.Row
         return database
 
-    def add_message(
+    def add_setu(
         self, instance_id: str, user_id: str, message_id: str,
         media: List[Dict[str, Any]], unsupported: int, now: float,
-        quiet_seconds: int, max_seconds: int, max_nodes: int,
-    ) -> bool:
-        """Add an event exactly once to the current fixed-window batch."""
+    ) -> Optional[Dict[str, Any]]:
+        """Create one setu batch for one merged-forward message exactly once."""
         with self._connect() as database:
             database.execute("BEGIN IMMEDIATE")
             seen = database.execute(
@@ -54,42 +56,22 @@ class ForwardArchiveStore:
                 (instance_id, message_id),
             ).fetchone()
             if seen:
-                return False
+                return None
             database.execute(
                 "INSERT INTO seen VALUES (?, ?, ?)", (instance_id, message_id, now)
             )
             database.execute("DELETE FROM seen WHERE seen_at < ?", (now - 604800,))
-            row = database.execute(
-                "SELECT * FROM batches WHERE instance_id = ? AND user_id = ? "
-                "AND state = 'collecting' AND deadline > ? ORDER BY first_at DESC LIMIT 1",
-                (instance_id, user_id, now),
-            ).fetchone()
-            if row is None:
-                if len(media) > max_nodes:
-                    unsupported += len(media) - max_nodes
-                    media = media[:max_nodes]
-                database.execute(
-                    "INSERT INTO batches VALUES (?, ?, ?, 'collecting', ?, ?, ?, ?, '', 0, ?, ?)",
-                    (uuid.uuid4().hex, instance_id, user_id, message_id, now, now,
-                     now + min(quiet_seconds, max_seconds), json.dumps(media), unsupported),
-                )
-            else:
-                items = json.loads(row["media_json"])
-                available = max(0, max_nodes - len(items))
-                if len(media) > available:
-                    unsupported += len(media) - available
-                    media = media[:available]
-                items.extend(media)
-                deadline = min(row["first_at"] + max_seconds, now + quiet_seconds)
-                database.execute(
-                    "UPDATE batches SET last_at = ?, deadline = ?, media_json = ?, "
-                    "unsupported = unsupported + ? WHERE id = ?",
-                    (now, deadline, json.dumps(items), unsupported, row["id"]),
-                )
-        return True
+            batch_id = uuid.uuid4().hex
+            database.execute(
+                "INSERT INTO batches VALUES (?, ?, ?, 'collecting', ?, ?, ?, ?, '', 0, ?, ?)",
+                (batch_id, instance_id, user_id, message_id, now, now, now,
+                 json.dumps(media), unsupported),
+            )
+            row = database.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
+        return dict(row)
 
     def due(self, now: float) -> List[Dict[str, Any]]:
-        """Return batches whose silence or fixed deadline has elapsed."""
+        """Return forwards still awaiting their first prompt."""
         with self._connect() as database:
             rows = database.execute(
                 "SELECT * FROM batches WHERE state = 'collecting' AND deadline <= ? "

@@ -1,4 +1,4 @@
-"""Pluggable file placement and bounded media transfer for forward archives."""
+"""Pluggable file placement and bounded media transfer for setu."""
 
 import hashlib
 import os
@@ -10,14 +10,14 @@ from pathlib import Path
 from typing import BinaryIO, Dict, Protocol
 from urllib.parse import urlsplit
 
-from kisara.config.forward_archive import ForwardArchiveConfig
+from kisara.config.setu import SetuConfig
 
 
 CHINA_TIME = timezone(timedelta(hours=8))
 ALLOWED_MEDIA_HOSTS = ("qq.com", "qpic.cn", "gtimg.cn", "multimedia.nt.qq.com.cn")
 
 
-class ArchiveFileError(ValueError):
+class SetuFileError(ValueError):
     """A media source cannot be safely copied into the archive."""
 
 
@@ -60,14 +60,14 @@ class _SafeRedirect(urllib.request.HTTPRedirectHandler):
         _check_url(newurl)
         redirected = super().redirect_request(request, fp, code, msg, headers, newurl)
         if redirected is None:
-            raise ArchiveFileError("Media redirect was rejected.")
+            raise SetuFileError("Media redirect was rejected.")
         return redirected
 
 
-class ArchiveFileSaver:
+class SetuFileSaver:
     """Download or copy media and delegate only naming to a placement strategy."""
 
-    def __init__(self, config: ForwardArchiveConfig) -> None:
+    def __init__(self, config: SetuConfig) -> None:
         """Select one of the configured storage layouts."""
         self._config = config
         self._placement: FilePlacement = (
@@ -79,7 +79,7 @@ class ArchiveFileSaver:
              timestamp: float, remaining_bytes: int) -> Dict[str, object]:
         """Stream one source to a temporary file and atomically place it."""
         if remaining_bytes <= 0:
-            raise ArchiveFileError("Batch size limit reached.")
+            raise SetuFileError("Batch size limit reached.")
         maximum = min(self._config.max_file_bytes, remaining_bytes)
         root = self._config.save_root
         root.mkdir(parents=True, exist_ok=True)
@@ -120,17 +120,17 @@ class ArchiveFileSaver:
             with opener.open(location, timeout=20) as source:
                 return _stream(source, output, maximum)
         if parsed.scheme:
-            raise ArchiveFileError("Unsupported media location scheme.")
+            raise SetuFileError("Unsupported media location scheme.")
         root = self._config.local_media_root.resolve()
         path = Path(location).resolve()
         if root not in path.parents or not path.is_file():
-            raise ArchiveFileError("Media path is outside the NapCat cache or unavailable.")
+            raise SetuFileError("Media path is outside the NapCat cache or unavailable.")
         relative = path.relative_to(root)
         parts = relative.parts
         if (len(parts) < 4 or not parts[0].startswith("nt_qq") or
                 parts[1] != "nt_data" or
                 parts[2] not in {"Video", "Pic", "Audio", "File", "Record"}):
-            raise ArchiveFileError("Media path is outside the NapCat media cache.")
+            raise SetuFileError("Media path is outside the NapCat media cache.")
         with path.open("rb") as source:
             return _stream(source, output, maximum)
 
@@ -145,11 +145,11 @@ def _stream(source: BinaryIO, output: BinaryIO, maximum: int) -> tuple:
             break
         size += len(chunk)
         if size > maximum:
-            raise ArchiveFileError("Media exceeds the configured size limit.")
+            raise SetuFileError("Media exceeds the configured size limit.")
         hasher.update(chunk)
         output.write(chunk)
     if not size:
-        raise ArchiveFileError("Media is empty.")
+        raise SetuFileError("Media is empty.")
     return hasher.hexdigest(), size
 
 
@@ -158,10 +158,10 @@ def _check_url(location: str) -> None:
     parsed = urlsplit(location)
     host = (parsed.hostname or "").lower().rstrip(".")
     if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in {None, 443}:
-        raise ArchiveFileError("Media URL is not an approved HTTPS address.")
+        raise SetuFileError("Media URL is not an approved HTTPS address.")
     if not any(host == domain or host.endswith("." + domain)
                for domain in ALLOWED_MEDIA_HOSTS):
-        raise ArchiveFileError("Media URL host is not approved.")
+        raise SetuFileError("Media URL host is not approved.")
 
 
 def _safe_name(name: str, kind: str) -> str:

@@ -1,16 +1,15 @@
 enabled = false
 allowed_users = ["123456789"]
 
-# Close after this much silence, or at the fixed deadline from the first message.
-quiet_seconds = 10
-max_collection_seconds = 60
+# Quoting a merged forward with /setu creates one confirmation prompt immediately.
 confirm_timeout_seconds = 1800
+# /setu always confirms a pending batch; these words remain available too.
 confirm_words = ["保存", "ok", "yes"]
 cancel_words = ["取消", "cancel"]
 
 # date_original: YYYY-MM-DD/original-name; timestamp_hash: timestamp-sha256.ext
 save_mode = "date_original"
-save_root = "/app/forward-archive"
+save_root = "/app/setu"
 
 max_file_bytes = 104857600
 max_batch_bytes = 1073741824

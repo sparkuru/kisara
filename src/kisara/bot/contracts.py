@@ -1,6 +1,7 @@
 """Protocol-neutral message and adapter contracts."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol, Tuple, Union
 
 
@@ -44,6 +45,19 @@ class MessageSegment:
         if self.kind != "text":
             return ""
         return str(self.data.get("text", ""))
+
+
+def is_image_segment(segment: MessageSegment) -> bool:
+    """Recognize native images, stickers, and image files."""
+    if segment.kind in {"image", "mface", "marketface"}:
+        return True
+    if segment.kind != "file":
+        return False
+    media_type = str(segment.data.get("mime_type") or segment.data.get("mime") or "")
+    name = str(segment.data.get("file_name") or segment.data.get("name") or "")
+    return media_type.lower().startswith("image/") or Path(name).suffix.lower() in {
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".apng",
+    }
 
 
 @dataclass(frozen=True)

@@ -37,7 +37,7 @@ services:
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
     group_add:
-      - "${KISARA_ARCHIVE_GID:-1000}"
+      - "${KISARA_SETU_GID:-1000}"
     environment:
       KISARA_ENGINE: onebot
       KISARA_INSTANCE_ID: ${KISARA_INSTANCE_ID:-personal}
@@ -73,7 +73,7 @@ services:
       - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - ../data/napcat/QQ:/app/.config/QQ:ro
       - kisara_state:/app/state
-      - ../data/kisara/forward-archive:/app/forward-archive
+      - ../data/kisara/setu:/app/setu
     networks:
       - kisara_network
 
@@ -83,7 +83,7 @@ services:
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
     group_add:
-      - "${KISARA_ARCHIVE_GID:-1000}"
+      - "${KISARA_SETU_GID:-1000}"
     command: ["/opt/kisara/kisara-dev-watch.sh"]
     environment:
       KISARA_ENGINE: onebot
@@ -122,7 +122,7 @@ services:
       - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - ../data/napcat/QQ:/app/.config/QQ:ro
       - kisara_state:/app/state
-      - ../data/kisara/forward-archive:/app/forward-archive
+      - ../data/kisara/setu:/app/setu
     depends_on:
       - napcat
     networks:

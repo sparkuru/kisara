@@ -2,11 +2,17 @@
 
 import asyncio
 import json
+import time
+from dataclasses import replace
+from pathlib import Path
 from typing import Any, Dict, List
 
+from kisara.application.services.setu import Setu
 from kisara.bot.adapters.onebot_v11 import OneBotError, OneBotV11Adapter
 from kisara.bot.contracts import MessageEvent, MessageSegment, OutgoingMessage
 from kisara.config import Settings
+from kisara.config.setu import SetuConfig
+from kisara.infrastructure.persistence.setu import SetuStore
 
 
 class FakeWebSocket:
@@ -194,12 +200,145 @@ async def _test_quoted_image_is_loaded_for_source_search() -> None:
     assert enriched.segments[-1].data["url"] == "https://example.com/image.jpg"
 
 
-def test_archive_prompt_quotes_first_message_and_returns_prompt_id() -> None:
+def _quoted_event(text: str) -> MessageEvent:
+    """Create an allowed private quote for the protocol workflow tests."""
+    return MessageEvent(
+        engine="onebot", instance_id="test", message_id="100",
+        conversation_kind="private", conversation_id="123", sender_id="123",
+        segments=(MessageSegment("reply", {"id": "42"}),
+                  MessageSegment("text", {"text": text})),
+        reply_context={"quoted_message_id": "42", "self_id": "999"},
+    )
+
+
+def test_export_quote_sends_original_files_without_archiving(tmp_path: Path) -> None:
+    """Export takes priority over setu and makes quoted media saveable."""
+    asyncio.run(_test_export_quote_sends_original_files_without_archiving(tmp_path))
+
+
+async def _test_export_quote_sends_original_files_without_archiving(tmp_path: Path) -> None:
+    """Drive quote lookup and one file send per image through API responses."""
+    adapter = _adapter()
+    adapter._allowed_users = frozenset({"123"})
+    config = replace(SetuConfig.disabled(), enabled=True,
+                     allowed_users=frozenset({"123"}))
+    adapter._setu = Setu(config, str(tmp_path))
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    task = asyncio.create_task(adapter._process_event(_quoted_event("请导出这张表情包")))
+    await _wait_for_requests(websocket, 1)
+    assert websocket.sent[0]["action"] == "get_msg"
+    adapter._resolve_pending({
+        "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "user_id": 123,
+                 "message": [{"type": "image", "data": {
+                     "url": "https://example.com/sticker.gif", "sub_type": 1}},
+                     {"type": "mface", "data": {
+                         "url": "https://example.com/market-sticker.gif"}},
+                     {"type": "file", "data": {
+                         "file_name": "original.png", "url": "https://example.com/original.png"}},
+                     {"type": "file", "data": {
+                         "file_name": "notes.txt", "url": "https://example.com/notes.txt"}},
+                     {"type": "forward", "data": {"id": "merged"}}]},
+    })
+    for index, (url, name) in enumerate((
+        ("https://example.com/sticker.gif", "export-1.gif"),
+        ("https://example.com/market-sticker.gif", "export-2.gif"),
+        ("https://example.com/original.png", "export-3.png"),
+    ), start=1):
+        await _wait_for_requests(websocket, index + 1)
+        sent = websocket.sent[index]
+        assert sent["action"] == "send_private_msg"
+        assert sent["params"]["message"] == [
+            {"type": "file", "data": {"file": url, "name": name}},
+        ]
+        adapter._resolve_pending({"echo": sent["echo"], "status": "ok", "retcode": 0})
+    await task
+    assert not SetuStore(str(tmp_path)).due(float("inf"))
+
+
+def test_quoted_image_from_another_private_chat_is_rejected() -> None:
+    """A forged reply ID cannot export media from an unrelated conversation."""
+    asyncio.run(_test_quoted_image_from_another_private_chat_is_rejected())
+
+
+async def _test_quoted_image_from_another_private_chat_is_rejected() -> None:
+    """Reject an otherwise valid image with an unrelated sender ID."""
+    adapter = _adapter()
+    adapter._allowed_users = frozenset({"123"})
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    task = asyncio.create_task(adapter._process_event(_quoted_event("/export-img")))
+    await _wait_for_requests(websocket, 1)
+    adapter._resolve_pending({
+        "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "user_id": 456,
+                 "message": [{"type": "image", "data": {
+                     "url": "https://example.com/private.jpg"}}]},
+    })
+    await _wait_for_requests(websocket, 2)
+    sent = websocket.sent[1]
+    assert sent["params"]["message"] == "引用的消息中没有图片。"
+    adapter._resolve_pending({"echo": sent["echo"], "status": "ok", "retcode": 0})
+    await task
+
+
+def test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path) -> None:
+    """A quoted forward prompts immediately and repeated quotes do not duplicate it."""
+    asyncio.run(_test_quoted_setu_prompts_once_for_source_forward(tmp_path))
+
+
+async def _test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path) -> None:
+    """Resolve the quoted forward and inspect the resulting archive prompt."""
+    adapter = _adapter()
+    adapter._allowed_users = frozenset({"123"})
+    config = replace(SetuConfig.disabled(), enabled=True,
+                     allowed_users=frozenset({"123"}))
+    adapter._setu = Setu(config, str(tmp_path))
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    task = asyncio.create_task(adapter._process_event(_quoted_event("/setu")))
+    await _wait_for_requests(websocket, 1)
+    adapter._resolve_pending({
+        "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "user_id": 123,
+                 "message": [{"type": "forward", "data": {"id": "merged", "content": [
+                     {"message": [{"type": "image", "data": {
+                         "file": "image.jpg"}}]},
+                 ]}}]},
+    })
+    await _wait_for_requests(websocket, 2)
+    prompt = websocket.sent[1]
+    assert prompt["params"]["message"][0] == {"type": "reply", "data": {"id": "42"}}
+    assert "1 张图片" in prompt["params"]["message"][1]["data"]["text"]
+    adapter._resolve_pending({
+        "echo": prompt["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_id": 500},
+    })
+    await task
+    batches = SetuStore(str(tmp_path)).awaiting("test", "123", time.time())
+    assert len(batches) == 1
+    assert batches[0]["first_message_id"] == "42"
+    repeat = replace(_quoted_event("/setu"), message_id="101")
+    repeat_task = asyncio.create_task(adapter._process_event(repeat))
+    await _wait_for_requests(websocket, 3)
+    adapter._resolve_pending({
+        "echo": websocket.sent[2]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "user_id": 123,
+                 "message": [{"type": "forward", "data": {"id": "merged", "content": [
+                     {"message": [{"type": "image", "data": {"file": "image.jpg"}}]},
+                 ]}}]},
+    })
+    await repeat_task
+    assert len(websocket.sent) == 3
+
+
+def test_setu_prompt_quotes_first_message_and_returns_prompt_id() -> None:
     """A delayed private prompt must quote its first source message."""
-    asyncio.run(_test_archive_prompt_quotes_first_message_and_returns_prompt_id())
+    asyncio.run(_test_setu_prompt_quotes_first_message_and_returns_prompt_id())
 
 
-async def _test_archive_prompt_quotes_first_message_and_returns_prompt_id() -> None:
+async def _test_setu_prompt_quotes_first_message_and_returns_prompt_id() -> None:
     """Check OneBot reply encoding and prompt ID extraction."""
     adapter = _adapter()
     websocket = FakeWebSocket()
@@ -216,12 +355,12 @@ async def _test_archive_prompt_quotes_first_message_and_returns_prompt_id() -> N
     assert await task == "789"
 
 
-def test_archive_fetches_forward_nodes() -> None:
+def test_setu_fetches_forward_nodes() -> None:
     """Nested forward expansion must use the correlated OneBot API path."""
-    asyncio.run(_test_archive_fetches_forward_nodes())
+    asyncio.run(_test_setu_fetches_forward_nodes())
 
 
-async def _test_archive_fetches_forward_nodes() -> None:
+async def _test_setu_fetches_forward_nodes() -> None:
     """Capture get_forward_msg and return its message list."""
     adapter = _adapter()
     websocket = FakeWebSocket()

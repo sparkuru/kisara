@@ -162,35 +162,49 @@ On OneBot, `/source` also accepts a reply to an image message. `/recall`
 removes a quoted bot message; in groups it requires the caller's QQ role to be
 admin or owner, or their ID to be in `KISARA_ADMIN_USERS`.
 
-## Private forward archive
+## Private setu archive
 
-Copy `config/features/forward_archive/config.toml.example` to
-`config/features/forward_archive/config.toml`, set `enabled = true`, and list
+Copy `config/features/setu/config.toml.example` to
+`config/features/setu/config.toml`, set `enabled = true`, and list
 the permitted private-chat users in `allowed_users`. Every listed user must
 also be in `KISARA_ALLOWED_USERS`. The feature is disabled when the file is
 absent. Restart Kisara after editing the file.
 
-The first image, video, file, voice message, or merged forward starts a batch.
-The bot waits `quiet_seconds` after the latest eligible message, but never
-collects beyond `max_collection_seconds` measured from the first message.
-The example fixes that maximum at 60 seconds. Merged forwards are expanded
-recursively within the configured `max_depth` and `max_nodes` limits. The bot
-quotes the first message, reports counts and unresolved nodes, then accepts
-`confirm_words` or `cancel_words` until `confirm_timeout_seconds` elapses.
+Ordinary images, stickers, and merged forwards get no automatic reply. Send a
+merged forward in a private chat, then quote it and send `/setu`. The quote
+creates one prompt immediately, without a collection window. Nested forwards
+are expanded within the configured `max_depth` and `max_nodes` limits. The bot
+quotes the merged forward, reports media counts and unresolved nodes, then accepts
+`/setu` or any configured `confirm_words` to save, or `cancel_words` to cancel,
+until `confirm_timeout_seconds` elapses.
 If several batches await confirmation, a plain confirmation selects the latest
 prompt; quote an earlier prompt to select its batch. Downloading
-starts only after confirmation; the final reply gives saved and failed counts.
+starts only after confirmation; the final reply gives saved and failed counts
+and the actual save directory.
 Repeat confirmation retries failed items without saving completed items again.
 
+To export a picture or sticker in a form the recipient can save, quote it and
+send `/export-img`, `导出`, or `转图片`. The bot sends each quoted picture as a
+file attachment, preserving the image bytes and animation. QQ may classify a
+re-sent image message as a sticker even when NapCat marks it as an original
+picture, so the attachment avoids that display mode. This request does not
+enter the merged-forward archive workflow and works for allowed OneBot users
+even when the archive feature is disabled.
+
 `save_root` names the archive directory inside the Kisara container. Compose
-maps the host directory `data/kisara/forward-archive` to
-`/app/forward-archive` for both preview and deployment. The startup script
+maps the host directory `data/kisara/setu` to
+`/app/setu` for both preview and deployment. The startup script
 creates the host directory with group access for the Kisara container. Set
-`KISARA_ARCHIVE_GID` in `.env` to the output of `id -g` if you run Compose
+`KISARA_SETU_GID` in `.env` to the output of `id -g` if you run Compose
 directly on a host whose primary group ID is not 1000. For direct Compose
-usage, first run `mkdir -p data/kisara/forward-archive` and
-`chmod 2770 data/kisara/forward-archive`. OneBot development
+usage, first run `mkdir -p data/kisara/setu` and
+`chmod 2770 data/kisara/setu`. OneBot development
 mode uses the same archive directory and the persistent SQLite state volume.
+For an existing installation, move `config/features/forward_archive/config.toml`
+to `config/features/setu/config.toml` and `data/kisara/forward-archive` to
+`data/kisara/setu`. Update `save_root` to `/app/setu`, remove the retired timing
+keys, and rename `KISARA_ARCHIVE_GID` to `KISARA_SETU_GID` if it is set. The
+new `setu.sqlite3` starts empty; the old SQLite state can be deleted.
 Set `save_mode = "date_original"` for `YYYY-MM-DD/original-name`, or
 `save_mode = "timestamp_hash"` for files named with the batch's China Standard
 Time timestamp and a full SHA-256 digest. `max_file_bytes` and
@@ -200,9 +214,9 @@ Time timestamp and a full SHA-256 digest. `max_file_bytes` and
 automated tests.
 
 After confirming a batch, inspect saved files on the host with
-`ls -lah data/kisara/forward-archive` or open that directory in a file manager.
+`ls -lah data/kisara/setu` or open that directory in a file manager.
 Inside the running container, use
-`docker compose --env-file .env -f deploy/compose.yaml --project-name kisara exec kisara ls -lah /app/forward-archive`.
+`docker compose --env-file .env -f deploy/compose.yaml --project-name kisara exec kisara ls -lah /app/setu`.
 The database remains in the `kisara_state` Docker volume; archive files are
 available directly under the host directory. Both storage locations persist
 after `./deploy.sh down`.

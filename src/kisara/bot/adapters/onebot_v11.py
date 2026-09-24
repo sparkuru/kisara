@@ -7,13 +7,16 @@ import random
 import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Mapping, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Set, Tuple, Union
 
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment, OutgoingMessage
-from kisara.application.services.forward_archive import ForwardArchive
+from kisara.bot.contracts import (
+    MessageEvent, MessageHandler, MessageSegment, OutgoingMessage,
+)
+from kisara.application.services.export_img import handle_export_img
+from kisara.application.services.setu import SETU_COMMAND, Setu
 from kisara.config import Settings
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 
@@ -39,7 +42,7 @@ class OneBotV11Adapter:
         request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
         daily_news_factory: Optional[Callable[[], OutgoingMessage]] = None,
         delivery_store: Optional[NewsDeliveryStore] = None,
-        forward_archive: Optional[ForwardArchive] = None,
+        setu: Optional[Setu] = None,
     ) -> None:
         """Create a forward-WebSocket adapter for the selected OneBot instance."""
 
@@ -62,7 +65,7 @@ class OneBotV11Adapter:
         self._allowed_users = settings.allowed_users
         self._allowed_groups = settings.allowed_groups
         self._groups_enabled = settings.groups_enabled
-        self._forward_archive = forward_archive
+        self._setu = setu
 
     def start(self) -> None:
         """Run the reconnecting adapter loop until interrupted or closed."""
@@ -123,11 +126,11 @@ class OneBotV11Adapter:
             self._status = "connected"
             _log.info("OneBot WebSocket connected")
             news_task = None
-            archive_task = None
+            setu_task = None
             if self._daily_news_factory and self._delivery_store and self._news_push_groups:
                 news_task = asyncio.create_task(self._run_daily_news())
-            if self._forward_archive is not None:
-                archive_task = asyncio.create_task(self._forward_archive.run(self))
+            if self._setu is not None:
+                setu_task = asyncio.create_task(self._setu.run(self))
             try:
                 async for raw_packet in websocket:
                     packet = self._decode_packet(raw_packet)
@@ -137,9 +140,9 @@ class OneBotV11Adapter:
                 if news_task is not None:
                     news_task.cancel()
                     await asyncio.gather(news_task, return_exceptions=True)
-                if archive_task is not None:
-                    archive_task.cancel()
-                    await asyncio.gather(archive_task, return_exceptions=True)
+                if setu_task is not None:
+                    setu_task.cancel()
+                    await asyncio.gather(setu_task, return_exceptions=True)
                 self._websocket = None
                 if not self._stop_requested:
                     self._status = "disconnected"
@@ -214,9 +217,24 @@ class OneBotV11Adapter:
         """Run shared routing and reply through the source conversation."""
 
         try:
-            if self._forward_archive is not None:
-                if await self._forward_archive.handle(event, self):
+            if self._is_authorized(event) and await handle_export_img(event, self):
+                return
+            if self._setu is not None:
+                if (self._is_authorized(event) and
+                        event.conversation_kind == "private" and
+                        event.reply_context.get("quoted_message_id") and
+                        event.text.strip().casefold() == SETU_COMMAND):
+                    quoted, _ = await self.quoted_message(event)
+                    forwards = tuple(segment for segment in quoted if segment.kind == "forward")
+                    if forwards:
+                        context = dict(event.reply_context)
+                        context["setu_source_id"] = context["quoted_message_id"]
+                        event = replace(event, segments=event.segments + forwards,
+                                        reply_context=context)
+                if await self._setu.handle(event, self):
                     return
+            if event.reply_context.get("quoted_message_id") and not event.text.strip():
+                return
             if self._should_enrich_quote(event):
                 event = await self._enrich_quoted_message(event)
             loop = asyncio.get_running_loop()
@@ -240,11 +258,7 @@ class OneBotV11Adapter:
     def _should_enrich_quote(self, event: MessageEvent) -> bool:
         """Limit history lookups to authorized image search and recall commands."""
 
-        if event.sender_id not in self._allowed_users:
-            return False
-        if event.conversation_kind == "group" and (
-            not self._groups_enabled or event.conversation_id not in self._allowed_groups
-        ):
+        if not self._is_authorized(event):
             return False
         if not event.reply_context.get("quoted_message_id"):
             return False
@@ -256,34 +270,59 @@ class OneBotV11Adapter:
             return not any(segment.kind == "image" for segment in event.segments)
         return command == "recall"
 
-    async def _enrich_quoted_message(self, event: MessageEvent) -> MessageEvent:
-        """Fetch a quoted message for image search or ownership validation."""
+    def _is_authorized(self, event: MessageEvent) -> bool:
+        """Apply the same sender and conversation allowlists as normal routing."""
+        if event.sender_id not in self._allowed_users:
+            return False
+        if event.conversation_kind == "group":
+            return self._groups_enabled and event.conversation_id in self._allowed_groups
+        return event.conversation_kind == "private"
 
+    async def quoted_message(
+        self, event: MessageEvent,
+    ) -> Tuple[Tuple[MessageSegment, ...], str]:
+        """Retrieve a quoted message only from the current conversation."""
         quoted_id = str(event.reply_context.get("quoted_message_id") or "")
+        if not quoted_id:
+            return (), ""
         try:
             response = await self._request("get_msg", {
                 "message_id": _as_api_identifier(quoted_id),
             })
         except OneBotError:
             _log.warning("Quoted message %s could not be retrieved", quoted_id)
-            return event
+            return (), ""
         data = response.get("data")
-        if not isinstance(data, dict):
-            return event
-        if data.get("message_type") not in {None, event.conversation_kind}:
-            return event
+        if not isinstance(data, dict) or data.get("message_type") not in {
+            None, event.conversation_kind,
+        }:
+            return (), ""
         group_id = _as_identifier(data.get("group_id"))
-        if group_id and event.conversation_kind == "group" and group_id != event.conversation_id:
-            return event
-        sender = data.get("sender") or {}
+        if event.conversation_kind == "group" and group_id != event.conversation_id:
+            return (), ""
+        sender = data.get("sender")
         quoted_sender = _as_identifier(data.get("user_id"))
         if not quoted_sender and isinstance(sender, dict):
             quoted_sender = _as_identifier(sender.get("user_id"))
+        if event.conversation_kind == "private":
+            target_id = _as_identifier(data.get("target_id"))
+            participants = {quoted_sender, target_id} - {""}
+            if not participants or not participants.issubset({
+                event.sender_id, str(event.reply_context.get("self_id") or ""),
+            }):
+                return (), ""
+        return _read_segments(data.get("message")), quoted_sender
+
+    async def _enrich_quoted_message(self, event: MessageEvent) -> MessageEvent:
+        """Fetch a quoted message for image search or ownership validation."""
+
+        quoted_segments, quoted_sender = await self.quoted_message(event)
+        if not quoted_segments and not quoted_sender:
+            return event
         context = dict(event.reply_context)
         context["quoted_sender_id"] = quoted_sender
         segments = event.segments
         if not any(segment.kind == "image" for segment in segments):
-            quoted_segments = _read_segments(data.get("message"))
             segments += tuple(segment for segment in quoted_segments
                               if segment.kind == "image")
         return replace(event, reply_context=context, segments=segments)
@@ -329,12 +368,14 @@ class OneBotV11Adapter:
         )
 
     async def send_reply(
-        self, event: MessageEvent, content: Union[str, OutgoingMessage]
+        self, event: MessageEvent, content: Union[str, OutgoingMessage],
     ) -> None:
         """Send text or image segments and require a successful API response."""
 
-        message = self._encode_message(content)
+        await self._send_message(event, self._encode_message(content))
 
+    async def _send_message(self, event: MessageEvent, message: Any) -> None:
+        """Route one prepared OneBot message to the source conversation."""
         if event.conversation_kind == "private":
             action = "send_private_msg"
             params = {
@@ -348,6 +389,15 @@ class OneBotV11Adapter:
                 "message": message,
             }
         await self._request(action, params)
+
+    async def send_exported_files(
+        self, event: MessageEvent, files: Sequence[Tuple[str, str]],
+    ) -> None:
+        """Send each quoted picture as a saveable OneBot file attachment."""
+        for location, name in files:
+            await self._send_message(event, [{
+                "type": "file", "data": {"file": location, "name": name},
+            }])
 
     async def fetch_forward(self, identifier: str) -> Tuple[Mapping[str, Any], ...]:
         """Fetch nested forward nodes through the OneBot API."""

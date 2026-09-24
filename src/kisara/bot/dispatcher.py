@@ -14,7 +14,7 @@ from kisara.bot.commands.help import execute as execute_help
 from kisara.bot.commands.ping import execute as execute_ping
 from kisara.bot.commands.roll import execute_validated as execute_roll
 from kisara.bot.contracts import (
-    CommandInputError, DispatchResult, MessageEvent, OutgoingMessage,
+    CommandInputError, DispatchResult, MessageEvent, OutgoingMessage, is_image_segment,
 )
 from kisara.infrastructure.integrations.http import RemoteServiceError
 
@@ -141,6 +141,9 @@ class Dispatcher:
             remote = self._route_public(command, arguments, event)
             if remote is not None:
                 return self._remote_result(remote)
+        if any(is_image_segment(segment) or segment.kind == "forward"
+               for segment in event.segments):
+            return DispatchResult("unhandled", None, "Media without a matching command.")
         if not content:
             return DispatchResult("unhandled", "Kisara is online.", "Empty message.")
         if self._chat_responder is not None and not is_slash_command:
