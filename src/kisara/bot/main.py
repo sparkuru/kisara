@@ -4,14 +4,17 @@ import importlib
 import logging
 import sqlite3
 from dataclasses import replace
+from pathlib import Path
 from typing import Callable, Optional
 
 from kisara.application.services.chat import ChatPolicy, ChatResponder
+from kisara.application.services.forward_archive import ForwardArchive
 from kisara.application.services.public import PublicServices
 from kisara.application.services.tarot import TarotReader
 from kisara.bot.contracts import MessageAdapter, MessageHandler, OutgoingMessage
 from kisara.bot.dispatcher import Dispatcher
 from kisara.config import ConfigurationError, Settings
+from kisara.config.forward_archive import ForwardArchiveConfig
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 
 
@@ -22,6 +25,7 @@ def create_adapter(
     settings: Settings,
     handler: MessageHandler,
     daily_news_factory: Optional[Callable[[], OutgoingMessage]] = None,
+    forward_archive: Optional[ForwardArchive] = None,
 ) -> MessageAdapter:
     """Load only the selected adapter and assemble it with the shared handler."""
 
@@ -32,6 +36,7 @@ def create_adapter(
         return adapter_class(
             settings, handler, daily_news_factory=daily_news_factory,
             delivery_store=store,
+            forward_archive=forward_archive,
         )
     elif settings.engine == "official":
         module = importlib.import_module("kisara.bot.adapters.official")
@@ -51,6 +56,11 @@ def main() -> int:
 
     try:
         settings = Settings.from_environment()
+        archive_config = ForwardArchiveConfig.load(
+            Path("config/features/forward_archive/config.toml")
+        ) if settings.engine == "onebot" else ForwardArchiveConfig.disabled()
+        if archive_config.enabled and not archive_config.allowed_users.issubset(settings.allowed_users):
+            raise ConfigurationError("Forward archive users must be in KISARA_ALLOWED_USERS.")
     except ConfigurationError as error:
         _log.error("%s", error)
         return 2
@@ -113,9 +123,14 @@ def main() -> int:
         return OutgoingMessage(result.text, result.image_urls)
 
     try:
+        forward_archive = (
+            ForwardArchive(archive_config, settings.state_dir)
+            if archive_config.enabled else None
+        )
         adapter = create_adapter(
             settings, dispatcher.dispatch_payload,
             daily_news_factory if settings.news_push_groups else None,
+            forward_archive,
         )
     except ImportError as error:
         if settings.engine == "official":

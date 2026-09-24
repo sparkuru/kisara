@@ -192,3 +192,47 @@ async def _test_quoted_image_is_loaded_for_source_search() -> None:
     enriched = await task
     assert enriched.reply_context["quoted_sender_id"] == "999"
     assert enriched.segments[-1].data["url"] == "https://example.com/image.jpg"
+
+
+def test_archive_prompt_quotes_first_message_and_returns_prompt_id() -> None:
+    """A delayed private prompt must quote its first source message."""
+    asyncio.run(_test_archive_prompt_quotes_first_message_and_returns_prompt_id())
+
+
+async def _test_archive_prompt_quotes_first_message_and_returns_prompt_id() -> None:
+    """Check OneBot reply encoding and prompt ID extraction."""
+    adapter = _adapter()
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    task = asyncio.create_task(adapter.send_private("123", "Save?", "456"))
+    await _wait_for_requests(websocket, 1)
+    request = websocket.sent[0]
+    assert request["action"] == "send_private_msg"
+    assert request["params"]["message"][0] == {"type": "reply", "data": {"id": "456"}}
+    adapter._resolve_pending({
+        "echo": request["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_id": 789},
+    })
+    assert await task == "789"
+
+
+def test_archive_fetches_forward_nodes() -> None:
+    """Nested forward expansion must use the correlated OneBot API path."""
+    asyncio.run(_test_archive_fetches_forward_nodes())
+
+
+async def _test_archive_fetches_forward_nodes() -> None:
+    """Capture get_forward_msg and return its message list."""
+    adapter = _adapter()
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    task = asyncio.create_task(adapter.fetch_forward("abc"))
+    await _wait_for_requests(websocket, 1)
+    request = websocket.sent[0]
+    assert request["action"] == "get_forward_msg"
+    assert request["params"]["id"] == "abc"
+    adapter._resolve_pending({
+        "echo": request["echo"], "status": "ok", "retcode": 0,
+        "data": {"messages": [{"message": [{"type": "image", "data": {"file": "a.jpg"}}]}]},
+    })
+    assert len(await task) == 1

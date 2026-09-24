@@ -61,7 +61,9 @@ stop_service_if_present() {
 prepare_data_directories() {
 	mkdir -p -- \
 		"${REPO_ROOT}/data/napcat/config" \
-		"${REPO_ROOT}/data/napcat/QQ"
+		"${REPO_ROOT}/data/napcat/QQ" \
+		"${REPO_ROOT}/data/kisara/forward-archive"
+	chmod 2770 -- "${REPO_ROOT}/data/kisara/forward-archive"
 }
 
 start_stack() {
@@ -71,8 +73,10 @@ start_stack() {
 
 	local napcat_uid="${NAPCAT_UID:-$(id -u)}"
 	local napcat_gid="${NAPCAT_GID:-$(id -g)}"
+	local archive_gid="${KISARA_ARCHIVE_GID:-$(id -g)}"
 	export NAPCAT_UID="${napcat_uid}"
 	export NAPCAT_GID="${napcat_gid}"
+	export KISARA_ARCHIVE_GID="${archive_gid}"
 
 	prepare_data_directories
 	stop_service_if_present kisara-dev
@@ -86,8 +90,10 @@ start_dev_stack() {
 
 	local napcat_uid="${NAPCAT_UID:-$(id -u)}"
 	local napcat_gid="${NAPCAT_GID:-$(id -g)}"
+	local archive_gid="${KISARA_ARCHIVE_GID:-$(id -g)}"
 	export NAPCAT_UID="${napcat_uid}"
 	export NAPCAT_GID="${napcat_gid}"
+	export KISARA_ARCHIVE_GID="${archive_gid}"
 
 	prepare_data_directories
 	stop_service_if_present kisara

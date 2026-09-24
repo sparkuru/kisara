@@ -1,4 +1,4 @@
-"""Environment-backed settings for the Kisara bot."""
+"""Engine settings with independent feature TOML and legacy environment fallbacks."""
 
 import os
 import json
@@ -6,14 +6,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, FrozenSet, Mapping, Optional, Tuple
 
+from .feature_files import (
+    ConfigurationError, boolean, groups, load_feature,
+    percent, string, words,
+)
+
 
 DEFAULT_ENGINE = "onebot"
 DEFAULT_ONEBOT_WS_URL = "ws://napcat:3001"
 SUPPORTED_ENGINES = ("onebot", "official")
-
-
-class ConfigurationError(ValueError):
-    """Raised when the selected engine is not correctly configured."""
 
 
 @dataclass(frozen=True)
@@ -84,17 +85,33 @@ class Settings:
         groups_enabled = _read_bool("KISARA_GROUPS_ENABLED", default=False)
         allowed_groups = _read_csv("KISARA_ALLOWED_GROUPS")
         group_overrides = _read_group_overrides(allowed_groups)
+        chat_file = load_feature("chat")
+        tarot_file = load_feature("tarot")
+        news_file = load_feature("news")
+        source_file = load_feature("source")
+        music_file = load_feature("music")
+        love_file = load_feature("love")
         chat_options = {
-            "chat_enabled": _read_bool("KISARA_CHAT_ENABLED", default=True),
-            "chat_bot_name": os.environ.get("KISARA_CHAT_BOT_NAME", "Kisara").strip(),
-            "chat_sender_name": os.environ.get("KISARA_CHAT_SENDER_NAME", "you").strip(),
-            "chat_library": os.environ.get("KISARA_CHAT_LIBRARY", "cute").strip().lower(),
-            "chat_trigger_rate": _read_percent("KISARA_CHAT_TRIGGER_RATE", 30),
-            "chat_similarity_rate": _read_percent("KISARA_CHAT_SIMILARITY_RATE", 60),
-            "chat_ignored_phrases": _read_csv("KISARA_CHAT_IGNORED_PHRASES"),
-            "chat_banned_users": _read_csv("KISARA_CHAT_BANNED_USERS"),
-            "chat_always_reply_users": _read_csv("KISARA_CHAT_ALWAYS_REPLY_USERS"),
-            "chat_reply_to_mentions": _read_bool("KISARA_CHAT_REPLY_TO_MENTIONS", True),
+            "chat_enabled": boolean(chat_file, "enabled",
+                                    lambda: _read_bool("KISARA_CHAT_ENABLED", True), "chat"),
+            "chat_bot_name": string(chat_file, "bot_name",
+                                    lambda: os.environ.get("KISARA_CHAT_BOT_NAME", "Kisara").strip(), "chat"),
+            "chat_sender_name": string(chat_file, "sender_name",
+                                       lambda: os.environ.get("KISARA_CHAT_SENDER_NAME", "you").strip(), "chat"),
+            "chat_library": string(chat_file, "library",
+                                   lambda: os.environ.get("KISARA_CHAT_LIBRARY", "cute").strip(), "chat").lower(),
+            "chat_trigger_rate": percent(chat_file, "trigger_rate",
+                                         lambda: _read_percent("KISARA_CHAT_TRIGGER_RATE", 30), "chat"),
+            "chat_similarity_rate": percent(chat_file, "similarity_rate",
+                                            lambda: _read_percent("KISARA_CHAT_SIMILARITY_RATE", 60), "chat"),
+            "chat_ignored_phrases": words(chat_file, "ignored_phrases",
+                                          lambda: _read_csv("KISARA_CHAT_IGNORED_PHRASES"), "chat"),
+            "chat_banned_users": words(chat_file, "banned_users",
+                                       lambda: _read_csv("KISARA_CHAT_BANNED_USERS"), "chat"),
+            "chat_always_reply_users": words(chat_file, "always_reply_users",
+                                             lambda: _read_csv("KISARA_CHAT_ALWAYS_REPLY_USERS"), "chat"),
+            "chat_reply_to_mentions": boolean(chat_file, "reply_to_mentions",
+                                              lambda: _read_bool("KISARA_CHAT_REPLY_TO_MENTIONS", True), "chat"),
         }
         if not chat_options["chat_bot_name"] or not chat_options["chat_sender_name"]:
             raise ConfigurationError("Chat display names must not be empty.")
@@ -103,28 +120,43 @@ class Settings:
                 "KISARA_CHAT_LIBRARY must be cute, tsundere, or mixed."
             )
         tarot_options = {
-            "tarot_enabled": _read_bool("KISARA_TAROT_ENABLED", default=True),
-            "tarot_spread_rate": _read_percent("KISARA_TAROT_SPREAD_RATE", 5),
-            "tarot_image_dir": os.environ.get(
-                "KISARA_TAROT_IMAGE_DIR", "data/kisara/tarotCards"
-            ).strip(),
+            "tarot_enabled": boolean(tarot_file, "enabled",
+                                     lambda: _read_bool("KISARA_TAROT_ENABLED", True), "tarot"),
+            "tarot_spread_rate": percent(tarot_file, "spread_rate",
+                                        lambda: _read_percent("KISARA_TAROT_SPREAD_RATE", 5), "tarot"),
+            "tarot_image_dir": string(tarot_file, "image_dir",
+                                      lambda: os.environ.get(
+                                          "KISARA_TAROT_IMAGE_DIR", "data/kisara/tarotCards"
+                                      ).strip(), "tarot"),
         }
         public_options = {
-            "saucenao_key": os.environ.get("SAUCENAO_API_KEY", "").strip(),
-            "music_api_url": os.environ.get("KISARA_MUSIC_API_URL", "").strip(),
-            "tianapi_key": os.environ.get("TIANAPI_KEY", "").strip(),
+            "saucenao_key": string(source_file, "api_key",
+                                   lambda: os.environ.get("SAUCENAO_API_KEY", "").strip(),
+                                   "source", allow_empty=True),
+            "music_api_url": string(music_file, "api_url",
+                                    lambda: os.environ.get("KISARA_MUSIC_API_URL", "").strip(),
+                                    "music", allow_empty=True),
+            "tianapi_key": string(love_file, "api_key",
+                                  lambda: os.environ.get("TIANAPI_KEY", "").strip(),
+                                  "love", allow_empty=True),
         }
         music_api_url = public_options["music_api_url"]
         if music_api_url and not music_api_url.startswith(("http://", "https://")):
             raise ConfigurationError("KISARA_MUSIC_API_URL must be an HTTP URL.")
-        news_push_groups = _read_csv("KISARA_NEWS_PUSH_GROUPS")
+        news_push_groups = words(news_file, "push_groups",
+                                 lambda: _read_csv("KISARA_NEWS_PUSH_GROUPS"), "news")
         if news_push_groups and not groups_enabled:
             raise ConfigurationError("News push requires KISARA_GROUPS_ENABLED=true.")
         if news_push_groups and engine != "onebot":
             raise ConfigurationError("Scheduled news push requires the OneBot engine.")
         if not news_push_groups.issubset(allowed_groups):
             raise ConfigurationError("News push groups must be in KISARA_ALLOWED_GROUPS.")
-        news_push_hour, news_push_minute = _read_clock_time("KISARA_NEWS_PUSH_TIME", "10:30")
+        news_time = string(news_file, "push_time",
+                           lambda: os.environ.get("KISARA_NEWS_PUSH_TIME", "10:30").strip(), "news")
+        news_push_hour, news_push_minute = _parse_clock_time(news_time, "news.push_time")
+        group_overrides = _merge_feature_group_overrides(
+            group_overrides, chat_file, tarot_file, allowed_groups
+        )
         state_dir = os.environ.get("KISARA_STATE_DIR", "data/kisara").strip()
         if not state_dir:
             raise ConfigurationError("KISARA_STATE_DIR must not be empty.")
@@ -227,10 +259,8 @@ def _read_percent(name: str, default: int) -> int:
     return percent
 
 
-def _read_clock_time(name: str, default: str) -> Tuple[int, int]:
+def _parse_clock_time(value: str, name: str) -> Tuple[int, int]:
     """Parse an HH:MM China Standard Time schedule."""
-
-    value = os.environ.get(name, default).strip()
     parts = value.split(":")
     if len(parts) != 2 or any(len(part) != 2 or not part.isdigit() for part in parts):
         raise ConfigurationError("{} must use HH:MM format.".format(name))
@@ -256,11 +286,6 @@ def _read_group_overrides(allowed_groups: FrozenSet[str]) -> Mapping[str, GroupO
     if not isinstance(document, dict):
         raise ConfigurationError("Group config must be a JSON object.")
     result: Dict[str, GroupOverride] = {}
-    chat_string_fields = {"bot_name", "sender_name"}
-    chat_percent_fields = {"trigger_rate", "similarity_rate"}
-    chat_list_fields = {"ignored_phrases", "banned_users", "always_reply_users"}
-    chat_bool_fields = {"enabled", "reply_to_mentions"}
-    chat_fields = chat_string_fields | chat_percent_fields | chat_list_fields | chat_bool_fields
     for group_id, value in document.items():
         if group_id not in allowed_groups:
             raise ConfigurationError("Group override is not in KISARA_ALLOWED_GROUPS: {}.".format(group_id))
@@ -268,33 +293,71 @@ def _read_group_overrides(allowed_groups: FrozenSet[str]) -> Mapping[str, GroupO
             raise ConfigurationError("Invalid group override for {}.".format(group_id))
         chat = value.get("chat", {})
         tarot = value.get("tarot", {})
-        if not isinstance(chat, dict) or set(chat) - chat_fields:
-            raise ConfigurationError("Invalid chat override for {}.".format(group_id))
         if not isinstance(tarot, dict) or set(tarot) - {"spread_rate"}:
             raise ConfigurationError("Invalid tarot override for {}.".format(group_id))
-        parsed_chat: Dict[str, object] = {}
-        for name, item in chat.items():
-            if name in chat_string_fields:
-                if not isinstance(item, str) or not item.strip():
-                    raise ConfigurationError("Invalid {} for group {}.".format(name, group_id))
-                parsed_chat[name] = item.strip()
-            elif name in chat_percent_fields:
-                parsed_chat[name] = _validate_percent(item, name, group_id)
-            elif name in chat_bool_fields:
-                if not isinstance(item, bool):
-                    raise ConfigurationError("Invalid {} for group {}.".format(name, group_id))
-                parsed_chat[name] = item
-            else:
-                if not isinstance(item, list) or any(
-                    not isinstance(entry, str) or not entry.strip() for entry in item
-                ):
-                    raise ConfigurationError("Invalid {} for group {}.".format(name, group_id))
-                parsed_chat[name] = frozenset(entry.strip() for entry in item)
+        parsed_chat = _parse_chat_override(chat, group_id)
         spread_rate = tarot.get("spread_rate")
         if spread_rate is not None:
             spread_rate = _validate_percent(spread_rate, "spread_rate", group_id)
         result[group_id] = GroupOverride(parsed_chat, spread_rate)
     return result
+
+
+def _merge_feature_group_overrides(
+    legacy: Mapping[str, GroupOverride], chat_file: Mapping[str, object],
+    tarot_file: Mapping[str, object], allowed_groups: FrozenSet[str],
+) -> Mapping[str, GroupOverride]:
+    """Apply each feature's group table over legacy group overrides."""
+    result = dict(legacy)
+    for group_id, value in groups(chat_file, "chat").items():
+        if group_id not in allowed_groups:
+            raise ConfigurationError("Chat group override is not allowed: {}.".format(group_id))
+        old = result.get(group_id, GroupOverride())
+        merged = dict(old.chat)
+        merged.update(_parse_chat_override(value, group_id))
+        result[group_id] = GroupOverride(merged, old.tarot_spread_rate)
+    for group_id, value in groups(tarot_file, "tarot").items():
+        if group_id not in allowed_groups:
+            raise ConfigurationError("Tarot group override is not allowed: {}.".format(group_id))
+        if not isinstance(value, dict) or set(value) - {"spread_rate"}:
+            raise ConfigurationError("Invalid tarot override for {}.".format(group_id))
+        old = result.get(group_id, GroupOverride())
+        rate = old.tarot_spread_rate
+        if "spread_rate" in value:
+            rate = _validate_percent(value["spread_rate"], "spread_rate", group_id)
+        result[group_id] = GroupOverride(old.chat, rate)
+    return result
+
+
+def _parse_chat_override(value: object, group_id: str) -> Mapping[str, object]:
+    """Validate one chat group's policy fields for JSON or TOML."""
+    string_fields = {"bot_name", "sender_name"}
+    percent_fields = {"trigger_rate", "similarity_rate"}
+    list_fields = {"ignored_phrases", "banned_users", "always_reply_users"}
+    bool_fields = {"enabled", "reply_to_mentions"}
+    if not isinstance(value, dict) or set(value) - (
+        string_fields | percent_fields | list_fields | bool_fields
+    ):
+        raise ConfigurationError("Invalid chat override for {}.".format(group_id))
+    parsed: Dict[str, object] = {}
+    for name, item in value.items():
+        if name in string_fields:
+            if not isinstance(item, str) or not item.strip():
+                raise ConfigurationError("Invalid {} for group {}.".format(name, group_id))
+            parsed[name] = item.strip()
+        elif name in percent_fields:
+            parsed[name] = _validate_percent(item, name, group_id)
+        elif name in bool_fields:
+            if not isinstance(item, bool):
+                raise ConfigurationError("Invalid {} for group {}.".format(name, group_id))
+            parsed[name] = item
+        else:
+            if not isinstance(item, list) or any(
+                not isinstance(entry, str) or not entry.strip() for entry in item
+            ):
+                raise ConfigurationError("Invalid {} for group {}.".format(name, group_id))
+            parsed[name] = frozenset(entry.strip() for entry in item)
+    return parsed
 
 
 def _validate_percent(value: object, name: str, group_id: str) -> int:

@@ -1,0 +1,3 @@
+# Every target must be in KISARA_ALLOWED_GROUPS, with groups enabled.
+push_groups = []
+push_time = "10:30" # China Standard Time, HH:MM

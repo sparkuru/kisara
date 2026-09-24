@@ -13,6 +13,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment, OutgoingMessage
+from kisara.application.services.forward_archive import ForwardArchive
 from kisara.config import Settings
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 
@@ -38,6 +39,7 @@ class OneBotV11Adapter:
         request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
         daily_news_factory: Optional[Callable[[], OutgoingMessage]] = None,
         delivery_store: Optional[NewsDeliveryStore] = None,
+        forward_archive: Optional[ForwardArchive] = None,
     ) -> None:
         """Create a forward-WebSocket adapter for the selected OneBot instance."""
 
@@ -60,6 +62,7 @@ class OneBotV11Adapter:
         self._allowed_users = settings.allowed_users
         self._allowed_groups = settings.allowed_groups
         self._groups_enabled = settings.groups_enabled
+        self._forward_archive = forward_archive
 
     def start(self) -> None:
         """Run the reconnecting adapter loop until interrupted or closed."""
@@ -120,8 +123,11 @@ class OneBotV11Adapter:
             self._status = "connected"
             _log.info("OneBot WebSocket connected")
             news_task = None
+            archive_task = None
             if self._daily_news_factory and self._delivery_store and self._news_push_groups:
                 news_task = asyncio.create_task(self._run_daily_news())
+            if self._forward_archive is not None:
+                archive_task = asyncio.create_task(self._forward_archive.run(self))
             try:
                 async for raw_packet in websocket:
                     packet = self._decode_packet(raw_packet)
@@ -131,6 +137,9 @@ class OneBotV11Adapter:
                 if news_task is not None:
                     news_task.cancel()
                     await asyncio.gather(news_task, return_exceptions=True)
+                if archive_task is not None:
+                    archive_task.cancel()
+                    await asyncio.gather(archive_task, return_exceptions=True)
                 self._websocket = None
                 if not self._stop_requested:
                     self._status = "disconnected"
@@ -205,6 +214,9 @@ class OneBotV11Adapter:
         """Run shared routing and reply through the source conversation."""
 
         try:
+            if self._forward_archive is not None:
+                if await self._forward_archive.handle(event, self):
+                    return
             if self._should_enrich_quote(event):
                 event = await self._enrich_quoted_message(event)
             loop = asyncio.get_running_loop()
@@ -336,6 +348,55 @@ class OneBotV11Adapter:
                 "message": message,
             }
         await self._request(action, params)
+
+    async def fetch_forward(self, identifier: str) -> Tuple[Mapping[str, Any], ...]:
+        """Fetch nested forward nodes through the OneBot API."""
+        if not identifier:
+            raise OneBotError("Forward message has no identifier")
+        response = await self._request("get_forward_msg", {"message_id": identifier, "id": identifier})
+        data = response.get("data")
+        if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+            raise OneBotError("Forward message response has no nodes")
+        return tuple(node for node in data["messages"] if isinstance(node, dict))
+
+    async def send_private(self, user_id: str, text: str, quote_id: str = "") -> str:
+        """Send a private text message, optionally quoting the first source message."""
+        message = []
+        if quote_id:
+            message.append({"type": "reply", "data": {"id": quote_id}})
+        message.append({"type": "text", "data": {"text": text}})
+        response = await self._request("send_private_msg", {
+            "user_id": _as_api_identifier(user_id), "message": message,
+        })
+        data = response.get("data")
+        return _as_identifier(data.get("message_id")) if isinstance(data, dict) else ""
+
+    async def media_location(self, media: Mapping[str, Any], refresh: bool = False) -> str:
+        """Resolve an attachment to a URL or a mounted NapCat cache path."""
+        current = str(media.get("url") or "")
+        if current and not refresh:
+            return current
+        file_id = str(media.get("file") or "")
+        if not file_id:
+            return current
+        action = {
+            "image": "get_image", "record": "get_record",
+        }.get(str(media.get("kind") or ""), "get_file")
+        params = {"file": file_id}
+        if action == "get_file":
+            params["file_id"] = file_id
+        try:
+            response = await self._request(action, params)
+        except OneBotError:
+            if current:
+                return current
+            raise
+        data = response.get("data")
+        if isinstance(data, dict):
+            resolved = str(data.get("url") or data.get("file") or "")
+            if resolved:
+                return resolved
+        return current
 
     @staticmethod
     def _encode_message(content: Union[str, OutgoingMessage]) -> Any:

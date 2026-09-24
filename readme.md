@@ -54,7 +54,9 @@ There are three runtime paths:
 1. Copy `.env.example` to `.env` and configure the selected engine. For
    OneBot, set `ONEBOT_WS_URL`, `ONEBOT_ACCESS_TOKEN`, and at least one ID in
    `KISARA_ALLOWED_USERS`. For the official engine, set `AppID` and
-   `AppSecret`.
+   `AppSecret`. Copy the examples for any features you want to configure from
+   `config/features/<feature>/config.toml.example` to `config.toml` in the
+   same directory.
 2. For local tests or the official engine, install the project and development dependencies:
 
    ```bash
@@ -118,46 +120,103 @@ The shared dispatcher supports these commands for allowed users:
 Aliases `/r` and `/dice` are accepted for `/roll`. In groups, every sender and
 group must be allowlisted. When phrasebook chat is enabled, ordinary group
 messages can trigger its configured random reply.
-Chat settings in `.env` control trigger probability, similarity threshold,
+`config/features/chat/config.toml` controls trigger probability, similarity threshold,
 display names, the `cute`, `tsundere`, or historical `mixed` phrasebook,
 ignored phrases, and per-user reply rules. The offline console uses the `cute`
 phrasebook with a
 100 percent trigger rate for direct exploration. The source CSV files stay
 separate, so their two styles do not mix during conversion. `mixed` preserves
 the old generated JSON for users who want its original reply pool.
-Tarot day boundaries use China Standard Time; `KISARA_TAROT_SPREAD_RATE`
+Tarot day boundaries use China Standard Time; `spread_rate` in
+`config/features/tarot/config.toml`
 controls how often plain `/tarot` selects a spread rather than one card.
 Place the legacy `tarotCards` directory at `data/kisara/tarotCards` to enable
 OneBot tarot pictures. It must contain the card image folders; the image name
 index is bundled with Kisara, so the old `tarot.json` is optional.
 The pictures are ignored by Git and excluded from the Python package and Docker
 image. Compose mounts this directory read-only into Kisara and NapCat at the
-same path. For a standalone OneBot run, set `KISARA_TAROT_IMAGE_DIR` to a path
+same path. For a standalone OneBot run, set `image_dir` in the tarot TOML to a path
 that both Kisara and the OneBot implementation can read. Without the directory,
 tarot replies remain text only. The official adapter currently sends text only.
-For per-group chat and tarot settings, copy `config/groups.example.json` to
-`config/groups.json`, replace the sample ID with an ID in `KISARA_ALLOWED_GROUPS`,
-and enable groups. Each group may contain `chat` and `tarot` objects. Chat
+For per-group chat and tarot settings, add a `[groups."GROUP_ID"]` table in
+the respective chat or tarot feature file. The ID must be in
+`KISARA_ALLOWED_GROUPS`, and groups must be enabled. Chat
 accepts `enabled`, `bot_name`, `sender_name`, `trigger_rate`, `similarity_rate`,
 `ignored_phrases`, `banned_users`, `always_reply_users`, and
 `reply_to_mentions`; tarot accepts `spread_rate`. Percentages range from 0 to
-100. Compose mounts the file read-only; it is ignored by Git. Restart Kisara
-after changing it. `KISARA_GROUP_CONFIG_PATH` selects a different path for a
-standalone run.
+100. Compose mounts `config` read-only; each `config.toml` is ignored by Git.
+Restart Kisara after changing a file. Existing `.env` feature values and
+`config/groups.json` remain fallback inputs; a value in its feature TOML takes
+precedence over the corresponding old setting.
 
 The shared dispatcher also supports `/news`, `/wallpaper`, `/ba <name>`,
 `/source [similarity]` with an attached image, `/music <song>`, and `/love`.
-`/source` needs `SAUCENAO_API_KEY`. `/music` needs a configured
-`KISARA_MUSIC_API_URL` pointing to a compatible local search API. `/love` needs
-`TIANAPI_KEY` for TianAPI's short text endpoint. The official
+`/source` needs `api_key` in `config/features/source/config.toml`. `/music`
+needs `api_url` in `config/features/music/config.toml` pointing to a compatible
+local search API. `/love` needs `api_key` in `config/features/love/config.toml`
+for TianAPI's short text endpoint. The official
 adapter sends image URLs as text; OneBot sends native image and music segments.
 Remote calls use a ten second timeout and return an error message if their
 provider is unavailable.
 On OneBot, `/source` also accepts a reply to an image message. `/recall`
 removes a quoted bot message; in groups it requires the caller's QQ role to be
 admin or owner, or their ID to be in `KISARA_ADMIN_USERS`.
+
+## Private forward archive
+
+Copy `config/features/forward_archive/config.toml.example` to
+`config/features/forward_archive/config.toml`, set `enabled = true`, and list
+the permitted private-chat users in `allowed_users`. Every listed user must
+also be in `KISARA_ALLOWED_USERS`. The feature is disabled when the file is
+absent. Restart Kisara after editing the file.
+
+The first image, video, file, voice message, or merged forward starts a batch.
+The bot waits `quiet_seconds` after the latest eligible message, but never
+collects beyond `max_collection_seconds` measured from the first message.
+The example fixes that maximum at 60 seconds. Merged forwards are expanded
+recursively within the configured `max_depth` and `max_nodes` limits. The bot
+quotes the first message, reports counts and unresolved nodes, then accepts
+`confirm_words` or `cancel_words` until `confirm_timeout_seconds` elapses.
+If several batches await confirmation, a plain confirmation selects the latest
+prompt; quote an earlier prompt to select its batch. Downloading
+starts only after confirmation; the final reply gives saved and failed counts.
+Repeat confirmation retries failed items without saving completed items again.
+
+`save_root` names the archive directory inside the Kisara container. Compose
+maps the host directory `data/kisara/forward-archive` to
+`/app/forward-archive` for both preview and deployment. The startup script
+creates the host directory with group access for the Kisara container. Set
+`KISARA_ARCHIVE_GID` in `.env` to the output of `id -g` if you run Compose
+directly on a host whose primary group ID is not 1000. For direct Compose
+usage, first run `mkdir -p data/kisara/forward-archive` and
+`chmod 2770 data/kisara/forward-archive`. OneBot development
+mode uses the same archive directory and the persistent SQLite state volume.
+Set `save_mode = "date_original"` for `YYYY-MM-DD/original-name`, or
+`save_mode = "timestamp_hash"` for files named with the batch's China Standard
+Time timestamp and a full SHA-256 digest. `max_file_bytes` and
+`max_batch_bytes` cap transfers. SQLite batch state lives in the existing
+`KISARA_STATE_DIR` volume, separate from the archived media. The offline
+`./dev.sh` console does not receive OneBot media; `./dev.sh --all` runs its
+automated tests.
+
+After confirming a batch, inspect saved files on the host with
+`ls -lah data/kisara/forward-archive` or open that directory in a file manager.
+Inside the running container, use
+`docker compose --env-file .env -f deploy/compose.yaml --project-name kisara exec kisara ls -lah /app/forward-archive`.
+The database remains in the `kisara_state` Docker volume; archive files are
+available directly under the host directory. Both storage locations persist
+after `./deploy.sh down`.
+
+NapCat may report forwarded video as a local cache path. Compose mounts its QQ
+cache read-only in Kisara at `/app/.config/QQ`; `local_media_root` and a
+NapCat media-directory allowlist constrain which paths may be copied. Media
+URLs are accepted only from HTTPS QQ media domains. If a source cannot be
+resolved or read, the confirmation reports it
+as failed instead of claiming it was saved.
+
 To send the daily brief automatically, enable groups, allowlist each target
-group, and set `KISARA_NEWS_PUSH_GROUPS` to a subset of those IDs. The default
+group, and set `push_groups` in `config/features/news/config.toml` to a subset
+of those IDs. The default
 push time is 10:30 China Standard Time. Kisara keeps a SQLite delivery record
 in a persistent Docker volume so a reconnect or restart does not resend an
 already delivered brief. If today's brief is late, it retries every 15 minutes.
@@ -167,7 +226,7 @@ migration decisions are in [docs/legacy-migration.md](docs/legacy-migration.md).
 
 For a self-hosted music search API, the optional Compose `music` profile uses
 the [NeteaseCloudMusicApiEnhanced Docker image](https://github.com/LittleChest/NeteaseCloudMusicApi#docker-%E9%83%A8%E7%BD%B2%E8%AF%B4%E6%98%8E).
-Set `KISARA_MUSIC_API_URL=http://music:3000` in `.env`, then start the service
+Set `api_url = "http://music:3000"` in the music feature TOML, then start the service
 with `docker compose --env-file .env -f deploy/compose.yaml --profile music up -d music`.
 The service is available only on the Compose network.
 

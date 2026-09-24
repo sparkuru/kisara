@@ -2,6 +2,7 @@
 .env
 .devhome
 data/
+/data/kisara/forward-archive/
 .pytest_cache/
 __pycache__/
 *.py[cod]
@@ -12,3 +13,4 @@ botpy.log
 # Keep any reintroduced historical snapshot out of Git
 /legacy-kisara-plugin/
 /config/groups.json
+/config/features/*/config.toml

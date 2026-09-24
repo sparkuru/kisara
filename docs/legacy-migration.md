@@ -9,15 +9,15 @@ is the feature inventory and the reference for deliberate behavior changes.
 | Legacy area | Current home or decision |
 | --- | --- |
 | `data/foods.json`, `apps/main.js` food command | Packaged `foods.json`; `/eat` and Chinese food command aliases. |
-| `data/chatLibrary`, `apps/chat.js`, `default/chat.chat.yaml` | Packaged original CSV phrasebooks and optional historical mixed JSON; exact and similar matching in `application/services/chat.py`. Global settings use environment variables; optional `config/groups.json` covers the old per-group overrides. |
+| `data/chatLibrary`, `apps/chat.js`, `default/chat.chat.yaml` | Packaged original CSV phrasebooks and optional historical mixed JSON; exact and similar matching in `application/services/chat.py`. Settings and per-group overrides use `config/features/chat/config.toml`; environment variables and `config/groups.json` remain fallback inputs. |
 | `apps/dice.js` | `/roll`, `/r`, `/dice` and old hash aliases. Multiple dice are independent draws; the old three-argument implementation sampled without replacement. Its TRPG methods were empty. |
-| `apps/tarot.js`, `default/tarot.tarot.yaml`, `data/tarotCards` | `/tarot`, `占卜`, 78 card interpretations and spreads in the Python package; group spread probabilities in `config/groups.json`. The optional local card pictures live at `data/kisara/tarotCards` and are sent through OneBot. Readings are stable per user and China Standard Time day, including across restarts. The old `刷新占卜` reset a Redis daily lock; the new repeatable daily reading has no lock to reset, so that command is retired. |
+| `apps/tarot.js`, `default/tarot.tarot.yaml`, `data/tarotCards` | `/tarot`, `占卜`, 78 card interpretations and spreads in the Python package; group spread probabilities in `config/features/tarot/config.toml`. The optional local card pictures live at `data/kisara/tarotCards` and are sent through OneBot. Readings are stable per user and China Standard Time day, including across restarts. The old `刷新占卜` reset a Redis daily lock; the new repeatable daily reading has no lock to reset, so that command is retired. |
 | `apps/apis.js` | `/love`, `/source`, `/wallpaper`, `/music`, and `/ba` in `application/services/public.py`; image/music segments on OneBot. The old love endpoint failed and was replaced with TianAPI, which needs a key. Source search and music also need configured providers. |
 | `apps/schedule.js` | `/news` fetches a current provider. Optional daily push uses a persistent SQLite delivery record. Old delete-news removed a local image cache; there is no local news image cache now, so it is retired. Manual `推送每日简报` is replaced by `/news` plus configured scheduled groups. |
 | `apps/main.js` help and recall | `/help` and OneBot `/recall` of a quoted bot message; older `ahelp` and `撤回` aliases are accepted. |
 | `utils/tools.js` | Only needed behavior is implemented within the new services, dispatcher, adapter, and config. Yunzai Redis keys, forwarded-message construction, and broad utility APIs are not needed by the new runtime. |
 | `utils/gachaSupport.py` | An isolated probability prototype with no working bot command in the snapshot. It depends on historical game rules and is outside the migrated bot feature set. |
-| `default/index.config.yaml` | Global chat/tarot switches and provider credentials live in `.env`; group overrides use `config/groups.json`. |
+| `default/index.config.yaml` | Chat, tarot, news, source, music, and love settings each use `config/features/<name>/config.toml`; existing `.env` and `config/groups.json` values remain compatibility fallbacks. |
 
 The old global per-command YAML switches and two-hour cooldown for some API
 commands were not copied. The new bot uses user/group allowlists, global chat

@@ -1,0 +1,8 @@
+enabled = true
+spread_rate = 5
+# Compose shares this directory with NapCat; use a shared path for standalone runs.
+image_dir = "/app/tarot-cards"
+
+# Optional group-specific override; the ID must be in KISARA_ALLOWED_GROUPS.
+# [groups."123456789"]
+# spread_rate = 20

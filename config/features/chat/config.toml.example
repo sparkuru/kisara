@@ -1,0 +1,15 @@
+enabled = true
+bot_name = "Kisara"
+sender_name = "you"
+library = "cute" # cute, tsundere, or mixed
+trigger_rate = 30
+similarity_rate = 60
+ignored_phrases = []
+banned_users = []
+always_reply_users = []
+reply_to_mentions = true
+
+# Optional group-specific overrides; the ID must be in KISARA_ALLOWED_GROUPS.
+# [groups."123456789"]
+# enabled = true
+# trigger_rate = 50

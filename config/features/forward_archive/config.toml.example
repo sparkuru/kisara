@@ -1,0 +1,21 @@
+enabled = false
+allowed_users = ["123456789"]
+
+# Close after this much silence, or at the fixed deadline from the first message.
+quiet_seconds = 10
+max_collection_seconds = 60
+confirm_timeout_seconds = 1800
+confirm_words = ["保存", "ok", "yes"]
+cancel_words = ["取消", "cancel"]
+
+# date_original: YYYY-MM-DD/original-name; timestamp_hash: timestamp-sha256.ext
+save_mode = "date_original"
+save_root = "/app/forward-archive"
+
+max_file_bytes = 104857600
+max_batch_bytes = 1073741824
+max_depth = 5
+max_nodes = 500
+
+# Read-only NapCat cache mount, needed for forwarded videos with local paths.
+local_media_root = "/app/.config/QQ"
