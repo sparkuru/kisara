@@ -20,7 +20,7 @@ class SetuConfig:
     allowed_users: FrozenSet[str]
     confirm_timeout_seconds: int
     confirm_words: Tuple[str, ...]
-    cancel_words: Tuple[str, ...]
+    direct_confirm_words: Tuple[str, ...]
     save_root: Path
     save_mode: str
     max_file_bytes: int
@@ -43,9 +43,9 @@ class SetuConfig:
             raise ConfigurationError("Setu config must be a TOML table.")
         expected = {
             "enabled", "allowed_users",
-            "confirm_timeout_seconds", "confirm_words", "cancel_words", "save_root",
+            "confirm_timeout_seconds", "confirm_words", "direct_confirm_words", "save_root",
             "save_mode", "max_file_bytes", "max_batch_bytes", "max_depth", "max_nodes",
-            "local_media_root",
+            "local_media_root", "cancel_words",
         }
         if set(values) - expected:
             raise ConfigurationError("Unknown setu config keys: {}.".format(
@@ -54,12 +54,15 @@ class SetuConfig:
         if not isinstance(enabled, bool):
             raise ConfigurationError("Setu enabled must be a boolean.")
         allowed_users = _words(values.get("allowed_users", []), "allowed_users")
-        confirm_words = _ordered_words(values.get("confirm_words", ["确认"]), "confirm_words")
-        cancel_words = _ordered_words(values.get("cancel_words", ["取消"]), "cancel_words")
-        if set(confirm_words) & set(cancel_words) or not confirm_words or not cancel_words:
-            raise ConfigurationError("Setu confirmation and cancellation words must be distinct.")
-        if "/setu" in cancel_words:
-            raise ConfigurationError("Setu /setu cannot be a cancellation word.")
+        confirm_words = _ordered_words(values.get("confirm_words", ["保存"]), "confirm_words")
+        direct_words = _ordered_words(
+            values.get("direct_confirm_words", ["直接保存"]), "direct_confirm_words",
+        )
+        if not confirm_words or not direct_words:
+            raise ConfigurationError("Setu confirmation word lists must not be empty.")
+        if set(direct_words) & (set(confirm_words) | {"保存", "确认", "setu", "/setu"}):
+            raise ConfigurationError("Setu direct confirmation words must be distinct from prompt words.")
+        # Legacy cancel_words is accepted but no longer consumed by the workflow.
         save_mode = values.get("save_mode", "date_original")
         if not isinstance(save_mode, str) or save_mode not in {"date_original", "timestamp_hash"}:
             raise ConfigurationError("Setu save_mode must be date_original or timestamp_hash.")
@@ -67,8 +70,8 @@ class SetuConfig:
         local_root = _path(values.get("local_media_root", "/app/.config/QQ"), "local_media_root")
         config = cls(
             enabled, allowed_users,
-            _positive_int(values.get("confirm_timeout_seconds", 1800), "confirm_timeout_seconds"),
-            confirm_words, cancel_words, save_root, save_mode,
+            _positive_int(values.get("confirm_timeout_seconds", 60), "confirm_timeout_seconds"),
+            confirm_words, direct_words, save_root, save_mode,
             _positive_int(values.get("max_file_bytes", 104857600), "max_file_bytes"),
             _positive_int(values.get("max_batch_bytes", 1073741824), "max_batch_bytes"),
             _positive_int(values.get("max_depth", 5), "max_depth"),
@@ -82,8 +85,8 @@ class SetuConfig:
     @classmethod
     def disabled(cls) -> "SetuConfig":
         """Build inert defaults for installations without a feature config."""
-        return cls(False, frozenset(), 1800,
-                   ("确认",), ("取消",),
+        return cls(False, frozenset(), 60,
+                   ("保存",), ("直接保存",),
                    Path("data/kisara/setu"), "date_original",
                    104857600, 1073741824, 5, 500, Path("/app/.config/QQ"))
 

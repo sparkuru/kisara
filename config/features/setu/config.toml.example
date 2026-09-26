@@ -2,10 +2,11 @@ enabled = false
 allowed_users = ["123456789"]
 
 # Quote a merged forward and send 保存, setu, or /setu to get a confirmation prompt.
-confirm_timeout_seconds = 1800
-# Quote the bot prompt and send 确认 or 取消. The first word is shown; later words are aliases.
-confirm_words = ["确认"]
-cancel_words = ["取消", "cancel"]
+confirm_timeout_seconds = 60
+# Quote the bot prompt to save. The first word is shown; later words are aliases.
+confirm_words = ["保存"]
+# Quote a merged forward with one of these words to save without a prompt.
+direct_confirm_words = ["直接保存"]
 
 # date_original: YYYY-MM-DD/original-name; timestamp_hash: timestamp-sha256.ext
 save_mode = "date_original"

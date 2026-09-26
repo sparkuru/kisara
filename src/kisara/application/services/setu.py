@@ -5,12 +5,15 @@ list allowed_users already present in KISARA_ALLOWED_USERS. A missing file
 disables the feature. Ordinary media and unquoted forwards get no automatic
 archive reply. Quote a merged forward with 保存, setu, or /setu to create one
 confirmation prompt; nested forwards obey max_depth and max_nodes. Quote the
-prompt and reply 确认 to save or 取消 to cancel before confirm_timeout_seconds.
-The prompt displays the first configured confirmation and cancellation words;
-later words remain accepted aliases. Setu replies use pangu spacing.
+prompt and reply 保存 to save before confirm_timeout_seconds (default 60s).
+Quote the forward with direct_confirm_words (default 直接保存) to save immediately
+without a question. The prompt displays the first configured confirmation word;
+later words and 确认 remain accepted aliases. Cancellation words are ignored.
+Legacy cancel_words config is accepted but inert. Setu replies use pangu spacing.
 Downloads start only after confirmation; the result reports saved and failed
 counts and the actual save directory.
 Repeating confirmation retries failed items without replacing completed files.
+For a direct save, quote its result to retry failures with the confirmation word.
 
 save_mode=date_original uses YYYY-MM-DD/original-name; timestamp_hash uses a
 China Standard Time timestamp and SHA-256 filename. max_file_bytes and
@@ -84,6 +87,11 @@ class Setu:
         self._transfer_slots: Optional[asyncio.Semaphore] = None
         self._transfer_loop: Optional[asyncio.AbstractEventLoop] = None
 
+    def is_start_word(self, text: str) -> bool:
+        """Share quoted-forward trigger recognition with the transport adapter."""
+        word = text.strip().casefold()
+        return word in SETU_START_WORDS or word in self._config.direct_confirm_words
+
     async def handle(self, event: MessageEvent, gateway: SetuGateway) -> bool:
         """Consume an authorized merged forward or a pending confirmation."""
         if event.engine != "onebot" or event.conversation_kind != "private":
@@ -93,7 +101,7 @@ class Setu:
         now = time.time()
         word = event.text.strip().casefold()
         forwards = tuple(segment for segment in event.segments if segment.kind == "forward")
-        if word in SETU_START_WORDS and event.reply_context.get("setu_source_id") and forwards:
+        if self.is_start_word(word) and event.reply_context.get("setu_source_id") and forwards:
             media, unsupported = await self._extract(forwards, gateway)
             if not media and not unsupported:
                 await self._reply(gateway, event.sender_id, "这条转发中没有可保存的附件。")
@@ -102,18 +110,37 @@ class Setu:
             batch = self._store.add_setu(
                 event.instance_id, event.sender_id, source_id, media, unsupported, now,
             )
-            if batch is not None:
+            if word in self._config.direct_confirm_words:
+                await self._save_direct(batch, event, gateway, source_id, now)
+            elif batch is not None:
                 await self._prompt(batch, gateway, now)
                 _log.info("Prompted setu for private user %s", event.sender_id)
             return True
-        if (word in self._config.confirm_words or
-                word in self._config.cancel_words or word in {"确认", "取消"}):
-            await self._confirmation(event, gateway, word, now)
+        if word in self._config.confirm_words or word in {"保存", "确认"}:
+            await self._confirmation(event, gateway, now)
             return True
-        if word in SETU_START_WORDS:
+        if self.is_start_word(word):
             await self._reply(gateway, event.sender_id, "请引用合并转发并发送保存、setu 或 /setu。")
             return True
         return False
+
+    async def _save_direct(self, batch: Optional[Mapping[str, Any]],
+                           event: MessageEvent, gateway: SetuGateway,
+                           source_id: str, now: float) -> None:
+        """Claim a new or pending source without sending a confirmation prompt."""
+        if batch is None:
+            batch = next((item for item in self._store.awaiting(
+                event.instance_id, event.sender_id, now,
+            ) if item["first_message_id"] == source_id), None)
+        if batch is None:
+            await self._reply(gateway, event.sender_id, "这批附件正在处理或已经处理。")
+            return
+        self._store.mark_awaiting(batch["id"], now + self._config.confirm_timeout_seconds)
+        self._store.set_prompt(batch["id"], source_id)
+        if not self._store.claim_save(batch["id"], now):
+            await self._reply(gateway, event.sender_id, "这批附件正在处理或已经处理。")
+            return
+        await self._save(batch, gateway, direct=True)
 
     async def run(self, gateway: SetuGateway) -> None:
         """Retry interrupted prompts while the adapter is connected."""
@@ -206,10 +233,10 @@ class Setu:
         counts = {kind: sum(item["kind"] == kind for item in media) for kind in MEDIA_KINDS}
         summary = (
             "这条合并转发共 {} 张图片、{} 个视频、{} 个文件；\n"
-            '引用这条消息并回复 "{}" 以保存，或回复 "{}" 以撤销。'
+            '引用这条消息并回复 "{}" 以保存（超时 {}s 后自动取消）。'
         ).format(
             counts["image"], counts["video"], counts["file"],
-            self._config.confirm_words[0], self._config.cancel_words[0],
+            self._config.confirm_words[0], self._config.confirm_timeout_seconds,
         )
         try:
             prompt_id = await self._reply(
@@ -221,8 +248,7 @@ class Setu:
             _log.exception("Could not send setu confirmation")
 
     async def _confirmation(self, event: MessageEvent,
-                            gateway: SetuGateway, word: str,
-                            now: float) -> None:
+                            gateway: SetuGateway, now: float) -> None:
         """Apply a confirmation only to the quoted prompt."""
         batches = self._store.awaiting(event.instance_id, event.sender_id, now)
         quoted = str(event.reply_context.get("quoted_message_id") or "")
@@ -232,16 +258,13 @@ class Setu:
             answer = "没有可确认的归档批次。" if not batches else "请引用对应的归档提示后再确认。"
             await self._reply(gateway, event.sender_id, answer)
             return
-        if word in self._config.cancel_words or word == "取消":
-            self._store.finish(selected["id"], "cancelled")
-            await self._reply(gateway, event.sender_id, "已取消这批附件的保存。")
-            return
         if not self._store.claim_save(selected["id"], now):
             await self._reply(gateway, event.sender_id, "这批附件正在处理或已经处理。")
             return
         await self._save(selected, gateway)
 
-    async def _save(self, batch: Mapping[str, Any], gateway: SetuGateway) -> None:
+    async def _save(self, batch: Mapping[str, Any], gateway: SetuGateway,
+                    direct: bool = False) -> None:
         """Checkpoint each item so a restart can retry only unfinished media."""
         media = json.loads(batch["media_json"])
         total = sum(int(item.get("saved_size", 0)) for item in media)
@@ -289,10 +312,13 @@ class Setu:
         answer += "保存目录：{}。".format("、".join(directories) if directories
                                        else str(self._config.save_root))
         if failures:
-            answer += "可再次回复“{}”重试失败项。".format(
+            answer += ("请引用这条结果消息并回复“{}”重试失败项。" if direct else
+                       "可再次回复“{}”重试失败项。").format(
                 self._config.confirm_words[0],
             )
-        await self._reply(gateway, batch["user_id"], answer)
+        result_id = await self._reply(gateway, batch["user_id"], answer)
+        if direct and failures and result_id:
+            self._store.set_prompt(batch["id"], result_id)
 
     async def _reply(self, gateway: SetuGateway, user_id: str, text: str,
                      quote_id: str = "") -> str:

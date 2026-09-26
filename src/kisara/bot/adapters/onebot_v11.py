@@ -16,7 +16,7 @@ from kisara.bot.contracts import (
     MessageEvent, MessageHandler, MessageSegment, OutgoingMessage,
 )
 from kisara.application.services.export_img import handle_export_img
-from kisara.application.services.setu import SETU_START_WORDS, Setu
+from kisara.application.services.setu import Setu
 from kisara.config import Settings
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 
@@ -223,7 +223,7 @@ class OneBotV11Adapter:
                 if (self._is_authorized(event) and
                         event.conversation_kind == "private" and
                         event.reply_context.get("quoted_message_id") and
-                        event.text.strip().casefold() in SETU_START_WORDS):
+                        self._setu.is_start_word(event.text)):
                     quoted, _ = await self.quoted_message(event)
                     forwards = tuple(segment for segment in quoted if segment.kind == "forward")
                     if forwards:

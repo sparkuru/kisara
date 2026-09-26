@@ -49,14 +49,14 @@ def _adapter(timeout: float = 0.1) -> OneBotV11Adapter:
 
 
 async def _wait_for_requests(
-    websocket: FakeWebSocket, count: int
+    websocket: FakeWebSocket, count: int, delay: float = 0,
 ) -> None:
     """Wait until the adapter has emitted the expected request count."""
 
     for _ in range(100):
         if len(websocket.sent) >= count:
             return
-        await asyncio.sleep(0)
+        await asyncio.sleep(delay)
     raise AssertionError("adapter did not emit the expected requests")
 
 
@@ -317,7 +317,7 @@ async def _test_quoted_setu_prompts_once_for_source_forward(
     assert prompt["params"]["message"][0] == {"type": "reply", "data": {"id": "42"}}
     assert prompt["params"]["message"][1]["data"]["text"] == (
         "这条合并转发共 1 张图片、0 个视频、0 个文件；\n"
-        '引用这条消息并回复 "确认" 以保存，或回复 "取消" 以撤销。'
+        '引用这条消息并回复 "保存" 以保存（超时 60s 后自动取消）。'
     )
     adapter._resolve_pending({
         "echo": prompt["echo"], "status": "ok", "retcode": 0,
@@ -339,6 +339,115 @@ async def _test_quoted_setu_prompts_once_for_source_forward(
     })
     await repeat_task
     assert len(websocket.sent) == 3
+
+
+@pytest.mark.parametrize("word", ["直接保存", "archive-now"])
+def test_quoted_direct_save_returns_result_without_question(
+    tmp_path: Path, word: str,
+) -> None:
+    """Default and configured direct commands fetch a quote and save immediately."""
+    asyncio.run(_test_quoted_direct_save_returns_result_without_question(tmp_path, word))
+
+
+async def _test_quoted_direct_save_returns_result_without_question(
+    tmp_path: Path, word: str,
+) -> None:
+    """Drive an allowed local media source through quote lookup and result send."""
+    adapter = _adapter(timeout=2)
+    adapter._allowed_users = frozenset({"123"})
+    config = replace(
+        SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+        direct_confirm_words=(word,), save_root=tmp_path / "archive",
+        local_media_root=tmp_path / "cache",
+    )
+    source = config.local_media_root / "nt_qq_test" / "nt_data" / "Pic" / "direct.jpg"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"direct-media")
+    adapter._setu = Setu(config, str(tmp_path / "state"))
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    task = asyncio.create_task(adapter._process_event(_quoted_event(word)))
+    await _wait_for_requests(websocket, 1)
+    assert websocket.sent[0]["action"] == "get_msg"
+    adapter._resolve_pending({
+        "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "user_id": 123,
+                 "message": [{"type": "forward", "data": {"id": "direct", "content": [
+                     {"message": [{"type": "image", "data": {
+                         "file": source.name, "url": str(source)}}]},
+                 ]}}]},
+    })
+    await _wait_for_requests(websocket, 2, delay=0.01)
+    result = websocket.sent[1]
+    assert result["action"] == "send_private_msg"
+    assert len(result["params"]["message"]) == 1
+    result_text = result["params"]["message"][0]["data"]["text"]
+    assert "已保存 1 项，失败 0 项" in result_text
+    assert "引用这条消息并回复" not in result_text
+    assert next(config.save_root.rglob("direct.jpg")).read_bytes() == b"direct-media"
+    adapter._resolve_pending({
+        "echo": result["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_id": 500},
+    })
+    await task
+    assert len(websocket.sent) == 2
+
+
+@pytest.mark.parametrize("conversation_kind, allowed", [("private", False), ("group", True)])
+def test_direct_save_does_not_fetch_unauthorized_or_group_quotes(
+    tmp_path: Path, conversation_kind: str, allowed: bool,
+) -> None:
+    """The configured direct trigger preserves sender and private-chat boundaries."""
+    async def scenario() -> None:
+        """Reject archive routing before making any OneBot API call."""
+        adapter = _adapter()
+        adapter._allowed_users = frozenset({"123"}) if allowed else frozenset()
+        adapter._setu = Setu(replace(
+            SetuConfig.disabled(), enabled=True,
+            allowed_users=frozenset({"123"}) if allowed else frozenset(),
+            direct_confirm_words=("archive-now",),
+        ), str(tmp_path))
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        event = replace(_quoted_event("archive-now"), conversation_kind=conversation_kind)
+        await adapter._process_event(event)
+        assert not websocket.sent
+        assert not SetuStore(str(tmp_path)).due(float("inf"))
+
+    asyncio.run(scenario())
+
+
+def test_direct_save_rejects_quoted_forward_from_another_private_chat(tmp_path: Path) -> None:
+    """A configured alias cannot save attachments from an unrelated conversation."""
+    async def scenario() -> None:
+        """Return an unrelated sender for an otherwise valid forwarded message."""
+        adapter = _adapter()
+        adapter._allowed_users = frozenset({"123"})
+        adapter._setu = Setu(replace(
+            SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+            direct_confirm_words=("archive-now",),
+        ), str(tmp_path))
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        task = asyncio.create_task(adapter._process_event(_quoted_event("archive-now")))
+        await _wait_for_requests(websocket, 1)
+        adapter._resolve_pending({
+            "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+            "data": {"message_type": "private", "user_id": 456,
+                     "message": [{"type": "forward", "data": {"id": "foreign", "content": [
+                         {"message": [{"type": "image", "data": {"file": "private.jpg"}}]},
+                     ]}}]},
+        })
+        await _wait_for_requests(websocket, 2)
+        response = websocket.sent[1]
+        assert response["params"]["message"] == [
+            {"type": "text", "data": {"text": "请引用合并转发并发送保存、setu 或 /setu。"}},
+        ]
+        adapter._resolve_pending({"echo": response["echo"], "status": "ok", "retcode": 0})
+        await task
+        assert not SetuStore(str(tmp_path)).due(float("inf"))
+
+    asyncio.run(scenario())
 
 
 def test_setu_prompt_quotes_first_message_and_returns_prompt_id() -> None:
