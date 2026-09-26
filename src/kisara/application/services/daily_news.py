@@ -17,12 +17,21 @@ The temporary HTML cache is scoped to the current operating-system user and
 prunes older pages on the next HTML read. A failed or stale fetch is not cached,
 so the next request can retry. No database is used for source content.
 
-Optional OneBot daily push uses push_groups, a subset of allowed groups, and
-push_time (default 10:30 China Standard Time) in the same feature file. It
-records successful group sends in KISARA_STATE_DIR/news_delivery.sqlite3 so
-reconnects and restarts do not resend a delivered brief. A late or failed
-delivery retries every 15 minutes. Group push requires enabled groups and the
-OneBot engine; ordinary /news requests do not need a group subscription.
+Optional OneBot daily push uses push_groups (allowed groups with groups enabled)
+and push_users (canonical positive decimal QQ strings in KISARA_ALLOWED_USERS).
+Private push works with groups disabled. Both share push_time (default 10:30
+China Standard Time). Missing push_users falls back to comma-separated
+KISARA_NEWS_PUSH_USERS; explicit TOML, including [], wins. Empty target lists
+disable scheduled push. The connected-session adapter loop creates one payload
+per pending iteration and records confirmed sends in separate deliveries and
+private_deliveries tables in KISARA_STATE_DIR/news_delivery.sqlite3 (Compose
+/app/state on kisara_state). Existing group records remain valid. Both tables
+retain 30 days of completion history. Failed or unrecorded sends retry after
+15 minutes; a late connection catches up today only, with no historical backfill.
+Disconnect cancels the loop; reconnect checks durable state before sending.
+Unknown remote outcomes or failed local writes can still cause duplicates.
+Private delivery depends on the logged-in QQ account being able to contact the
+recipient. Ordinary /news requests do not need a scheduled subscription.
 """
 
 import base64

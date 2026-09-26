@@ -4,16 +4,20 @@ import asyncio
 import json
 import time
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import pytest
 
 from kisara.application.services.setu import Setu
+from kisara.bot.adapters import onebot_v11
 from kisara.bot.adapters.onebot_v11 import OneBotError, OneBotV11Adapter
 from kisara.bot.contracts import MessageEvent, MessageSegment, OutgoingMessage
 from kisara.config import Settings
 from kisara.config.setu import SetuConfig
+from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 from kisara.infrastructure.persistence.setu import SetuStore
 
 
@@ -492,3 +496,159 @@ async def _test_setu_fetches_forward_nodes() -> None:
         "data": {"messages": [{"message": [{"type": "image", "data": {"file": "a.jpg"}}]}]},
     })
     assert len(await task) == 1
+
+
+class NewsSession(FakeWebSocket):
+    """Drive a connected scheduler through incoming protocol responses and closure."""
+
+    def __init__(self) -> None:
+        """Create a controllable WebSocket session without network traffic."""
+        super().__init__()
+        self.incoming: asyncio.Queue = asyncio.Queue()
+        self.request_sent = asyncio.Event()
+
+    async def __aenter__(self) -> "NewsSession":
+        """Expose the fake session to the normal connection lifecycle."""
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        """Leave cleanup to the adapter's connection finally block."""
+
+    def __aiter__(self) -> "NewsSession":
+        """Read injected packets until the session is disconnected."""
+        return self
+
+    async def __anext__(self) -> str:
+        """A None sentinel closes the simulated connection."""
+        packet = await self.incoming.get()
+        if packet is None:
+            raise StopAsyncIteration
+        return json.dumps(packet)
+
+    async def send(self, payload: str) -> None:
+        """Notify the test when the real request path writes a packet."""
+        await super().send(payload)
+        self.request_sent.set()
+
+
+def test_private_news_disconnect_cancels_and_reconnect_recovers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Personal-only sessions cancel unconfirmed sends, retry and retain successes."""
+    asyncio.run(_test_private_news_disconnect_cancels_and_reconnect_recovers(monkeypatch, tmp_path))
+
+
+async def _test_private_news_disconnect_cancels_and_reconnect_recovers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Run three sessions through cancellation, confirmation and restart deduplication."""
+    store = NewsDeliveryStore(str(tmp_path))
+    settings = Settings(
+        "onebot", "test", frozenset({"123"}), False, frozenset(),
+        onebot_ws_url="ws://fake", onebot_access_token="test-token",
+        news_push_users=frozenset({"123"}),
+    )
+    factory_calls = []
+
+    def factory() -> OutgoingMessage:
+        """Build the shared dated text and image outside the event loop."""
+        factory_calls.append(True)
+        return OutgoingMessage("2026-09-27", ("base64://news",))
+
+    adapter = OneBotV11Adapter(settings, lambda event: None,
+                              daily_news_factory=factory, delivery_store=store)
+    due = datetime(2026, 9, 27, 10, 30, tzinfo=timezone(timedelta(hours=8)))
+    monkeypatch.setattr(onebot_v11, "datetime", SimpleNamespace(now=lambda zone: due))
+    sessions = [NewsSession(), NewsSession(), NewsSession()]
+    remaining = iter(sessions)
+    monkeypatch.setattr(onebot_v11.websockets, "connect", lambda *args, **kwargs: next(remaining))
+    starts = []
+    finishes = []
+    active = []
+    started = asyncio.Event()
+    run_news = adapter._run_daily_news
+
+    async def tracked_news() -> None:
+        """Assert cleanup finishes before another connected scheduler can start."""
+        assert not active
+        active.append(asyncio.current_task())
+        starts.append(True)
+        started.set()
+        try:
+            await run_news()
+        finally:
+            finishes.append(True)
+            active.clear()
+
+    monkeypatch.setattr(adapter, "_run_daily_news", tracked_news)
+    first = asyncio.create_task(adapter._run_connection())
+    await asyncio.wait_for(sessions[0].request_sent.wait(), timeout=2)
+    assert sessions[0].sent[0]["action"] == "send_private_msg"
+    assert not store.was_private_sent("2026-09-27", "123")
+    await sessions[0].incoming.put(None)
+    with pytest.raises(OneBotError, match="closed"):
+        await asyncio.wait_for(first, timeout=2)
+    assert len(finishes) == 1 and not active and not adapter._pending
+
+    second = asyncio.create_task(adapter._run_connection())
+    await asyncio.wait_for(sessions[1].request_sent.wait(), timeout=2)
+    request = sessions[1].sent[0]
+    assert request["action"] == "send_private_msg"
+    assert request["params"] == {
+        "user_id": 123, "message": [
+            {"type": "text", "data": {"text": "2026-09-27"}},
+            {"type": "image", "data": {"file": "base64://news"}},
+        ],
+    }
+    await sessions[1].incoming.put({"echo": request["echo"], "status": "ok", "retcode": 0})
+    for _ in range(100):
+        if store.was_private_sent("2026-09-27", "123"):
+            break
+        await asyncio.sleep(0.001)
+    assert store.was_private_sent("2026-09-27", "123")
+    await sessions[1].incoming.put(None)
+    with pytest.raises(OneBotError, match="closed"):
+        await asyncio.wait_for(second, timeout=2)
+    assert len(finishes) == 2 and not active
+
+    adapter._delivery_store = NewsDeliveryStore(str(tmp_path))
+    started.clear()
+    third = asyncio.create_task(adapter._run_connection())
+    await asyncio.wait_for(started.wait(), timeout=2)
+    await asyncio.sleep(0)
+    await sessions[2].incoming.put(None)
+    with pytest.raises(OneBotError, match="closed"):
+        await asyncio.wait_for(third, timeout=2)
+    assert not sessions[2].sent
+    assert len(factory_calls) == 2
+    assert len(starts) == len(finishes) == 3
+    assert not active and not adapter._pending
+
+
+def test_empty_news_targets_do_not_start_connection_scheduler(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Injected dependencies alone do not enable scheduled sending."""
+    async def scenario() -> None:
+        """Close an empty-target session after giving background tasks a chance to run."""
+        adapter = _adapter()
+        adapter._daily_news_factory = lambda: OutgoingMessage("news")
+        adapter._delivery_store = NewsDeliveryStore(str(tmp_path))
+        session = NewsSession()
+        started = []
+
+        async def news() -> None:
+            """Detect an incorrectly enabled scheduler."""
+            started.append(True)
+
+        monkeypatch.setattr(adapter, "_run_daily_news", news)
+        monkeypatch.setattr(onebot_v11.websockets, "connect", lambda *args, **kwargs: session)
+        connection = asyncio.create_task(adapter._run_connection())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await session.incoming.put(None)
+        with pytest.raises(OneBotError, match="closed"):
+            await asyncio.wait_for(connection, timeout=2)
+        assert not started and not session.sent
+
+    asyncio.run(scenario())

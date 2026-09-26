@@ -190,6 +190,47 @@ fonts are tried. A layout version change
 regenerates older images automatically. After changing fonts, remove that day's
 cached PNG to regenerate it.
 
+For scheduled OneBot news, copy `config/features/news/config.toml.example` to
+`config/features/news/config.toml` if needed and configure personal QQ numbers
+as strings:
+
+```toml
+push_groups = []
+push_users = ["123456789", "987654321"]
+push_time = "10:30"
+```
+
+Add each personal recipient to `KISARA_ALLOWED_USERS` in `.env`. Numbers must
+be positive decimal strings without leading zeros. Private push works with
+`KISARA_GROUPS_ENABLED=false`; configured groups still require enabled groups
+and membership in `KISARA_ALLOWED_GROUPS`. Both target kinds share `push_time`
+in UTC+8 (default 10:30), and scheduled push requires the OneBot engine.
+An empty `push_users` disables private push; an empty `push_groups` disables
+group push. Without the TOML key, `KISARA_NEWS_PUSH_USERS` provides a
+comma-separated fallback; explicit TOML values, including `[]`, take precedence.
+Restart Kisara through the normal deployment path after configuration changes;
+the running process does not reload feature configuration.
+
+The connection owns one news loop. At the due time it sends the same dated
+text and image to pending groups and users. It records only confirmed successes
+in `news_delivery.sqlite3` under `KISARA_STATE_DIR` (Compose `/app/state` in
+`kisara_state`). Group `deliveries` and `private_deliveries` are separate, so
+equal user/group numbers do not collide. Initialization preserves old group
+records; completion writes prune both tables beyond 30 days. Failed or
+unrecorded targets retry after 15 minutes without resending recorded successes.
+Late startup catches up today's news only. Disconnect cancels the task, and
+reconnect consults durable state. An unknown remote result or failed local
+completion write may still lead to duplicate delivery.
+
+For live acceptance, use an allowed QQ recipient the logged-in account can
+contact, set a shared time a few minutes ahead, restart Kisara, and confirm the
+dated image arrives in that private chat. After receipt, restart Kisara again
+on the same day and confirm no extra news arrives. When configured, group
+delivery should still arrive at the shared time. Restore the intended schedule
+afterward. Simulated protocol tests do not prove actual QQ reachability.
+When rolling back to an older version, remove `push_users` from runtime TOML
+before startup; the added private table can remain alongside the group table.
+
 For the setu archive, Compose maps `data/kisara/setu` to `/app/setu` and keeps
 SQLite state in the `kisara_state` volume. The startup wrapper prepares the
 host directory. With direct Compose usage, create and grant group access first:

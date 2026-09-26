@@ -16,6 +16,7 @@ def _clear_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         "KISARA_ALLOWED_USERS",
         "KISARA_GROUPS_ENABLED",
         "KISARA_ALLOWED_GROUPS",
+        "KISARA_NEWS_PUSH_USERS",
         "ONEBOT_WS_URL",
         "ONEBOT_ACCESS_TOKEN",
         "AppID",
@@ -42,6 +43,7 @@ def test_settings_default_to_onebot_without_official_credentials(
     assert settings.allowed_users == frozenset({"123", "456"})
     assert settings.onebot_access_token == "test-token"
     assert settings.app_id is None
+    assert not settings.news_push_users
 
 
 def test_settings_accept_project_official_environment_names(
@@ -178,3 +180,125 @@ def test_news_font_paths_rejects_invalid_values(
 
     with pytest.raises(ConfigurationError, match="news.font_paths"):
         Settings.from_environment()
+
+
+@pytest.mark.parametrize("source", ["environment", "toml"])
+def test_private_news_targets_work_without_groups(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, source: str,
+) -> None:
+    """Trim and deduplicate personal targets without enabling group access."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", "123,456")
+    if source == "environment":
+        monkeypatch.setenv("KISARA_NEWS_PUSH_USERS", " 123,456,123 ")
+    else:
+        _feature_file(tmp_path, "news", 'push_users = [" 123 ", "456", "123"]\n')
+
+    settings = Settings.from_environment()
+
+    assert settings.news_push_users == frozenset({"123", "456"})
+    assert not settings.groups_enabled
+    assert not settings.news_push_groups
+    assert (settings.news_push_hour, settings.news_push_minute) == (10, 30)
+
+
+@pytest.mark.parametrize("targets", ['["123"]', "[]"])
+def test_private_news_toml_overrides_environment_including_empty_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, targets: str,
+) -> None:
+    """Explicit TOML masks even an invalid legacy environment recipient."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", "123")
+    monkeypatch.setenv("KISARA_NEWS_PUSH_USERS", "invalid")
+    monkeypatch.setenv("KISARA_NEWS_PUSH_TIME", "invalid")
+    _feature_file(tmp_path, "news", f'push_users = {targets}\npush_time = "07:15"\n')
+
+    settings = Settings.from_environment()
+
+    assert settings.news_push_users == (frozenset({"123"}) if targets != "[]" else frozenset())
+    assert (settings.news_push_hour, settings.news_push_minute) == (7, 15)
+
+
+@pytest.mark.parametrize("target", ["0", "0123", "-123", "+123", "1.2", "1e3", "abc", "１２３", "١٢٣"])
+@pytest.mark.parametrize("source", ["environment", "toml"])
+def test_private_news_rejects_noncanonical_qq_numbers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, source: str,
+) -> None:
+    """Reject malformed numbers even if they appear in the global allowlist."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", target)
+    if source == "environment":
+        monkeypatch.setenv("KISARA_NEWS_PUSH_USERS", target)
+    else:
+        _feature_file(tmp_path, "news", f'push_users = ["{target}"]\n')
+
+    with pytest.raises(ConfigurationError, match="QQ numbers"):
+        Settings.from_environment()
+
+
+@pytest.mark.parametrize("value", ['"123"', "[123]", "[true]", '[""]', '[" "]'])
+def test_private_news_requires_toml_string_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str,
+) -> None:
+    """Do not silently coerce TOML scalars or empty recipients."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    _feature_file(tmp_path, "news", f"push_users = {value}\n")
+
+    with pytest.raises(ConfigurationError, match="news.push_users"):
+        Settings.from_environment()
+
+
+def test_private_news_requires_global_user_permission(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Scheduled sends cannot bypass the global recipient allowlist."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", "123")
+    _feature_file(tmp_path, "news", 'push_users = ["456"]\n')
+
+    with pytest.raises(ConfigurationError, match="KISARA_ALLOWED_USERS"):
+        Settings.from_environment()
+
+
+def test_private_news_requires_onebot_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The official adapter cannot run private scheduled news."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", "official")
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", "123")
+    _feature_file(tmp_path, "news", 'push_users = ["123"]\n')
+
+    with pytest.raises(ConfigurationError, match="OneBot engine"):
+        Settings.from_environment()
+
+
+def test_private_news_does_not_relax_group_push_permissions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """An allowed private target does not enable an unapproved group target."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", "123")
+    _feature_file(tmp_path, "news", 'push_users = ["123"]\npush_groups = ["987"]\n')
+    with pytest.raises(ConfigurationError, match="KISARA_GROUPS_ENABLED"):
+        Settings.from_environment()
+    monkeypatch.setenv("KISARA_GROUPS_ENABLED", "true")
+    with pytest.raises(ConfigurationError, match="KISARA_ALLOWED_GROUPS"):
+        Settings.from_environment()
+    monkeypatch.setenv("KISARA_ALLOWED_GROUPS", "987")
+    settings = Settings.from_environment()
+    assert settings.news_push_groups == frozenset({"987"})
+    assert settings.news_push_users == frozenset({"123"})

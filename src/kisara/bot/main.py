@@ -135,7 +135,7 @@ def main() -> int:
         )
         adapter = create_adapter(
             settings, dispatcher.dispatch_payload,
-            daily_news_factory if settings.news_push_groups else None,
+            daily_news_factory if (settings.news_push_groups or settings.news_push_users) else None,
             setu,
         )
     except ImportError as error:

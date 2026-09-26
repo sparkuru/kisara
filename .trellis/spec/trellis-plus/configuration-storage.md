@@ -44,7 +44,8 @@ environment wiring when a runtime variable changes.
 | Invalid key type or unauthorized group override | Configuration failure; no silent coercion |
 | Admin users outside global allowlist | Configuration failure |
 | Enabled setu users outside global allowlist | Startup configuration failure |
-| News push without groups enabled, in official mode, or outside group allowlist | Configuration failure |
+| Group news push without groups enabled or outside group allowlist | Configuration failure |
+| Personal news push outside user allowlist, or either push kind in official mode | Configuration failure |
 | Empty global user allowlist | Startup can validate, but dispatcher denies every sender |
 
 For new dedicated configuration, document missing-file, invalid-value, disabled,
@@ -141,3 +142,91 @@ Wrong: mark a remote send complete before its receipt, or retry an unknown
 send outcome automatically. Correct: record successful completion after the
 confirmed result, distinguish known failure from unknown outcome, and define
 retry/idempotency semantics for each side effect.
+
+## Scheduled news to groups and private QQ recipients
+
+### Scope and trigger
+
+The OneBot daily-news loop supports both group and personal subscriptions. It
+runs only while the WebSocket session is connected and uses one shared UTC+8
+`push_time`, default 10:30. Private-only subscriptions must activate the factory
+and scheduler even when group functionality is disabled.
+
+### Signatures
+
+- `Settings.news_push_users: FrozenSet[str]`, empty default, appended to the
+  dataclass to preserve existing positional arguments.
+- Existing group `NewsDeliveryStore.was_sent(day: str, group_id: str) -> bool`
+  and `mark_sent(day: str, group_id: str) -> None` stay unchanged.
+- Personal APIs: `was_private_sent(day: str, user_id: str) -> bool` and
+  `mark_private_sent(day: str, user_id: str) -> None`.
+- Additive DB table: `private_deliveries(day TEXT NOT NULL, user_id TEXT NOT
+  NULL, PRIMARY KEY(day, user_id))`; deployed `deliveries` remains unchanged.
+
+### Configuration, payload and state contracts
+
+```toml
+push_users = ["123456789"]
+push_groups = []
+push_time = "10:30"
+```
+
+`push_users` uses a string array of canonical positive ASCII decimal QQ numbers
+(no leading zero), trimmed and deduplicated. Its explicit TOML value overrides
+comma-separated `KISARA_NEWS_PUSH_USERS`, including `[]`; the fallback is passed
+to both Compose bot services. Every recipient must be in
+`KISARA_ALLOWED_USERS`. Group authorization remains independent.
+
+The scheduler sends the same encoded `OutgoingMessage` to groups with
+`send_group_msg/group_id` and to personal recipients with
+`send_private_msg/user_id`. Use the existing API identifier conversion, do not
+fabricate an incoming message. Content is generated once per pending iteration
+through the executor. Each successful API receipt is recorded in its own table;
+either mark method prunes both tables before the 30-day retention boundary.
+Initialization uses `CREATE TABLE IF NOT EXISTS`, preserves old group records,
+and supports repeated opening of the same database.
+
+### Validation and error matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Non-list, non-string/empty item, or non-canonical QQ number | Startup `ConfigurationError` or its `FeatureFileError` subclass |
+| Personal recipient absent from global user allowlist | Startup `ConfigurationError`; no send |
+| Only personal targets, groups disabled | Valid configuration; start one news task |
+| Either target kind on official engine | Startup `ConfigurationError` |
+| Both target lists empty | No scheduled news task |
+| User and group have identical numeric ID | Independent completion in their respective tables |
+| Known send failure | No completion record; continue other recipients and retry after 900 seconds |
+| Remote result unknown or send succeeds before local checkpoint failure | Preserve existing retry semantics and possible duplicate limitation; do not promise exactly-once delivery |
+| Disconnect | Cancel and await news task before starting another session's task |
+
+Late connection sends today's unrecorded news only; earlier days are not
+backfilled. Private failure logs must not include message payloads or recipient
+numbers. Real QQ reachability requires separately authorized live acceptance.
+
+### Good, base and bad cases
+
+- Good: with groups disabled, subscribe allowed QQ `123456789`, receive one
+  confirmed dated image and skip it after restarting on the same day.
+- Base: group-only configuration and deployed group completion records retain
+  their existing behavior.
+- Bad: reuse the group table for a user with the same numeric ID, start private
+  scheduling only when group targets exist, or bypass the global user allowlist.
+
+### Required tests
+
+Configuration tests assert TOML/env precedence, explicit empty override,
+deduplication, canonical-number rejection, allowlist rejection, engine gating
+and personal-only operation. State tests open an old group-only schema, retain
+old records, isolate identical IDs by kind, reopen private state and prune both
+tables. Scheduler/protocol tests assert due-time waiting, late catch-up, exact
+private `user_id` and text/image payloads, shared factory invocation, isolated
+partial failure/retry, recorded-success suppression, startup wiring and
+cancel/reconnect without overlapping loops.
+
+### Wrong versus correct
+
+Wrong: check only `news_push_groups` at startup or mark a personal send in
+`deliveries(day, group_id)`. Correct: enable one scheduler when either target
+set is nonempty and checkpoint personal sends in `private_deliveries` only
+after successful API responses.

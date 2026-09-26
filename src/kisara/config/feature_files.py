@@ -16,7 +16,7 @@ FEATURE_KEYS = {
         "always_reply_users", "reply_to_mentions", "groups",
     }),
     "tarot": frozenset({"enabled", "spread_rate", "image_dir", "groups"}),
-    "news": frozenset({"push_groups", "push_time", "cache_days", "cache_dir", "font_paths"}),
+    "news": frozenset({"push_groups", "push_users", "push_time", "cache_days", "cache_dir", "font_paths"}),
     "source": frozenset({"api_key"}),
     "music": frozenset({"api_url"}),
     "love": frozenset({"api_key"}),

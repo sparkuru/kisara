@@ -1,8 +1,18 @@
 # Every target must be in KISARA_ALLOWED_GROUPS, with groups enabled.
 push_groups = []
-push_time = "10:30" # China Standard Time, HH:MM
+# Personal QQ numbers as strings; every target must be in KISARA_ALLOWED_USERS.
+# Private push does not require groups enabled. Scheduled push is OneBot-only.
+# Example: [ "123456789" ]
+push_users = []
+push_time = "10:30" # Shared by groups and users; UTC+8, HH:MM
 cache_days = 7
 # cache_dir = "data/daily-news" # Default outside Docker; Docker uses /app/state/daily-news.
 # First CJK-capable font wins; bundled Noto CJK fonts are always fallbacks.
-# Paths must exist inside the running container.
+# Fonts without Chinese glyphs are skipped. In Docker, use container paths,
+# not host paths; the font files must be readable inside the running container.
 # font_paths = ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"]
+# Repo-local alternative: place a CJK-capable .ttf, .otf, or .ttc in config/fonts/.
+# Compose mounts config/ at /app/config/ for both kisara and kisara-dev.
+# font_paths = ["/app/config/fonts/YourFont.ttf"]
+# After changing font_paths, restart the active bot service; no image rebuild is needed.
+# Remove today's cached PNG from the news cache directory to regenerate it with the new font.

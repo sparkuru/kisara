@@ -63,6 +63,7 @@ class Settings:
     state_dir: str = "data/kisara"
     admin_users: FrozenSet[str] = frozenset()
     group_overrides: Mapping[str, GroupOverride] = field(default_factory=dict)
+    news_push_users: FrozenSet[str] = frozenset()
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -148,9 +149,16 @@ class Settings:
             raise ConfigurationError("KISARA_MUSIC_API_URL must be an HTTP URL.")
         news_push_groups = words(news_file, "push_groups",
                                  lambda: _read_csv("KISARA_NEWS_PUSH_GROUPS"), "news")
+        news_push_users = words(news_file, "push_users",
+                                lambda: _read_csv("KISARA_NEWS_PUSH_USERS"), "news")
+        if any(not user.isascii() or not user.isdecimal() or user.startswith("0")
+               for user in news_push_users):
+            raise ConfigurationError("news.push_users must contain positive canonical decimal QQ numbers.")
+        if not news_push_users.issubset(allowed_users):
+            raise ConfigurationError("News push users must be in KISARA_ALLOWED_USERS.")
         if news_push_groups and not groups_enabled:
             raise ConfigurationError("News push requires KISARA_GROUPS_ENABLED=true.")
-        if news_push_groups and engine != "onebot":
+        if (news_push_groups or news_push_users) and engine != "onebot":
             raise ConfigurationError("Scheduled news push requires the OneBot engine.")
         if not news_push_groups.issubset(allowed_groups):
             raise ConfigurationError("News push groups must be in KISARA_ALLOWED_GROUPS.")
@@ -179,6 +187,7 @@ class Settings:
             raise ConfigurationError("KISARA_STATE_DIR must not be empty.")
         news_options = {
             "news_push_groups": news_push_groups,
+            "news_push_users": news_push_users,
             "news_push_hour": news_push_hour,
             "news_push_minute": news_push_minute,
             "news_cache_days": news_cache_days,

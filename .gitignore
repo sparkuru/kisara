@@ -11,6 +11,6 @@ __pycache__/
 botpy.log
 
 # Keep any reintroduced historical snapshot out of Git
-/legacy-kisara-plugin/
 /config/groups.json
 /config/features/*/config.toml
+/config/fonts/

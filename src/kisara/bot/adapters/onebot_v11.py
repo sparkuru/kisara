@@ -60,6 +60,7 @@ class OneBotV11Adapter:
         self._daily_news_factory = daily_news_factory
         self._delivery_store = delivery_store
         self._news_push_groups = tuple(sorted(settings.news_push_groups))
+        self._news_push_users = tuple(sorted(settings.news_push_users))
         self._news_push_hour = settings.news_push_hour
         self._news_push_minute = settings.news_push_minute
         self._allowed_users = settings.allowed_users
@@ -127,7 +128,8 @@ class OneBotV11Adapter:
             _log.info("OneBot WebSocket connected")
             news_task = None
             setu_task = None
-            if self._daily_news_factory and self._delivery_store and self._news_push_groups:
+            if (self._daily_news_factory and self._delivery_store and
+                    (self._news_push_groups or self._news_push_users)):
                 news_task = asyncio.create_task(self._run_daily_news())
             if self._setu is not None:
                 setu_task = asyncio.create_task(self._setu.run(self))
@@ -466,7 +468,7 @@ class OneBotV11Adapter:
         return segments
 
     async def _run_daily_news(self) -> None:
-        """Push each day's brief once per configured group after its due time."""
+        """Push each day's brief to pending groups and users after its due time."""
 
         factory = self._daily_news_factory
         store = self._delivery_store
@@ -484,10 +486,13 @@ class OneBotV11Adapter:
                 continue
             day = now.date().isoformat()
             pending = list(self._news_push_groups)
+            pending_users = list(self._news_push_users)
             try:
                 pending = [group for group in self._news_push_groups
                            if not store.was_sent(day, group)]
-                if pending:
+                pending_users = [user for user in self._news_push_users
+                                 if not store.was_private_sent(day, user)]
+                if pending or pending_users:
                     loop = asyncio.get_running_loop()
                     content = await loop.run_in_executor(None, factory)
                     for group in pending:
@@ -499,9 +504,18 @@ class OneBotV11Adapter:
                             store.mark_sent(day, group)
                         except Exception:
                             _log.exception("Daily brief send failed for group %s", group)
+                    for user in pending_users:
+                        try:
+                            await self._request("send_private_msg", {
+                                "user_id": _as_api_identifier(user),
+                                "message": self._encode_message(content),
+                            })
+                            store.mark_private_sent(day, user)
+                        except Exception:
+                            _log.exception("Daily brief private send failed")
             except Exception:
                 _log.exception("Daily brief is unavailable; retrying later")
-            await asyncio.sleep(900 if pending else max(
+            await asyncio.sleep(900 if pending or pending_users else max(
                 1.0, (due + timedelta(days=1) - datetime.now(zone)).total_seconds()
             ))
 

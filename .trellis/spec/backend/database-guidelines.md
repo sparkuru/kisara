@@ -10,7 +10,9 @@ Sources: `src/kisara/infrastructure/persistence/news_delivery.py` and
 `src/kisara/infrastructure/persistence/setu.py`.
 
 - `NewsDeliveryStore(state_dir: str)` exposes `was_sent(day, group_id) -> bool`
-  and `mark_sent(day, group_id) -> None`.
+  and `mark_sent(day, group_id) -> None` for groups, plus
+  `was_private_sent(day, user_id) -> bool` and
+  `mark_private_sent(day, user_id) -> None` for personal QQ recipients.
 - `SetuStore(state_dir: str)` owns batch claims, prompt identity, per-item
   checkpoints, expiry, and restart recovery.
 
@@ -23,14 +25,15 @@ this is separate from confirmed setu media. See
 
 | Database | Current schema and keys |
 | --- | --- |
-| `news_delivery.sqlite3` | `deliveries(day TEXT, group_id TEXT)`, both NOT NULL; primary key `(day, group_id)` |
+| `news_delivery.sqlite3` | Unchanged `deliveries(day TEXT, group_id TEXT)` for groups; additive `private_deliveries(day TEXT, user_id TEXT)` for individuals; all columns NOT NULL, each table keyed by its day and recipient ID |
 | `setu.sqlite3` | `batches` keyed by `id`, index `batches_status(state, deadline)`; `seen` primary key `(instance_id, message_id)` |
 
 Setu stores media metadata in `media_json`; binary media stays in the file
 archive. The setu database has mode `0600`. News completion is recorded only
-following successful sending; `mark_sent` prunes records older than 30 days
-relative to the supplied day. Setu retains seen IDs and old terminal metadata
-for seven days: new batches prune seen IDs, and `expire()` prunes terminal
+following successful sending; either mark method prunes both news tables for
+records older than 30 days relative to the supplied day. Setu retains seen IDs
+and old terminal metadata for seven days: new batches prune seen IDs, and
+`expire()` prunes terminal
 metadata. These operations do not delete archived files.
 
 ## Transactions and query patterns
@@ -74,8 +77,12 @@ Good: reopen `NewsDeliveryStore` and retain the sent group/day pair. Base:
 interpolate message values into SQL, or put state at an unmounted container path.
 
 `tests/unit/test_news_delivery.py` asserts reopened state and isolation by day
-and group. `tests/unit/test_setu.py` covers duplicate sources, confirmation
-identity, saved-item preservation, partial retry, authorization, and expiry.
+and recipient kind/ID, reopening a deployed group-only schema without losing
+group records, and both-table pruning. See the complete
+[scheduled news contract](../trellis-plus/configuration-storage.md#scheduled-news-to-groups-and-private-qq-recipients)
+for configuration and protocol assertion points. `tests/unit/test_setu.py`
+covers duplicate sources, confirmation identity, saved-item preservation,
+partial retry, authorization, and expiry.
 For changes, also test the affected legacy/restart path rather than relying on
 a fresh database alone.
 

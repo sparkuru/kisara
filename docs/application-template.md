@@ -81,7 +81,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 | `/tarot` | `application/services/tarot.py` | 打包 78 张牌和牌阵；按实例、用户、中国标准时间日期生成稳定结果；本地图像仅在 OneBot 发送 |
 | `/wallpaper`、`/ba`、`/source`、`/music`、`/love` | `application/services/public.py`；`infrastructure/integrations/http.py` | 外部 HTTP 服务；`/source` 需图片和密钥，`/music`、`/love` 需各自配置 |
 | `/news` | `application/services/daily_news.py` | 获取当天新闻并渲染 PNG；按日期缓存，OneBot 发送图片 |
-| 定时新闻推送 | OneBot 适配器的 `_run_daily_news()`；`infrastructure/persistence/news_delivery.py` | 仅 OneBot；按中国标准时间和群组发送，以 SQLite 记录已送达日期 |
+| 定时新闻推送 | OneBot 适配器的 `_run_daily_news()`；`infrastructure/persistence/news_delivery.py` | 仅 OneBot；`push_groups` 与个人 QQ 号 `push_users` 共用中国标准时间 `push_time`；群和个人完成记录在 SQLite 中分别去重，个人推送不要求开启群功能 |
 | `/recall` | `bot/dispatcher.py` 与 OneBot 适配器 | 仅 OneBot；引用机器人消息，群内需管理员、群主或配置的管理员用户 |
 | `/export-img`、`导出`、`转图片` 等 | `application/services/export_img.py`；OneBot 适配器 | 仅 OneBot；将被引用的图片作为文件附件发送，无持久化 |
 | `保存`、`setu`、`/setu`、`直接保存` | `application/services/setu.py`；`infrastructure/persistence/setu.py`、`setu_files.py` | 仅 OneBot 私聊；引用合并转发 → 引用 bot 提示回复“保存”（默认 60s 超时自动取消）→ 下载保存；“直接保存”跳过询问并返回保存结果；SQLite 记录批次，文件另存 |
@@ -90,7 +90,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 
 ## 新功能的改动清单
 
-先回答：谁能触发、从什么消息触发、需要哪些平台能力、输出什么、是否访问网络、是否产生持久状态、失败后能否重试。然后选择最窄的实现路径。
+先回答：谁能触发、由什么消息或调度条件触发、需要哪些平台能力、输出什么、是否访问网络、是否产生持久状态、失败后能否重试。然后选择最窄的实现路径。
 
 ### A. 本地或文本命令
 
@@ -127,6 +127,28 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 3. 需要恢复或幂等时，在 `infrastructure/persistence/` 建立持久状态。定义重启后状态、重复消息和部分失败后的处理方式；归档文件与 SQLite 元数据分别管理。
 4. 若增加 Compose 路径或挂载，同步核对 `deploy/compose.yaml`、`deploy/Dockerfile`、启动脚本、功能模块 docstring 和 `docs/operations.md` 的运行说明。
 5. 在 `tests/unit/` 覆盖状态转换、边界和失败重试；协议解析与发送行为在 `tests/integration/` 验证。
+
+### D. 定时任务（schedule）
+
+适用于每天固定时间推送、按间隔检查状态、确认超时与提示重试。当前使用 `asyncio` 后台协程循环和按需持久化的业务状态，没有统一的 scheduler、任务注册表或自动发现机制。新增任务通常需要同时接通应用服务、启动组装和 OneBot 适配器。
+
+现有实现可作为两种参考：
+
+| 任务 | 调度位置 | 执行与恢复方式 |
+| --- | --- | --- |
+| 每日新闻 | `bot/adapters/onebot_v11.py` 的 `_run_daily_news()` | 群 `push_groups` 和个人 QQ 号 `push_users` 共用 UTC+8 时间，默认 10:30；到点后筛选未发送群与个人，在线程池获取一次新闻，再逐个发送；成功后分别写入 `NewsDeliveryStore` 的群表与个人表。有待发送目标的轮次结束后等待 15 分钟再检查；全部已记录完成后等待次日。个人目标须在 `KISARA_ALLOWED_USERS`，无需开启群功能。到点后启动会补发当天，不补发历史日期。 |
+| setu 确认维护 | `application/services/setu.py` 的 `Setu.run(gateway)` | 每轮结束后等待 1 秒；处理确认过期、未发出的首次提示和提示重试。失败提示间隔 30 秒重试，默认确认期限为 60 秒；重连时将中断的 `saving` 恢复为 `awaiting`，供用户重新确认，不自动保存。 |
+
+两类循环都在 OneBot 的 `_run_connection()` 建立 WebSocket 连接后通过 `asyncio.create_task()` 启动，在连接结束的 `finally` 中取消并等待退出，重连后重新启动。现有官方适配器没有接入这些任务。沿用这条路径的任务只在连接期间运行；若要求断线时仍继续执行，需要另行设计连接外的调度生命周期及平台不可用时的处理。
+
+新增任务按以下步骤接入；下文源码路径均相对于 `src/kisara/`：
+
+1. **定义调度语义与配置**：明确开关、固定时间或间隔、时区、执行对象、错过时间后是否补执行，以及上一轮未完成时的处理方式。按 B 和“配置闭环”增加配置示例、键注册、加载和校验；专属配置可参考 `config/setu.py`。主动发送不经过消息分发器，必须在配置或执行边界核对权限；群发送需检查群功能启用且目标群在允许名单中，并明确适用引擎。
+2. **实现业务服务与循环**：在 `application/services/<feature>.py` 实现业务行为。可以参考新闻，将调度循环放在适配器中并注入内容工厂；也可以参考 setu，由服务提供 `async run(gateway)`，用窄 `Protocol` 声明发送等能力。同步网络或文件处理通过线程池执行，避免阻塞事件循环；循环应有可取消的等待、异常日志及明确的重试间隔。
+3. **在入口组装并注入**：在 `bot/main.py` 创建服务及所需存储，通过 `create_adapter()` 传入选定适配器，并增加适配器构造参数与成员。只创建 service 文件不会让任务自动运行；关闭功能或不支持的引擎不得启动循环。
+4. **接入任务生命周期**：在 OneBot 的 `_run_connection()` 中按启用条件调用 `asyncio.create_task()` 并保留任务引用；在 `finally` 中调用 `cancel()`，再用 `await asyncio.gather(task, return_exceptions=True)` 等待退出。重连时重新创建任务，不能遗留旧循环；循环内部不要吞掉取消信号。
+5. **按需保存执行状态**：若需跨重启记住已执行对象，在 `infrastructure/persistence/<feature>.py` 保存业务日期或周期、对象 ID 和完成状态，数据库置于 `KISARA_STATE_DIR`。参考 `NewsDeliveryStore` 在发送确认成功后标记完成；明确部分失败、超时结果未知、重复执行与恢复策略，不能把本地记录当成严格的 exactly-once 保证。仅周期性检查且无恢复需求时，可不建库并说明原因。
+6. **补文档与验证**：在功能模块开头 docstring 写明调度、引擎、状态和失败行为；运行配置或挂载改变时同步 `docs/operations.md`。使用可替换的时钟、等待函数和模拟 gateway，验证到点前不执行、到点执行、错过时间处理、失败重试、按需持久化去重，以及断线取消和重连后只有一个循环；涉及配置和平台发送时，分别补配置测试与协议测试。
 
 ## 配置、数据与数据库的落地规则
 
@@ -184,8 +206,9 @@ config/features/<feature>/config.toml.example
 
 ```text
 功能名与用户场景：
-验收样例：给定什么消息和配置，应得到什么回复或外部效果：
+验收样例：给定什么消息、时间和配置，应得到什么回复或外部效果：
 触发方式：命令 / 普通消息 / 引用 / 定时；参数与别名：
+调度（定时任务必填）：时间或间隔、时区、执行对象、生命周期、错过时间处理、重叠执行策略：
 适用范围：OneBot / 官方 / 离线控制台；私聊 / 群聊：
 权限：允许用户、允许群、管理员或功能专属名单：
 输入与输出：MessageEvent 中读取哪些字段；返回文字、图片、音乐或平台动作：
@@ -199,6 +222,6 @@ config/features/<feature>/config.toml.example
 验证：服务单测、分发测试、协议测试、真实账号验收条件：
 ```
 
-交付时用同样字段回填“实际实现”和证据位置。至少核对：命令是否真正接入路由、服务是否在启动时组装、配置示例是否能被加载、外部数据是否按约定复用缓存、持久状态是否使用正确挂载、帮助与功能模块开头 docstring 是否同步、失败与重试是否有测试。若新功能不需要数据库，不为满足模版而建表。
+交付时用同样字段回填“实际实现”和证据位置。至少核对：命令是否真正接入路由、定时循环是否按条件启动并在生命周期结束时取消、服务是否在启动时组装、配置示例是否能被加载、外部数据是否按约定复用缓存、持久状态是否使用正确挂载、帮助与功能模块开头 docstring 是否同步、失败与重试是否有测试。若新功能不需要数据库，不为满足模版而建表。
 
 开发时先用现有 `./dev.sh --test` 或针对性 `./hako python -m pytest tests/unit/<test_file>.py` 验证普通功能；涉及适配器的变更，再跑相关协议测试与 `./dev.sh --all`。离线测试无法证明真实 QQ 账号收发、外部 API 在线可用或连续运行稳定，线上验收应单独记录。
