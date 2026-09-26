@@ -30,7 +30,7 @@ a new one.
 - [x] Upstream provenance and license text are recorded without changing the
   application's licensing or inventing a copyright notice.
 - [x] Quality review passes and its scope/results are recorded.
-- [ ] Work commits precede task archive and journal commits.
+- [x] Work commits precede task archive and journal commits.
 
 ## Constraints
 

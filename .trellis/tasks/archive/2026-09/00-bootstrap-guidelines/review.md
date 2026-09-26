@@ -19,8 +19,8 @@ no application, schema, deployment, or live service changes.
 - `.trellis/LICENSE` matches the installed Trellis 0.6.17 license byte for byte.
 - The explicit shared candidate list excludes private configs, personal agent
   settings, identity/session pointers, runtime state, and caches.
-- An initial blank line at the empty journal's EOF was removed for the staged
-  whitespace gate. `git diff --cached --check` is required before committing.
+- An initial blank line at the empty journal's EOF was removed. The final
+  `git diff --cached --check` passed for all 61 staged shared files.
 
 ## Validation Applicability
 
@@ -31,6 +31,7 @@ application lint/type-check command is configured; none is claimed as passed.
 
 ## Delivery
 
-Commit the reviewed shared initialization and guidelines first, then archive
-this task and record the work commit in the developer journal. No new task,
-product mainline, remote push, or service operation is part of this completion.
+Work commit: `86fd274` (`docs(trellis): initialize workflow and backend
+guidelines`). Task archive and journal recording follow that work commit.
+No new task, product mainline, remote push, or service operation is part of
+this completion.
