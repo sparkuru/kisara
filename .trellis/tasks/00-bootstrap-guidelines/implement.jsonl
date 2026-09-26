@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared project policy"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Source-backed feature boundaries"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "SQLite and configuration contracts"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Documentation validation scope"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Commit and finish policy"}

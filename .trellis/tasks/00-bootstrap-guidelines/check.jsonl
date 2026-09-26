@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared project policy"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Verify architecture claims"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "Verify storage claims"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Documentation validation scope"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Delivery policy"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Completed backend guidance"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Source and module ownership"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Persistence examples"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error matrix"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Logging conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Quality gates"}
