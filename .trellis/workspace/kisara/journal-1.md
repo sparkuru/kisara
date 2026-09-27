@@ -77,3 +77,35 @@ Added scheduled personal QQ news delivery sharing group push_time; preserved and
 ### Next Steps
 
 - Real QQ live acceptance remains separately deferred; integrate the completed feature branch into keiyaku-no-kisu by local fast-forward.
+
+
+## Session 3: Manual daily news cache clearing
+<!-- trellis-session: v=2 fp=a084f8a85570cd56 -->
+
+**Date**: 2026-09-27
+**Task**: Manual daily news cache clearing
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+Added the 清除新闻缓存 trigger to clear current-day PNG and HTML caches with authorization, locking, safe error handling, and fresh fetching on the next request; reviewed and archived the task.
+
+### Main Changes
+
+- Added service clearing, shared command routing, enabled-feature help, regression tests, operations documentation, and storage contract.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e989caf` | feat(news): add manual current-day cache clearing |
+
+### Testing
+
+- [OK] 46 focused tests passed via hako; isolated full suite passed 155 tests on Python 3.12.14.
+- [OK] Initial root full suite: 152 passed and 3 existing settings tests failed due to local feature config affecting cwd-relative loading; private configuration unchanged.
+- [OK] git diff --check passed; no configured lint/type-check; no live QQ validation or deployment.
+
+### Status
+
+[OK] **Completed**

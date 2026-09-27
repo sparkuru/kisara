@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-09-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~79 | Active |
+| `journal-1.md` | ~111 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-09-27 | Manual daily news cache clearing | `e989caf` | `keiyaku-no-kisu` |
 | 2 | 2026-09-27 | Daily news private QQ schedule and mainline integration | `cce8c9d` | `feat/daily-news-private-push` |
 | 1 | 2026-09-27 | Complete Trellis bootstrap guidelines | `86fd274` | `keiyaku-no-kisu` |
 <!-- @@@/auto:session-history -->
