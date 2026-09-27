@@ -143,6 +143,67 @@ send outcome automatically. Correct: record successful completion after the
 confirmed result, distinguish known failure from unknown outcome, and define
 retry/idempotency semantics for each side effect.
 
+## Manual current-day news cache clearing
+
+### Scope and trigger
+
+`清除新闻缓存` is a shared news command, normalized to `/news-clear`.
+It works for globally allowed senders in private conversations and enabled,
+allowed groups, including when chat is disabled. Authorization and message
+deduplication precede cache access; no separate admin policy applies.
+
+### Signatures
+
+`DailyNews.clear_cache() -> bool` returns whether either current-day cache file
+was removed. The route accepts no arguments and returns a handled text reply
+for both removed and empty outcomes.
+
+### Contracts
+
+Determine the date in UTC+8, then unlink only `<cache_dir>/YYYYMMDD.png` and
+`<temp_dir>/YYYYMMDD.html` under the same service lock as `get()`. Do not create
+directories, fetch news, or render during clearing. Validate any existing
+temporary directory's owner, restrictive mode, and non-symlink directory type
+before deleting either file. Missing files/directories are normal empty state.
+Preserve historical/unrelated files and scheduled delivery SQLite records.
+The next news request fetches and renders again: deleting only the PNG would
+reuse stale HTML. Clearing a shared cache affects all users of that service.
+
+### Validation and error matrix
+
+| Condition | Outcome |
+| --- | --- |
+| At least one dated file removed | `handled`, cleared confirmation |
+| Both dated files missing | `handled`, empty-cache reply |
+| Command arguments present | `CommandInputError`, no deletion |
+| Unauthorized sender/group or duplicate message | `unhandled`, no cache access |
+| Existing temporary directory unsafe | `RemoteServiceError`, no deletion |
+| Filesystem deletion failure | `RemoteServiceError`, no successful confirmation |
+
+Deletion is not a transaction across two files: an I/O failure after the first
+unlink can leave partial clearing. Report the error and allow a fresh clearing
+request to retry; never reset scheduled delivery records as recovery.
+
+### Good, base, and bad cases
+
+Good: clear both layers after a news request, then obtain updated content with
+a new fetch. Base: clear before first use and receive an empty-cache reply.
+Bad: delete all PNGs or reset sent records to force news regeneration.
+
+### Required tests
+
+`tests/unit/test_daily_news.py` must assert two-layer deletion and a subsequent
+provider refetch, empty/idempotent and single-layer states, UTC+8 date selection,
+preservation of older/future/unrelated files, allowed/rejected group and sender
+events, duplicate suppression, argument errors, unsafe directories, deletion
+failures, and enabled-feature help visibility.
+
+### Wrong versus correct
+
+Wrong: implement deletion in the adapter, skip allowlists, or delete only PNG.
+Correct: normalize the phrase in shared routing and call `DailyNews.clear_cache()`
+after authorization, with both dated paths owned by the service.
+
 ## Scheduled news to groups and private QQ recipients
 
 ### Scope and trigger

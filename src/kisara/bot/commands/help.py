@@ -35,5 +35,8 @@ def execute(
             "\n/recall — recall a quoted bot message (OneBot)"
         )
     if news_enabled:
-        commands += "\n/news — today's daily news"
+        commands += (
+            "\n/news — today's daily news"
+            "\n清除新闻缓存 — clear today's news PNG and HTML cache"
+        )
     return commands

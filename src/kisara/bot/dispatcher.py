@@ -148,6 +148,14 @@ class Dispatcher:
             return DispatchResult("handled", response or "No phrasebook reply found.")
         if command == "recall":
             return self._recall(event, arguments)
+        if command == "news-clear" and self._daily_news is not None:
+            if arguments:
+                raise CommandInputError("用法：清除新闻缓存（无需参数）")
+            removed = self._daily_news.clear_cache()
+            return DispatchResult(
+                "handled", "已清除当日新闻缓存，下次获取新闻时将重新生成。"
+                if removed else "当日没有新闻缓存可清除。",
+            )
         if command in {"news", "brief"} and self._daily_news is not None:
             if arguments:
                 raise CommandInputError("Usage: /news")
@@ -338,6 +346,7 @@ def _normalize_legacy_command(content: str) -> str:
         "每日新闻": "/news",
         "news": "/news",
         "日报": "/news",
+        "清除新闻缓存": "/news-clear",
         "舔狗日志": "/love",
         "舔狗日记": "/love",
         "舔狗": "/love",
@@ -357,6 +366,7 @@ def _normalize_legacy_command(content: str) -> str:
     if re.fullmatch(r"咱?(今天|明天|[早中午晚][上饭餐午]|早上|夜宵|今晚)吃(什么|啥|点啥)", value):
         return "/eat"
     for prefix, command in (
+        ("清除新闻缓存", "news-clear"),
         ("roll", "roll"), ("dice", "roll"), ("骰子", "roll"),
         ("色子", "roll"), ("r", "roll"),
         ("识图", "source"), ("搜图", "source"), ("出处", "source"),
@@ -367,6 +377,8 @@ def _normalize_legacy_command(content: str) -> str:
     ):
         if value.lower().startswith(prefix.lower()):
             raw_suffix = value[len(prefix):]
+            if prefix == "清除新闻缓存" and raw_suffix and not raw_suffix[0].isspace():
+                continue
             if prefix in {"roll", "dice", "r", "ba", "ba攻略"} and not has_hash:
                 continue
             if prefix in {"roll", "dice", "r", "bgm"} and raw_suffix:

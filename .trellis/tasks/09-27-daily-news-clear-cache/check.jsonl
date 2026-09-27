@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend conventions"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Tests and service routing boundaries"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Cache errors and dispatch results"}
+{"file":".trellis/spec/trellis-plus/index.md","reason":"Shared policy"}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Aliases authorization help and service ownership"}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"News PNG and HTML storage and safe cleanup"}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Docker checks and review classification"}
+{"file":".trellis/spec/trellis-plus/workflow.md","reason":"Dispatch and delivery policy"}

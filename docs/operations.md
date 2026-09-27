@@ -190,6 +190,18 @@ fonts are tried. A layout version change
 regenerates older images automatically. After changing fonts, remove that day's
 cached PNG to regenerate it.
 
+Send `清除新闻缓存` to remove only the current China Standard Time day's
+`YYYYMMDD.png` and temporary `YYYYMMDD.html`. Surrounding whitespace and the
+optional `#` prefix are accepted; arguments are rejected. The command uses
+the existing user/group allowlists in private messages and enabled, allowed
+groups, including when chat is disabled. It confirms removal or reports that
+no current-day cache exists. Clearing does not fetch, render, or send news;
+the next `/news` request fetches a fresh page and regenerates the image.
+Historical files and scheduled delivery records are preserved, so clearing
+does not cause completed scheduled pushes to resend. Unsafe temporary cache
+directories and filesystem failures return an error; retry after correcting
+the underlying permissions or storage problem.
+
 For scheduled OneBot news, copy `config/features/news/config.toml.example` to
 `config/features/news/config.toml` if needed and configure personal QQ numbers
 as strings:

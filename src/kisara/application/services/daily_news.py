@@ -13,6 +13,14 @@ The local default is data/daily-news;
 Compose sets /app/state/daily-news in its persistent kisara_state volume.
 Expired dated images are pruned.
 
+The manual cache-clearing alias (see bot/dispatcher.py), also routed as
+/news-clear, removes only today's PNG and temporary HTML under the same lock
+as generation. Authorized private messages and enabled, allowed groups can
+use it without arguments. It replies with a cleared or empty result, without
+fetching, rendering, or creating directories. The next /news request fetches
+and renders again. Historical files and scheduled delivery records remain
+unchanged; filesystem failures return a feature error rather than success.
+
 The temporary HTML cache is scoped to the current operating-system user and
 prunes older pages on the next HTML read. A failed or stale fetch is not cached,
 so the next request can retry. No database is used for source content.
@@ -161,14 +169,44 @@ class DailyNews:
                 raise RemoteServiceError("Daily news cache is unavailable.") from error
         return DailyNewsResult(today, path)
 
-    def _load_page(self, today: date) -> DailyPage:
-        """Reuse validated HTML on disk before fetching the source page."""
+    def clear_cache(self) -> bool:
+        """Remove today's PNG and HTML, returning whether either was removed."""
 
-        self._temp_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with self._lock:
+            today = self._clock().astimezone(CHINA_TIME).strftime("%Y%m%d")
+            removed = False
+            try:
+                self._validate_temp_dir()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                raise RemoteServiceError("Daily news cache could not be cleared.") from error
+            for path in (
+                self._cache_dir / "{}.png".format(today),
+                self._temp_dir / "{}.html".format(today),
+            ):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    continue
+                except OSError as error:
+                    raise RemoteServiceError("Daily news cache could not be cleared.") from error
+                removed = True
+            return removed
+
+    def _validate_temp_dir(self) -> None:
+        """Reject temporary directories with unsafe ownership, mode, or links."""
+
         info = self._temp_dir.lstat()
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
                 or info.st_mode & 0o077):
             raise RemoteServiceError("Daily news temporary cache is unsafe.")
+
+    def _load_page(self, today: date) -> DailyPage:
+        """Reuse validated HTML on disk before fetching the source page."""
+
+        self._temp_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._validate_temp_dir()
         for old in self._temp_dir.glob("*.html"):
             if re.fullmatch(r"\d{8}\.html", old.name) and old.stem != today.strftime("%Y%m%d"):
                 old.unlink()
