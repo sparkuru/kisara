@@ -3,7 +3,7 @@
   "name": "daily-news-clear-cache",
   "title": "Add manual daily news cache clearing",
   "description": "Add the 清除新闻缓存 trigger to clear today’s news PNG and HTML caches and allow a fresh fetch, preserving authorization and delivery records.",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,11 +11,11 @@
   "creator": "kisara",
   "assignee": "kisara",
   "createdAt": "2026-09-27",
-  "completedAt": null,
+  "completedAt": "2026-09-27",
   "branch": "keiyaku-no-kisu",
   "base_branch": "keiyaku-no-kisu",
   "worktree_path": null,
-  "commit": null,
+  "commit": "e989caf10575f54891fc06eeb296cb6914cdac97",
   "pr_url": null,
   "subtasks": [],
   "children": [],
@@ -24,6 +24,6 @@
   "notes": "",
   "meta": {
     "human_review": "human-not-needed",
-    "delivery_state": "commit_approved"
+    "delivery_state": "committed"
   }
 }
