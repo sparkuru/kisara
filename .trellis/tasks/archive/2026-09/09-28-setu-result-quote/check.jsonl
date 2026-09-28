@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Required workflow assertions and quality checks"}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Confirm existing setu reply and retry contracts"}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Focused protocol and unit validation profile"}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Setu configuration compatibility and validation contract"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Invalid configuration startup failure contract"}

@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Setu workflow conventions and focused validation"}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Private OneBot setu reply and authorization contracts"}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Docker test commands and review classification"}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Setu configuration parsing and startup validation contract"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Invalid configuration startup failure contract"}
