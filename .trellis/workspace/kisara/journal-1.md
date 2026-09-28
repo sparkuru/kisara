@@ -109,3 +109,28 @@ Added the 清除新闻缓存 trigger to clear current-day PNG and HTML caches wi
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Forwarded video count investigation
+<!-- trellis-session: v=2 fp=29bb6f56663f4bd4 -->
+
+**Date**: 2026-09-28
+**Task**: Forwarded video count investigation
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+Confirmed the preview counts all 12 videos in the nested forward; self-forwarding exposed no new videos. No product code change.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Read-only OneBot get_msg/get_forward_msg probes compared original and self-forwarded messages.
+- [OK] Checked archive metadata and the configured 100 MiB per-file limit.
+
+### Status
+
+[OK] **Completed**
