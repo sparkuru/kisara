@@ -134,6 +134,7 @@ def test_nested_forward_confirmation_saves_in_selected_layout(
         else:
             assert all(len(name.split("-")[-1].split(".")[0]) == 64 for name in names)
         assert "已保存 2 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "confirm"
         assert "保存目录：" in gateway.sent[-1][1]
         assert await asyncio.wait_for(workflow.handle(
             _event("repeat", (), "确认", "prompt-1"), gateway), 15)
@@ -209,13 +210,17 @@ def test_config_validates_feature_limits_and_words(tmp_path: Path) -> None:
         )
         with pytest.raises(ConfigurationError, match="distinct"):
             SetuConfig.load(path)
-    for field in ("confirm_timeout_seconds", "max_file_bytes", "max_batch_bytes",
-                  "max_depth", "max_nodes"):
+    for field in ("confirm_timeout_seconds", "max_depth", "max_nodes"):
         for value in ("0", "-1", "true"):
             path.write_text('enabled = true\n{} = {}\n'.format(field, value))
             with pytest.raises(ConfigurationError, match="positive integer"):
                 SetuConfig.load(path)
-    path.write_text('enabled = true\nmax_file_bytes = 2\nmax_batch_bytes = 1\n')
+    for field in ("max_file_bytes", "max_batch_bytes"):
+        for value in ("0", "-1", "true"):
+            path.write_text('enabled = true\n{} = {}\n'.format(field, value))
+            with pytest.raises(ConfigurationError, match="positive size"):
+                SetuConfig.load(path)
+    path.write_text('enabled = true\nmax_file_bytes = "2M"\nmax_batch_bytes = "1M"\n')
     with pytest.raises(ConfigurationError, match="cover"):
         SetuConfig.load(path)
     path.write_text(
@@ -250,6 +255,7 @@ def test_quoted_forward_start_words_and_quoted_confirmation(
         assert await workflow.handle(_event("confirm", (), "确认", "prompt-1"), gateway)
         assert next(config.save_root.rglob("source.jpg")).read_bytes() == b"image-content"
         assert "已保存 1 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "confirm"
 
     asyncio.run(scenario())
 
@@ -333,12 +339,14 @@ def test_failed_item_can_be_retried_without_replacing_completed_file(tmp_path: P
         assert await workflow.handle(event, gateway)
         assert await workflow.handle(_event("save-1", (), "确认", "prompt-1"), gateway)
         assert "已保存 1 项，失败 1 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "save-1"
         assert "可再次回复“保存”重试失败项。" in gateway.sent[-1][1]
         archived_first = next(config.save_root.rglob("first.jpg"))
         original_inode = archived_first.stat().st_ino
         second.write_bytes(b"second")
         assert await workflow.handle(_event("save-2", (), "确认", "prompt-1"), gateway)
         assert "已保存 2 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "save-2"
         assert archived_first.stat().st_ino == original_inode
         assert next(config.save_root.rglob("second.jpg")).read_bytes() == b"second"
 
@@ -447,6 +455,7 @@ def test_direct_save_skips_question_and_preserves_source_identity(
         assert await workflow.handle(event, gateway)
         assert len(gateway.sent) == sent_before + 1
         assert "已保存 1 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "direct"
         assert "引用这条消息并回复" not in gateway.sent[-1][1]
         archived = next(config.save_root.rglob("direct.jpg"))
         assert archived.read_bytes() == b"direct"
@@ -506,6 +515,7 @@ def test_direct_partial_result_quote_retries_only_failed_item(tmp_path: Path) ->
         ), gateway)
         assert len(gateway.sent) == 1
         assert "已保存 1 项，失败 1 项" in gateway.sent[0][1]
+        assert gateway.sent[0][2] == "direct"
         assert "请引用这条结果消息并回复“保存”重试失败项。" in gateway.sent[0][1]
         batch = SetuStore(str(tmp_path / "state")).awaiting(
             "personal", "user-1", time.time(),
@@ -516,6 +526,7 @@ def test_direct_partial_result_quote_retries_only_failed_item(tmp_path: Path) ->
         second.write_bytes(b"second")
         assert await workflow.handle(_event("retry", (), "保存", "prompt-1"), gateway)
         assert "已保存 2 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "retry"
         assert archived.stat().st_ino == original_inode
         assert next(config.save_root.rglob("direct-second.jpg")).read_bytes() == b"second"
 

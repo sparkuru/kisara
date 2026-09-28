@@ -384,8 +384,11 @@ async def _test_quoted_direct_save_returns_result_without_question(
     await _wait_for_requests(websocket, 2, delay=0.01)
     result = websocket.sent[1]
     assert result["action"] == "send_private_msg"
-    assert len(result["params"]["message"]) == 1
-    result_text = result["params"]["message"][0]["data"]["text"]
+    assert result["params"]["message"][0] == {
+        "type": "reply", "data": {"id": "100"},
+    }
+    assert len(result["params"]["message"]) == 2
+    result_text = result["params"]["message"][1]["data"]["text"]
     assert "已保存 1 项，失败 0 项" in result_text
     assert "引用这条消息并回复" not in result_text
     assert next(config.save_root.rglob("direct.jpg")).read_bytes() == b"direct-media"
@@ -395,6 +398,75 @@ async def _test_quoted_direct_save_returns_result_without_question(
     })
     await task
     assert len(websocket.sent) == 2
+
+
+def test_quoted_setu_confirmation_result_quotes_command(tmp_path: Path) -> None:
+    """A confirmed save replies to the user's confirmation, not the bot prompt."""
+    asyncio.run(_test_quoted_setu_confirmation_result_quotes_command(tmp_path))
+
+
+async def _test_quoted_setu_confirmation_result_quotes_command(tmp_path: Path) -> None:
+    """Drive a forward, prompt, and confirmation through OneBot messages."""
+    adapter = _adapter(timeout=2)
+    adapter._allowed_users = frozenset({"123"})
+    config = replace(
+        SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+        save_root=tmp_path / "archive", local_media_root=tmp_path / "cache",
+    )
+    source = config.local_media_root / "nt_qq_test" / "nt_data" / "Pic" / "confirmed.jpg"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"confirmed-media")
+    adapter._setu = Setu(config, str(tmp_path / "state"))
+    websocket = FakeWebSocket()
+    adapter._websocket = websocket
+    start_task = asyncio.create_task(adapter._process_event(_quoted_event("保存")))
+    await _wait_for_requests(websocket, 1)
+    adapter._resolve_pending({
+        "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "user_id": 123,
+                 "message": [{"type": "forward", "data": {"id": "confirmed", "content": [
+                     {"message": [{"type": "image", "data": {
+                         "file": source.name, "url": str(source)}}]},
+                 ]}}]},
+    })
+    await _wait_for_requests(websocket, 2, delay=0.01)
+    prompt = websocket.sent[1]
+    assert prompt["params"]["message"][0] == {
+        "type": "reply", "data": {"id": "42"},
+    }
+    adapter._resolve_pending({
+        "echo": prompt["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_id": 500},
+    })
+    await start_task
+
+    confirmation = replace(
+        _quoted_event("保存"), message_id="101",
+        segments=(MessageSegment("reply", {"id": "500"}),
+                  MessageSegment("text", {"text": "保存"})),
+        reply_context={"quoted_message_id": "500", "self_id": "999"},
+    )
+    confirm_task = asyncio.create_task(adapter._process_event(confirmation))
+    await _wait_for_requests(websocket, 3)
+    assert websocket.sent[2]["action"] == "get_msg"
+    adapter._resolve_pending({
+        "echo": websocket.sent[2]["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_type": "private", "user_id": 999,
+                 "message": [{"type": "text", "data": {"text": "保存？"}}]},
+    })
+    await _wait_for_requests(websocket, 4, delay=0.01)
+    result = websocket.sent[3]
+    assert result["action"] == "send_private_msg"
+    assert result["params"]["message"][0] == {
+        "type": "reply", "data": {"id": "101"},
+    }
+    assert "已保存 1 项，失败 0 项" in result["params"]["message"][1]["data"]["text"]
+    adapter._resolve_pending({
+        "echo": result["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_id": 501},
+    })
+    await confirm_task
+    assert next(config.save_root.rglob("confirmed.jpg")).read_bytes() == b"confirmed-media"
 
 
 @pytest.mark.parametrize("conversation_kind, allowed", [("private", False), ("group", True)])

@@ -29,11 +29,12 @@ def _clear_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_settings_default_to_onebot_without_official_credentials(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     """The default engine should not require official bot credentials."""
 
     _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "test-token")
     monkeypatch.setenv("KISARA_ALLOWED_USERS", "123, 456")
 
@@ -47,11 +48,12 @@ def test_settings_default_to_onebot_without_official_credentials(
 
 
 def test_settings_accept_project_official_environment_names(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     """The existing AppID and AppSecret names should remain supported."""
 
     _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KISARA_ENGINE", "official")
     monkeypatch.setenv("AppID", "test-app-id")
     monkeypatch.setenv("AppSecret", "test-app-secret")
@@ -64,11 +66,12 @@ def test_settings_accept_project_official_environment_names(
 
 
 def test_settings_reject_missing_selected_engine_configuration(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     """Only the selected engine's required configuration should be checked."""
 
     _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KISARA_ENGINE", "official")
 
     with pytest.raises(ConfigurationError, match="AppID"):

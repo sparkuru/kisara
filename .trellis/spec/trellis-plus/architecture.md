@@ -147,6 +147,10 @@ triggers; the adapter uses it before resolving the quoted merged forward.
 The adapter adds `setu_source_id` only after resolving a quoted merged forward.
 Normal saves require the quoted bot prompt ID; direct saves immediately claim
 the batch and use the same file saver and result counts/directory callback.
+Each save result replies to the user command that triggered that attempt:
+the confirmation message for normal saves, or the direct-save message for
+direct saves. A retry result replies to the retry command. This reply target
+is separate from the stored prompt/result ID used to select unfinished items.
 For direct partial failures, the result message ID becomes the confirmation ID
 for retrying unfinished items. Source deduplication and completed files survive
 retries; no database schema changes are needed. Legacy `cancel_words` is accepted
@@ -164,6 +168,7 @@ remain effective; the prompt describes the configured timeout.
 | Direct command targets an existing pending source | Save that batch without another question |
 | 取消 or legacy cancellation alias | Unhandled by Setu; pending state stays intact |
 | Attachment save fails | Result reports failure; only failed items remain retryable until expiry |
+| A save completes or partially fails | Result replies to the triggering user command ID |
 
 ### Good, base, and bad cases
 
@@ -176,11 +181,16 @@ a global latest-batch fallback for an unrelated quote.
 
 Unit checks cover immediate save, duplicate sources, pending-to-direct save,
 partial retry without replacing successes, removed cancellation, configured
-aliases, and expiry at the deadline. Protocol checks verify quoted lookup and
-result sending without an intervening prompt for default and configured words.
+aliases, result reply targets, and expiry at the deadline. Protocol checks
+verify quoted lookup, confirmation and direct result reply segments, and result
+sending without an intervening prompt for default and configured words.
 
 ### Wrong versus correct
 
 Wrong: hard-code direct words only in the adapter, or skip state claiming when
 saving directly. Correct: share trigger recognition through Setu and reuse
 the durable batch claim/checkpoint/result flow.
+
+Wrong: quote the original forward or bot prompt in the final result. Correct:
+pass the current user command ID into the save result callback, while keeping
+the stored bot result ID as the retry selection target for direct failures.

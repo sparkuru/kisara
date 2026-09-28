@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import FrozenSet, Tuple
 
 try:
@@ -72,8 +73,8 @@ class SetuConfig:
             enabled, allowed_users,
             _positive_int(values.get("confirm_timeout_seconds", 60), "confirm_timeout_seconds"),
             confirm_words, direct_words, save_root, save_mode,
-            _positive_int(values.get("max_file_bytes", 104857600), "max_file_bytes"),
-            _positive_int(values.get("max_batch_bytes", 1073741824), "max_batch_bytes"),
+            _size_bytes(values.get("max_file_bytes", "100M"), "max_file_bytes"),
+            _size_bytes(values.get("max_batch_bytes", "1G"), "max_batch_bytes"),
             _positive_int(values.get("max_depth", 5), "max_depth"),
             _positive_int(values.get("max_nodes", 500), "max_nodes"),
             local_root,
@@ -112,6 +113,20 @@ def _positive_int(value: object, name: str) -> int:
     if type(value) is not int or value <= 0:
         raise ConfigurationError("Setu {} must be a positive integer.".format(name))
     return value
+
+
+def _size_bytes(value: object, name: str) -> int:
+    """Convert a positive K, M, or G size to a byte count."""
+    match = re.fullmatch(r"([0-9]+)([KMGkmg])", value) if isinstance(value, str) else None
+    try:
+        count = int(match.group(1)) if match is not None else 0
+    except ValueError:
+        count = 0
+    if count == 0:
+        raise ConfigurationError(
+            "Setu {} must be a positive size such as 10M or 1G.".format(name)
+        )
+    return count * 1024 ** {"K": 1, "M": 2, "G": 3}[match.group(2).upper()]
 
 
 def _path(value: object, name: str) -> Path:

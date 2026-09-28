@@ -11,7 +11,7 @@ without a question. The prompt displays the first configured confirmation word;
 later words and 确认 remain accepted aliases. Cancellation words are ignored.
 Legacy cancel_words config is accepted but inert. Setu replies use pangu spacing.
 Downloads start only after confirmation; the result reports saved and failed
-counts and the actual save directory.
+counts and the actual save directory, quoting the user command that started the save.
 Repeating confirmation retries failed items without replacing completed files.
 For a direct save, quote its result to retry failures with the confirmation word.
 
@@ -140,7 +140,7 @@ class Setu:
         if not self._store.claim_save(batch["id"], now):
             await self._reply(gateway, event.sender_id, "这批附件正在处理或已经处理。")
             return
-        await self._save(batch, gateway, direct=True)
+        await self._save(batch, gateway, event.message_id, direct=True)
 
     async def run(self, gateway: SetuGateway) -> None:
         """Retry interrupted prompts while the adapter is connected."""
@@ -261,10 +261,10 @@ class Setu:
         if not self._store.claim_save(selected["id"], now):
             await self._reply(gateway, event.sender_id, "这批附件正在处理或已经处理。")
             return
-        await self._save(selected, gateway)
+        await self._save(selected, gateway, event.message_id)
 
     async def _save(self, batch: Mapping[str, Any], gateway: SetuGateway,
-                    direct: bool = False) -> None:
+                    command_id: str, direct: bool = False) -> None:
         """Checkpoint each item so a restart can retry only unfinished media."""
         media = json.loads(batch["media_json"])
         total = sum(int(item.get("saved_size", 0)) for item in media)
@@ -316,7 +316,7 @@ class Setu:
                        "可再次回复“{}”重试失败项。").format(
                 self._config.confirm_words[0],
             )
-        result_id = await self._reply(gateway, batch["user_id"], answer)
+        result_id = await self._reply(gateway, batch["user_id"], answer, command_id)
         if direct and failures and result_id:
             self._store.set_prompt(batch["id"], result_id)
 

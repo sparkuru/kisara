@@ -12,8 +12,9 @@ direct_confirm_words = ["直接保存"]
 save_mode = "date_original"
 save_root = "/app/setu"
 
-max_file_bytes = 104857600
-max_batch_bytes = 1073741824
+# K, M, and G use 1024-based units.
+max_file_bytes = "100M"
+max_batch_bytes = "1G"
 max_depth = 5
 max_nodes = 500
 

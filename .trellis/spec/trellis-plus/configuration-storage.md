@@ -34,6 +34,55 @@ Validate credentials only for the selected engine: OneBot requires
 `AppID`/`APP_ID` and `AppSecret`/`APP_SECRET`. Update `.env.example` and Compose
 environment wiring when a runtime variable changes.
 
+## Setu transfer size settings
+
+### 1. Scope / trigger
+
+The private `config/features/setu/config.toml` and its `.example` set transfer
+caps for the OneBot setu archive. Load once at startup through `SetuConfig.load`.
+
+### 2. Signatures
+
+`SetuConfig.load(path: Path) -> SetuConfig` parses the TOML file.
+`SetuConfig.max_file_bytes` and `max_batch_bytes` are byte integers consumed by
+the media saver; the TOML source values are size strings.
+
+### 3. Contracts
+
+`max_file_bytes = "100M"` and `max_batch_bytes = "1G"` preserve the default
+100 MiB and 1 GiB caps. A size is a positive whole number followed immediately
+by `K`, `M`, or `G` (case insensitive); each unit uses a 1024 multiplier.
+Omitted settings use these defaults. A missing setu config disables the feature.
+
+### 4. Validation & error matrix
+
+| Input | Startup behavior |
+| --- | --- |
+| `"10M"`, `"1G"`, `"1024K"` | Convert to byte integers |
+| TOML integer, boolean, zero, negative, fraction, unknown unit, or whitespace | `ConfigurationError` naming the invalid field |
+| Converted batch cap below file cap | `ConfigurationError` |
+
+### 5. Good / base / bad cases
+
+Good: `"2M"` and `"1G"` load as byte limits. Base: omit both keys and receive
+100 MiB / 1 GiB. Bad: leave an old unquoted `104857600` value; startup rejects
+it rather than silently guessing units.
+
+### 6. Tests required
+
+`tests/unit/test_setu_config.py` checks conversions, defaults, invalid source
+types and strings, and the converted batch-versus-file relation.
+`tests/unit/test_setu.py` checks the media saver against byte limits.
+Tests of environment defaults should change to `tmp_path` before loading
+settings, so private `config/features/*/config.toml` files in the repository
+cannot change their expected input.
+
+### 7. Wrong versus correct
+
+Wrong: parse size strings in the media saver or accept old TOML integers.
+Correct: validate and normalize sizes once in `SetuConfig.load`, then pass byte
+integers to the service.
+
 ## Validation and error matrix
 
 | Input or state | Result |
