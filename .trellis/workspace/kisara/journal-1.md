@@ -134,3 +134,39 @@ Confirmed the preview counts all 12 videos in the nested forward; self-forwardin
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Setu quoted results and size units
+<!-- trellis-session: v=2 fp=5a50b3a96644f4cb -->
+
+**Date**: 2026-09-28
+**Task**: Setu quoted results and size units
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+Quoted setu results now target each triggering user command; setu transfer caps use K/M/G strings and the private config is updated.
+
+### Main Changes
+
+- Preserved direct partial-failure retry selection while quoting normal, direct, and retry results.
+- Converted setu caps to 1024-based K/M/G syntax; rejected old integers and malformed values.
+- Isolated settings tests from private feature files and recorded the setu contracts in specs.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0cd7419` | feat(setu): quote save results and parse size limits |
+
+### Testing
+
+- [OK] ./dev.sh --all: 191 passed; git diff --check passed; task context validation passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Preview Kisara and NapCat containers were stopped; live QQ rendering awaits a preview restart and user check.
