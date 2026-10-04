@@ -229,3 +229,35 @@ Implemented Telegram ping/help/news/scheduled news/music, static feature routing
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Engine configuration and Telegram message summaries
+<!-- trellis-session: v=2 fp=0a8d397a7b2eacd2 -->
+
+**Date**: 2026-10-04
+**Task**: Engine configuration and Telegram message summaries
+**Branch**: `feat/telegram-bot`
+
+### Summary
+
+Namespaced engine dotenv inputs with legacy compatibility; migrated local configuration and enabled redacted Telegram receive/send logs.
+
+### Main Changes
+
+- Added per-engine configuration namespaces, presence-based legacy fallback, and TOML override compatibility.
+- Added opt-in Telegram message summaries with token redaction before message chunking.
+- Migrated private configuration and restarted only Telegram; QQ containers remained unchanged.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d89fdbe` | feat(config): namespace engines and add Telegram message logs |
+
+### Testing
+
+- [OK] 355 offline tests passed; synthetic Compose matrices, Bash syntax, and diff checks passed. Three existing PTB deprecation warnings remain.
+
+### Status
+
+[OK] **Completed**
