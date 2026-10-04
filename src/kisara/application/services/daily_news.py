@@ -22,8 +22,14 @@ and renders again. Historical files and scheduled delivery records remain
 unchanged; filesystem failures return a feature error rather than success.
 
 The temporary HTML cache is scoped to the current operating-system user and
-prunes older pages on the next HTML read. A failed or stale fetch is not cached,
-so the next request can retry. No database is used for source content.
+prunes older pages on the next HTML read. A stale page date is rejected. A
+current-day page with LyToday's unpublished-news notice and 15 valid headlines
+returns yesterday's brief with the original warning in text and above the
+PNG's headlines. The result keeps its own immutable PNG bytes in memory;
+fallback HTML and PNG are never published as today's cache. Every later
+fallback request refetches, and published news resumes normal dated caching.
+Invalid or fallback cached HTML is discarded and fetched again. Failed fetches
+are not cached. No database is used for source content.
 
 Optional OneBot daily push uses push_groups (allowed groups with groups enabled)
 and push_users (canonical positive decimal QQ strings in KISARA_ALLOWED_USERS).
@@ -37,6 +43,9 @@ private_deliveries tables in KISARA_STATE_DIR/news_delivery.sqlite3 (Compose
 retain 30 days of completion history. Failed or unrecorded sends retry after
 15 minutes; a late connection catches up today only, with no historical backfill.
 Disconnect cancels the loop; reconnect checks durable state before sending.
+Successfully sending a labeled yesterday brief completes today's scheduled
+delivery; it is not pushed again after publication. Manual /news can retrieve
+the updated brief.
 Unknown remote outcomes or failed local writes can still cause duplicates.
 Private delivery depends on the logged-in QQ account being able to contact the
 recipient. Ordinary /news requests do not need a scheduled subscription.
@@ -76,6 +85,7 @@ MAX_HOT_ITEMS = 10
 MAX_HISTORY_ITEMS = 20
 MAX_IMAGE_HEIGHT = 9_000
 PNG_LAYOUT_VERSION = "lylme-centered-headings-v2"
+UNPUBLISHED_NOTICE = "今天的简讯未更新，下面是昨天的简讯！"
 
 
 @dataclass(frozen=True)
@@ -92,33 +102,44 @@ class DailyPage:
     history_title: str
     calendar_title: str
     quote_title: str
+    notice: str = ""
 
 
 @dataclass(frozen=True)
 class DailyNewsResult:
-    """Point to the cached image used for a dated brief."""
+    """Keep a published cache path or immutable bytes for a warned fallback."""
 
     day: date
-    image_path: Path
+    image_path: Optional[Path]
+    image_bytes: bytes = b""
+    notice: str = ""
 
     @property
     def text(self) -> str:
-        """Identify the news date and original source."""
+        """Identify the source and distinguish a fallback page date from fresh news."""
 
+        if self.notice:
+            return "{}\nDaily news page for {}\nSource: {}".format(
+                self.notice, self.day.isoformat(), SOURCE_URL,
+            )
         return "Daily news for {}\nSource: {}".format(self.day.isoformat(), SOURCE_URL)
 
     def onebot_image(self) -> str:
-        """Embed the cached file so the separate OneBot container can send it."""
+        """Embed the published file or this result's independent fallback bytes."""
 
-        try:
-            content = self.image_path.read_bytes()
-        except OSError as error:
-            raise RemoteServiceError("Cached daily news image is unavailable.") from error
+        content = self.image_bytes
+        if self.image_path is not None:
+            try:
+                content = self.image_path.read_bytes()
+            except OSError as error:
+                raise RemoteServiceError("Cached daily news image is unavailable.") from error
+        if not content:
+            raise RemoteServiceError("Cached daily news image is unavailable.")
         return "base64://" + base64.b64encode(content).decode("ascii")
 
 
 class DailyNews:
-    """Read today's LyToday data once and keep a dated local image cache."""
+    """Cache published LyToday news and refetch labeled fallback briefs."""
 
     def __init__(
         self,
@@ -150,7 +171,7 @@ class DailyNews:
         self._lock = Lock()
 
     def get(self) -> DailyNewsResult:
-        """Return today's cached PNG, fetching and rendering it only once."""
+        """Cache published news and return warned fallback images without disk reuse."""
 
         today = self._clock().astimezone(CHINA_TIME).date()
         path = self._cache_dir / "{}.png".format(today.strftime("%Y%m%d"))
@@ -164,6 +185,8 @@ class DailyNews:
                 image = self._renderer(today, page)
                 if not _valid_png_bytes(image):
                     raise RemoteServiceError("Daily news renderer returned an invalid PNG.")
+                if page.notice:
+                    return DailyNewsResult(today, None, bytes(image), page.notice)
                 atomic_write_bytes(path, image)
             except OSError as error:
                 raise RemoteServiceError("Daily news cache is unavailable.") from error
@@ -214,13 +237,16 @@ class DailyNews:
         if path.is_file():
             try:
                 if path.stat().st_size <= 2_000_000:
-                    return _page_for_today(path.read_text(encoding="utf-8"), today)
+                    cached = _page_for_today(path.read_text(encoding="utf-8"), today)
+                    if not cached.notice:
+                        return cached
             except (RemoteServiceError, UnicodeError):
                 pass
             path.unlink()
         html = self._reader.get_text(SOURCE_URL)
         page = _page_for_today(html, today)
-        atomic_write_bytes(path, html.encode("utf-8"))
+        if not page.notice:
+            atomic_write_bytes(path, html.encode("utf-8"))
         return page
 
     def _prune(self, today: date) -> None:
@@ -354,7 +380,7 @@ class _DailyPageParser(HTMLParser):
 
 
 def _page_for_today(html: str, today: date) -> DailyPage:
-    """Reject stale or incomplete HTML before naming it as today's image."""
+    """Validate today's page and separate a known warning from fallback headlines."""
 
     parser = _DailyPageParser()
     parser.feed(html)
@@ -367,12 +393,14 @@ def _page_for_today(html: str, today: date) -> DailyPage:
         raise RemoteServiceError("Daily news page returned an invalid date.") from error
     if published != today:
         raise RemoteServiceError("Today's daily news is not yet available.")
-    if len(parser.headlines) != 15 or any(
-        not item or len(item) > 300 for item in parser.headlines
+    notice_count = parser.headlines.count(UNPUBLISHED_NOTICE)
+    headlines = [item for item in parser.headlines if item != UNPUBLISHED_NOTICE]
+    if notice_count > 1 or len(headlines) != 15 or any(
+        not item or len(item) > 300 for item in headlines
     ):
         raise RemoteServiceError("Daily news page returned invalid headlines.")
     return DailyPage(
-        headlines=tuple(parser.headlines),
+        headlines=tuple(headlines),
         hot_sections=tuple(
             (name[:80], tuple(item[:300] for item in items))
             for name, items in parser.hot_sections if items
@@ -385,6 +413,7 @@ def _page_for_today(html: str, today: date) -> DailyPage:
         history_title=parser.titles.get("history", "历史上的今天"),
         calendar_title=parser.titles.get("calendar", "今日黄历"),
         quote_title=parser.titles.get("quote", "每日一语"),
+        notice=UNPUBLISHED_NOTICE if notice_count else "",
     )
 
 
@@ -459,6 +488,8 @@ def render_news_image(
         rows.append(("", section_font, "", 52, 15, True))
         add("「{}」".format(title), section_font, "#23456b", 52, 45, 12, True)
 
+    if page.notice:
+        add(page.notice, section_font, "#a12b1f", 52, 45, 18, True)
     section(page.news_title)
     for item in page.headlines:
         add(item, body_font, "#202938", 52, 35, 12)
@@ -496,6 +527,8 @@ def render_news_image(
     weekday_label = "{} / 星期{}".format(
         day.isoformat(), "一二三四五六日"[day.weekday()],
     )
+    if page.notice:
+        weekday_label = "Page: " + weekday_label
     draw.text((52, 134), source_label, font=metadata_font, fill="#dce8f5")
     date_x = width - 52 - draw.textlength(weekday_label, font=metadata_font)
     draw.text((date_x, 134), weekday_label, font=metadata_font, fill="#dce8f5")

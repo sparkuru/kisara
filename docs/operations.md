@@ -183,6 +183,17 @@ the generated PNG is retained under the news `cache_dir` setting. In Compose,
 that image directory is `/app/state/daily-news` in the persistent `kisara_state`
 volume. `cache_days` in `config/features/news/config.toml` controls PNG retention.
 Older temporary HTML is pruned on the next HTML fetch or cleared by `/tmp`.
+When today's page says `今天的简讯未更新，下面是昨天的简讯！` above 15 valid
+headlines, `/news` sends that yesterday brief with the original warning in its
+text and prominently above the PNG's headlines. The reply and image distinguish
+the page date from headline freshness; official-engine replies include the
+warning as text. Fallback results own immutable image bytes in memory, so no
+fallback dated HTML or PNG is cached, and later requests or cache clearing
+cannot change an earlier result. Each fallback request refetches the provider.
+After publication, `/news` caches the fresh brief normally without manual
+clearing. Cached fallback or invalid HTML is discarded and fetched again.
+Stale page dates still return `Today's daily news is not yet available.`;
+duplicate notices and malformed or incomplete actual headline lists are errors.
 The image includes the page's headlines, hot lists, history, almanac, and quote.
 Set `font_paths` in the same feature file to an ordered list of font files;
 the first CJK-capable path inside the container is used, then bundled Noto CJK
@@ -230,6 +241,9 @@ in `news_delivery.sqlite3` under `KISARA_STATE_DIR` (Compose `/app/state` in
 equal user/group numbers do not collide. Initialization preserves old group
 records; completion writes prune both tables beyond 30 days. Failed or
 unrecorded targets retry after 15 minutes without resending recorded successes.
+Successfully sending the labeled yesterday brief counts as today's completed
+delivery. It does not trigger a second scheduled push after publication;
+request `/news` manually to retrieve updated content.
 Late startup catches up today's news only. Disconnect cancels the task, and
 reconnect consults durable state. An unknown remote result or failed local
 completion write may still lead to duplicate delivery.

@@ -80,7 +80,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 | `/chat` 与普通消息回复 | `application/services/chat.py` | 打包短语库；按全局及群组策略匹配，随机触发；`cute`、`tsundere` CSV 与 `mixed` JSON |
 | `/tarot` | `application/services/tarot.py` | 打包 78 张牌和牌阵；按实例、用户、中国标准时间日期生成稳定结果；本地图像仅在 OneBot 发送 |
 | `/wallpaper`、`/ba`、`/source`、`/music`、`/love` | `application/services/public.py`；`infrastructure/integrations/http.py` | 外部 HTTP 服务；`/source` 需图片和密钥，`/music`、`/love` 需各自配置 |
-| `/news` | `application/services/daily_news.py` | 获取当天新闻并渲染 PNG；按日期缓存，OneBot 发送图片 |
+| `/news` | `application/services/daily_news.py` | Render a dated cached PNG for OneBot. A current-day page with LyToday's unpublished notice and 15 valid headlines sends yesterday's brief with a prominent warning in text and PNG; fallback bytes remain in memory without HTML/PNG cache publication. Each fallback request refetches, and later published news caches normally. Stale page dates and malformed actual headlines remain errors. Successful fallback push completes today's delivery; manual `/news` can retrieve later updates. |
 | `清除新闻缓存` | `bot/dispatcher.py` → `application/services/daily_news.py` 的 `clear_cache()` | 沿用用户/群白名单；无需参数，可带 `#`；仅删除中国标准时间当天的 PNG 和临时 HTML，与生成操作共用锁。不立即抓取或发送，下次请求新闻时重新获取并生成；不影响历史文件或定时推送记录。无缓存时正常回复，文件删除失败或临时目录不安全时返回错误。 |
 | 定时新闻推送 | OneBot 适配器的 `_run_daily_news()`；`infrastructure/persistence/news_delivery.py` | 仅 OneBot；`push_groups` 与个人 QQ 号 `push_users` 共用中国标准时间 `push_time`；群和个人完成记录在 SQLite 中分别去重，个人推送不要求开启群功能 |
 | `/recall` | `bot/dispatcher.py` 与 OneBot 适配器 | 仅 OneBot；引用机器人消息，群内需管理员、群主或配置的管理员用户 |

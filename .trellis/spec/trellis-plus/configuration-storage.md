@@ -192,6 +192,77 @@ send outcome automatically. Correct: record successful completion after the
 confirmed result, distinguish known failure from unknown outcome, and define
 retry/idempotency semantics for each side effect.
 
+## Daily news publication-delay fallback
+
+### Scope and trigger
+
+Applies to /news aliases and scheduled generation when today's LyToday page
+prepends 今天的简讯未更新，下面是昨天的简讯！ to yesterday's 15 headlines.
+The user approved clearly labeled yesterday content during publication delays.
+
+### Signatures
+
+`_page_for_today(html: str, today: date) -> DailyPage` validates the page;
+`DailyPage.notice: str = ""` stores the optional source warning.
+`DailyNews.get() -> DailyNewsResult` supplies `.text` and `.onebot_image()` to
+existing callers. Result fields are `day: date`, `image_path: Optional[Path]`,
+`image_bytes: bytes = b""`, and `notice: str = ""`. Published results retain the
+dated path; fallback results use `image_path=None` and immutable PNG bytes:
+
+```python
+DailyNewsResult(today, None, image_bytes=bytes(image), notice=page.notice)
+```
+
+### Contracts
+
+Remove exactly one recognized news-list notice before checking the 15 actual
+headlines; duplicate notices remain invalid. Preserve the notice separately
+and display it prominently in the PNG and result text for both engines.
+The page header must still match the requested China Standard Time date.
+
+Fallback results retain immutable image bytes with no reusable disk image.
+Do not write fallback dated HTML or PNG. Discard cached fallback HTML and
+refetch rather than returning it. Subsequent requests refetch until publication,
+then resume normal atomic dated caching. Cache clearing or later requests must
+not alter previously returned fallback bytes.
+
+Scheduled successful fallback sends count as that day's completed delivery.
+Do not automatically resend after publication; users can request /news manually.
+Keep failure retry, authorization, and existing delivery tables unchanged.
+
+### Validation and error matrix
+
+| Source state | Outcome |
+| --- | --- |
+| Current header, one recognized notice, 15 valid actual headlines | Handled labeled fallback text/PNG; no dated cache publication |
+| Stale/invalid header | Existing freshness/date failure |
+| Current page without notice and 15 valid headlines | Normal dated render/cache/reuse |
+| Duplicate notices or extra/missing/empty/oversized actual headlines | Invalid-headlines failure |
+| Cached HTML with notice | Discard and refetch before rendering |
+| Successful scheduled fallback send | Record completion; no second scheduled send that day |
+
+### Good, base, and bad cases
+
+Good: two fallback requests each fetch; after publication, a third caches fresh
+news while prior results keep their own bytes. Base: fresh content reuses a
+dated PNG. Bad: cache yesterday's fallback under today's reusable filename or
+let an earlier result point at a fallback file another request overwrites.
+
+### Required tests
+
+News tests assert handled image/text warnings, 15 valid actual headlines,
+malformed rejection, no fallback cache publication, repeated refetch, cached
+fallback recovery, byte isolation, and publication recovery. Verify PNG warning
+drawing as well as source attribution. Scheduler tests assert fallback payload
+and durable once-per-day completion. Permanent fixtures use synthetic headlines.
+
+### Wrong versus correct
+
+Wrong: reject a valid warned page as unavailable, silently drop the warning,
+or persist yesterday's brief as today's normal cache.
+Correct: preserve/display the warning, render validated actual headlines,
+return immutable fallback bytes, and refetch on later manual requests.
+
 ## Manual current-day news cache clearing
 
 ### Scope and trigger

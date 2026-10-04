@@ -14,6 +14,7 @@ import pytest
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
+from kisara.application.services import daily_news
 from kisara.application.services.daily_news import (
     PNG_LAYOUT_VERSION, SOURCE_URL, DailyNews, DailyPage, _page_for_today,
 )
@@ -69,6 +70,14 @@ def _png() -> bytes:
     metadata.add_text("kisara_layout", PNG_LAYOUT_VERSION)
     Image.new("RGB", (2, 2), "white").save(output, format="PNG", pnginfo=metadata)
     return output.getvalue()
+
+
+def _unpublished_html() -> str:
+    """Keep today's header above the provider's notice and fallback headlines."""
+
+    return _html().replace(
+        "<ul>", "<ul><li><span>今天的简讯未更新，下面是昨天的简讯！</span></li>", 1,
+    )
 
 
 def _service(
@@ -176,6 +185,239 @@ def test_daily_news_rejects_stale_html_without_caching_it(tmp_path: Path) -> Non
     assert not (tmp_path / "raw-html" / "20260924.html").exists()
 
 
+def test_page_keeps_unpublished_notice_separate_from_fifteen_headlines() -> None:
+    """Keep every page section while identifying the fallback brief explicitly."""
+
+    page = _page_for_today(_unpublished_html(), date(2026, 9, 24))
+
+    assert page.notice == "今天的简讯未更新，下面是昨天的简讯！"
+    assert replace(page, notice="") == _page_for_today(_html(), date(2026, 9, 24))
+
+
+@pytest.mark.parametrize("text", ("Hall built", "A daily saying."))
+def test_unpublished_notice_outside_news_does_not_block_valid_headlines(
+    text: str,
+) -> None:
+    """Only the news list carries the provider's publication status."""
+
+    html = _html().replace(text, "今天的简讯未更新，下面是昨天的简讯！", 1)
+
+    page = _page_for_today(html, date(2026, 9, 24))
+
+    assert len(page.headlines) == 15
+    assert page.headlines[0] == "1、Headline 1"
+    assert page.notice == ""
+
+
+def test_unpublished_news_does_not_cache_and_retries_after_publication(
+    tmp_path: Path,
+) -> None:
+    """Fallback refetches each time, then publication restores normal caching."""
+
+    reader = FakeReader(_unpublished_html())
+    rendered = []
+
+    def render(day: date, page: DailyPage) -> bytes:
+        """Track each rendered page's warning and actual headlines."""
+
+        rendered.append(page)
+        return _png()
+
+    service = _service(tmp_path, reader, renderer=render)
+
+    first = service.get()
+    second = service.get()
+
+    assert first.image_path is None and second.image_path is None
+    assert first.image_bytes == _png()
+    assert "今天的简讯未更新，下面是昨天的简讯！" in first.text
+    assert "Daily news page for 2026-09-24" in first.text
+    assert base64.b64decode(first.onebot_image().split("base64://", 1)[1]) == _png()
+    assert reader.calls == 2
+    assert not (tmp_path / "daily-news" / "20260924.png").exists()
+    assert not (tmp_path / "raw-html" / "20260924.html").exists()
+
+    reader.html = _html()
+    result = service.get()
+
+    assert result.day == date(2026, 9, 24)
+    assert result.image_path.read_bytes() == _png()
+    assert (tmp_path / "raw-html" / "20260924.html").read_text() == _html()
+    assert len(rendered) == 3
+    assert rendered[0].notice == rendered[1].notice == first.notice
+    assert rendered[2].notice == result.notice == ""
+    assert service.get().image_path == result.image_path
+    assert reader.calls == 3
+
+
+@pytest.mark.parametrize("missing_headline", (False, True))
+def test_cached_unpublished_notice_is_discarded_before_refetch(
+    tmp_path: Path, missing_headline: bool,
+) -> None:
+    """Fallback HTML on disk must be refetched whether valid or malformed."""
+
+    raw = tmp_path / "raw-html"
+    raw.mkdir(mode=0o700)
+    cached = _unpublished_html()
+    if missing_headline:
+        cached = cached.replace("<li>1、Headline 1</li>", "", 1)
+    path = raw / "20260924.html"
+    path.write_text(cached, encoding="utf-8")
+    reader = FakeReader(_html())
+
+    result = _service(tmp_path, reader).get()
+
+    assert reader.calls == 1
+    assert result.image_path.read_bytes() == _png()
+    assert path.read_text(encoding="utf-8") == _html()
+
+
+@pytest.mark.parametrize("engine", ("onebot", "official"))
+def test_news_publication_delay_sends_warning_and_new_fallback_image(
+    tmp_path: Path, engine: str,
+) -> None:
+    """Both engines identify yesterday's brief and OneBot delivers its PNG."""
+
+    cache = tmp_path / "daily-news"
+    cache.mkdir()
+    yesterday = cache / "20260923.png"
+    yesterday.write_bytes(_png())
+    reader = FakeReader(_unpublished_html())
+    dispatcher = Dispatcher(
+        allowed_users=frozenset({"user"}), groups_enabled=False,
+        allowed_groups=frozenset(), daily_news=_service(tmp_path, reader),
+    )
+
+    result = dispatcher.dispatch_result(_event("/news", "unpublished", engine))
+
+    assert result.status == "handled"
+    assert result.reply.startswith("今天的简讯未更新，下面是昨天的简讯！\n")
+    assert "Daily news page for 2026-09-24" in result.reply
+    assert SOURCE_URL in result.reply
+    if engine == "onebot":
+        assert len(result.image_urls) == 1
+        assert base64.b64decode(result.image_urls[0].split("base64://", 1)[1]) == _png()
+    else:
+        assert result.image_urls == ()
+    assert yesterday.read_bytes() == _png()
+    assert not (cache / "20260924.png").exists()
+    assert not (tmp_path / "raw-html" / "20260924.html").exists()
+
+
+@pytest.mark.parametrize("change", ("missing", "extra", "empty", "oversized", "duplicate"))
+def test_fallback_still_rejects_malformed_headlines_or_duplicate_notice(
+    change: str,
+) -> None:
+    """A known warning does not relax the actual headline validation."""
+
+    html = _unpublished_html()
+    changes = {
+        "missing": ("<li>1、Headline 1</li>", ""),
+        "extra": ("</ul>", "<li>16、Extra</li></ul>"),
+        "empty": ("<li>1、Headline 1</li>", "<li></li>"),
+        "oversized": ("<li>1、Headline 1</li>", "<li>{}</li>".format("x" * 301)),
+        "duplicate": ("<ul>", "<ul><li>今天的简讯未更新，下面是昨天的简讯！</li>"),
+    }
+    old, new = changes[change]
+
+    with pytest.raises(RemoteServiceError, match="invalid headlines"):
+        _page_for_today(html.replace(old, new, 1), date(2026, 9, 24))
+
+
+@pytest.mark.parametrize(
+    "old, new, error",
+    (("9月24日", "9月23日", "not yet available"),
+     ("9月24日", "13月24日", "invalid date"),
+     ("<p>2026</p>", "", "omitted its date")),
+)
+def test_fallback_requires_a_valid_current_page_date(
+    old: str, new: str, error: str,
+) -> None:
+    """The publication notice never makes stale or malformed page dates acceptable."""
+
+    with pytest.raises(RemoteServiceError, match=error):
+        _page_for_today(_unpublished_html().replace(old, new, 1), date(2026, 9, 24))
+
+
+def test_fallback_result_survives_later_rendering_publication_and_cache_clear(
+    tmp_path: Path,
+) -> None:
+    """Earlier results own immutable bytes rather than a mutable temporary PNG."""
+
+    reader = FakeReader(_unpublished_html())
+    images = []
+
+    def render(day: date, page: DailyPage) -> bytes:
+        """Render different valid bytes on each request to expose accidental reuse."""
+
+        output = io.BytesIO()
+        metadata = PngInfo()
+        metadata.add_text("kisara_layout", PNG_LAYOUT_VERSION)
+        Image.new("RGB", (len(images) + 2, 2), "white").save(
+            output, format="PNG", pnginfo=metadata,
+        )
+        images.append(output.getvalue())
+        return images[-1]
+
+    service = _service(tmp_path, reader, renderer=render)
+    first = service.get()
+    second = service.get()
+    reader.html = _html()
+    published = service.get()
+    assert published.image_path.is_file()
+    assert service.clear_cache()
+
+    assert first.image_path is None and second.image_path is None
+    assert isinstance(first.image_bytes, bytes)
+    assert first.image_bytes != second.image_bytes
+    assert base64.b64decode(first.onebot_image().split("base64://", 1)[1]) == images[0]
+    assert base64.b64decode(second.onebot_image().split("base64://", 1)[1]) == images[1]
+
+
+def test_fallback_renderer_draws_prominent_warning_before_headlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Warning drawing must precede the brief and keep its source attribution."""
+
+    font = daily_news.ImageFont.load_default()
+    monkeypatch.setattr(daily_news.ImageFont, "truetype", lambda path, size: font)
+    monkeypatch.setattr(daily_news, "_font_has_cjk", lambda candidate: True)
+    drawn = []
+    original_text = daily_news.ImageDraw.ImageDraw.text
+
+    def draw_text(draw: object, xy: tuple, text: str, **kwargs: object) -> None:
+        """Record actual text drawing while retaining the renderer's real PNG."""
+
+        drawn.append((xy, text, kwargs["fill"]))
+        original_text(draw, xy, text, **kwargs)
+
+    monkeypatch.setattr(daily_news.ImageDraw.ImageDraw, "text", draw_text)
+    page = _page_for_today(_unpublished_html(), date(2026, 9, 24))
+    png = daily_news.render_news_image(date(2026, 9, 24), page)
+
+    warning = next(item for item in drawn if item[1] == page.notice)
+    headline = next(item for item in drawn if item[1] == "1、Headline 1")
+    assert warning[0][1] < headline[0][1]
+    assert warning[2] == "#a12b1f"
+    assert any(SOURCE_URL in text for xy, text, color in drawn)
+    with Image.open(io.BytesIO(png)) as image:
+        assert image.format == "PNG"
+        assert image.info["kisara_layout"] == PNG_LAYOUT_VERSION
+
+
+@pytest.mark.parametrize("headline", (None, "", "x" * 301))
+def test_page_still_rejects_missing_empty_and_oversized_headlines(
+    headline: Optional[str],
+) -> None:
+    """Publication detection must retain the validation for malformed headlines."""
+
+    replacement = "" if headline is None else "<li>{}</li>".format(headline)
+    html = _html().replace("<li>1、Headline 1</li>", replacement, 1)
+
+    with pytest.raises(RemoteServiceError, match="invalid headlines"):
+        _page_for_today(html, date(2026, 9, 24))
+
+
 def test_render_retry_uses_temporary_html_without_refetch(tmp_path: Path) -> None:
     """A renderer failure can retry from the validated HTML on disk."""
 
@@ -204,7 +446,7 @@ def test_news_aliases_send_the_cached_image(tmp_path: Path) -> None:
         allowed_groups=frozenset(), daily_news=_service(tmp_path, reader),
     )
 
-    for index, alias in enumerate(("新闻", "每日新闻", "news", "/news")):
+    for index, alias in enumerate(("新闻", "每日新闻", "news", "/news", "/brief")):
         reply = dispatcher.dispatch_payload(_event(alias, str(index)))
         assert isinstance(reply, OutgoingMessage)
         assert len(reply.image_urls) == 1
@@ -214,6 +456,32 @@ def test_news_aliases_send_the_cached_image(tmp_path: Path) -> None:
     official = dispatcher.dispatch_payload(_event("每日新闻", "official", "official"))
     assert isinstance(official, str)
     assert SOURCE_URL in official
+    assert "2026-09-24" in official
+
+
+@pytest.mark.parametrize(
+    "authorized, command, status",
+    ((False, "/news", "unhandled"), (True, "/news extra", "error")),
+)
+def test_rejected_news_requests_do_not_fetch_or_cache(
+    tmp_path: Path, authorized: bool, command: str, status: str,
+) -> None:
+    """Authorization and command arguments must be checked before provider access."""
+
+    reader = FakeReader(_unpublished_html())
+    dispatcher = Dispatcher(
+        allowed_users=frozenset({"user"}) if authorized else frozenset(),
+        groups_enabled=False, allowed_groups=frozenset(),
+        daily_news=_service(tmp_path, reader),
+    )
+
+    result = dispatcher.dispatch_result(_event(command, "rejected"))
+
+    assert result.status == status
+    assert result.image_urls == ()
+    assert reader.calls == 0
+    assert not (tmp_path / "daily-news").exists()
+    assert not (tmp_path / "raw-html").exists()
 
 
 def test_group_news_word_works_without_chat_enabled(tmp_path: Path) -> None:

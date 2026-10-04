@@ -1,13 +1,18 @@
 """Check scheduled news wiring, clock boundaries and isolated retry behavior."""
 
 import asyncio
+import base64
+import io
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, FrozenSet, Mapping
 
 import pytest
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
+from kisara.application.services.daily_news import PNG_LAYOUT_VERSION, SOURCE_URL, DailyNews
 from kisara.bot import main as bot_main
 from kisara.bot.adapters import onebot_v11
 from kisara.bot.adapters.onebot_v11 import OneBotError, OneBotV11Adapter
@@ -265,3 +270,103 @@ def test_failed_factory_retries_without_recording_recipients(
     assert len(attempts) == 2
     assert calls == ["send_private_msg"]
     assert store.was_private_sent("2026-09-27", "123")
+
+
+def test_labeled_fallback_completes_delivery_without_resend_after_publication(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A warned brief completes group/private push even across a same-day restart."""
+
+    notice = "今天的简讯未更新，下面是昨天的简讯！"
+    headlines = "".join("<li>Headline {}</li>".format(index) for index in range(15))
+    published_html = (
+        '<header><p>2026</p><h2>9月27日</h2></header>'
+        '<h1>「60秒读懂世界」</h1><ul>{}</ul>'
+    ).format(headlines)
+
+    class Reader:
+        """Switch the provider from a delayed brief to published news."""
+
+        def __init__(self) -> None:
+            """Start with yesterday's labeled brief."""
+            self.html = published_html.replace("<ul>", "<ul><li>{}</li>".format(notice), 1)
+            self.calls = 0
+
+        def get_text(self, url: str) -> str:
+            """Count calls without an external request."""
+            assert url == SOURCE_URL
+            self.calls += 1
+            return self.html
+
+    reader = Reader()
+    output = io.BytesIO()
+    metadata = PngInfo()
+    metadata.add_text("kisara_layout", PNG_LAYOUT_VERSION)
+    Image.new("RGB", (2, 2), "white").save(output, format="PNG", pnginfo=metadata)
+    png = output.getvalue()
+    now = datetime(2026, 9, 27, 11, tzinfo=timezone(timedelta(hours=8)))
+    news = DailyNews(
+        cache_dir=tmp_path / "images", temp_dir=tmp_path / "html", reader=reader,
+        clock=lambda: now, renderer=lambda day, page: png,
+    )
+    factory_calls = []
+    calls = []
+    store = NewsDeliveryStore(str(tmp_path))
+    settings = _settings(tmp_path, frozenset({"123"}), frozenset({"123"}))
+
+    def factory() -> OutgoingMessage:
+        """Use the same result methods as the real startup factory."""
+        factory_calls.append(True)
+        result = news.get()
+        return OutgoingMessage(result.text, (result.onebot_image(),))
+
+    adapter = OneBotV11Adapter(
+        settings, lambda event: None, daily_news_factory=factory, delivery_store=store,
+    )
+
+    async def request(action: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Confirm both real encoded warning/image payloads without QQ transport."""
+        calls.append((action, params))
+        return {}
+
+    async def sleep(seconds: float) -> None:
+        """Stop after the first successful push iteration."""
+        assert seconds == 900
+        adapter.close()
+
+    monkeypatch.setattr(adapter, "_request", request)
+    monkeypatch.setattr(onebot_v11, "datetime", SimpleNamespace(now=lambda zone: now))
+    monkeypatch.setattr(onebot_v11, "asyncio", SimpleNamespace(
+        sleep=sleep, get_running_loop=asyncio.get_running_loop,
+    ))
+    asyncio.run(adapter._run_daily_news())
+
+    assert [action for action, params in calls] == ["send_group_msg", "send_private_msg"]
+    for action, params in calls:
+        assert params["message"][0]["data"]["text"].startswith(notice + "\n")
+        image = params["message"][1]["data"]["file"]
+        assert base64.b64decode(image.split("base64://", 1)[1]) == png
+    assert store.was_sent("2026-09-27", "123")
+    assert store.was_private_sent("2026-09-27", "123")
+    assert reader.calls == len(factory_calls) == 1
+    assert not (tmp_path / "images" / "20260927.png").exists()
+    assert not (tmp_path / "html" / "20260927.html").exists()
+
+    reader.html = published_html
+    restarted = OneBotV11Adapter(
+        settings, lambda event: None, daily_news_factory=factory,
+        delivery_store=NewsDeliveryStore(str(tmp_path)),
+    )
+
+    async def stop_sleep(seconds: float) -> None:
+        """Published news does not trigger another push before tomorrow's due time."""
+        assert seconds == 84600
+        restarted.close()
+
+    monkeypatch.setattr(onebot_v11.asyncio, "sleep", stop_sleep)
+    monkeypatch.setattr(restarted, "_request", request)
+    asyncio.run(restarted._run_daily_news())
+    assert len(calls) == 2
+    assert reader.calls == len(factory_calls) == 1
+    assert news.get().image_path.is_file()
+    assert reader.calls == 2
