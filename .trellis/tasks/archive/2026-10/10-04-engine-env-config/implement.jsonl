@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Project configuration and delivery policy"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "Precedence and engine deployment contracts"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Docker checks and secret-safe validation"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Delegation ownership and completion boundaries"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Settings regression test conventions"}
+{"file": ".trellis/tasks/10-04-engine-env-config/research/config-boundaries.md", "reason": "Dotenv consumers and migration boundaries"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Token-safe application logging; explicit user-approved summaries override default body policy only for this opt-in feature"}

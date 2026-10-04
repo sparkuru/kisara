@@ -1,0 +1,29 @@
+{
+  "id": "engine-env-config",
+  "name": "engine-env-config",
+  "title": "Unify engine configuration and Telegram message logging",
+  "description": "Namespace engine deployment inputs, preserve local configuration, and add opt-in redacted Telegram receive/send summaries",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "kisara",
+  "assignee": "kisara",
+  "createdAt": "2026-10-04",
+  "completedAt": "2026-10-04",
+  "branch": "feat/telegram-bot",
+  "base_branch": "feat/telegram-bot",
+  "worktree_path": null,
+  "commit": "d89fdbe",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Completed on the existing feature branch; no PR was requested. User authorized the work commit. Private configuration and user-owned README edits are excluded.",
+  "meta": {
+    "quality_gate": "passed",
+    "human_validation": "human-not-needed"
+  }
+}
