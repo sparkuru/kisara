@@ -1,6 +1,7 @@
 # Telegram, Compose profiles, and feature routing design
 
-Status: approved; implementation active on `feat/telegram-bot`.
+Status: implementation and review complete; committed as `1152184` on
+`feat/telegram-bot`. Live account setup/acceptance remains pending.
 
 ## Deployment
 
@@ -161,6 +162,6 @@ volumes. Shared changes must pass QQ regressions before delivery.
 - [Repository fit](research/repository-fit.md)
 - [Library investigation](research/telegram-library.md)
 - [Routing and Compose investigation](research/feature-routing.md)
-- [Architecture](../../spec/trellis-plus/architecture.md)
-- [Configuration/storage](../../spec/trellis-plus/configuration-storage.md)
-- [Validation](../../spec/trellis-plus/validation.md)
+- [Architecture](../../../../spec/trellis-plus/architecture.md)
+- [Configuration/storage](../../../../spec/trellis-plus/configuration-storage.md)
+- [Validation](../../../../spec/trellis-plus/validation.md)

@@ -94,4 +94,5 @@ provider, and network behavior requires separate acceptance evidence.
 ## Artifact status
 
 PRD, design, implementation plan, and curated context manifests were approved.
-The task is active and implementation is in progress on `feat/telegram-bot`.
+Implementation and independent review passed; the user approved commit
+`1152184` on `feat/telegram-bot`, with real account acceptance still pending.

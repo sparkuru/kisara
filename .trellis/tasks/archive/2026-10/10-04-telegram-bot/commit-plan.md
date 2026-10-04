@@ -1,7 +1,7 @@
 # Proposed work commit
 
-Status: user confirmed the reviewed work commit with pending live checks;
-approved for staging and commit. Deployment and pushing remain separate.
+Status: user approved the reviewed work commit with pending live checks;
+committed as `1152184`. Deployment and pushing remain separate.
 
 1. `feat(bot): add Telegram entry point and engine-aware routing`
 

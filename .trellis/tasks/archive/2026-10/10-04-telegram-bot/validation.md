@@ -1,8 +1,9 @@
 # Validation evidence
 
 Branch: `feat/telegram-bot`. Status: implementation and independent review complete;
-live acceptance pending. User approved the reviewed work commit with these
-pending checks. No deployment or real account operations performed.
+live acceptance pending. User approved and committed the reviewed work as `1152184` with these
+pending checks. Implementation delivery is accepted; account setup/live checks
+remain separate. No deployment or real account operations performed.
 
 ## Executed checks
 

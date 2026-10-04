@@ -1,7 +1,7 @@
 # Telegram and engine-routing implementation plan
 
-Status: approved; task activated and implementation started on
-`feat/telegram-bot`.
+Status: implementation, independent review, and approved work commit complete
+on `feat/telegram-bot` (`1152184`). Live account setup/acceptance remains pending.
 
 ## Delivery shape and ordering
 
