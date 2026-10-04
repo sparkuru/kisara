@@ -170,3 +170,40 @@ Quoted setu results now target each triggering user command; setu transfer caps 
 ### Next Steps
 
 - Preview Kisara and NapCat containers were stopped; live QQ rendering awaits a preview restart and user check.
+
+
+## Session 6: Restore daily news with labeled fallback
+<!-- trellis-session: v=2 fp=0442dc6c1a2d612f -->
+
+**Date**: 2026-10-04
+**Task**: Restore daily news with labeled fallback
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+Restore /news during upstream publication delays with a prominent yesterday warning, immutable inline PNGs and no fallback cache; preserve once-per-day scheduled completion.
+
+### Main Changes
+
+- Separate the known source notice from 15 validated actual headlines; retain warning in image and text for both engines.
+- Refetch every fallback request, discard fallback HTML cache, and resume normal dated caching after publication without changing prior result bytes.
+- Preserve authorization, aliases, strict dates/headlines and existing scheduled group/private checkpoints; update operations, feature docs, and storage spec.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0db32e3` | fix(news): deliver labeled fallback during publication delays |
+
+### Testing
+
+- [OK] Focused news/push/delivery/dispatcher suites: 78 passed; full offline Docker suite: 215 passed; git diff --check and context manifests passed.
+- [OK] Rendered and visually inspected actual source HTML as a 960x5648 PNG; verified notice, path=None and no dated HTML/PNG publication.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- No deployment or push performed; rebuild/restart through the normal deployment path when desired.
