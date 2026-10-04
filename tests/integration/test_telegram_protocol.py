@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -64,7 +65,8 @@ def packet(number: int, text: str, chat: int = 123, user: int = 123) -> dict:
                 **{"from": dict(id=user, is_bot=False, first_name="Test")}, text=text))
 
 
-def test_real_sdk_polling_router_documents_and_shutdown(monkeypatch: object, tmp_path: object) -> None:
+def test_real_sdk_polling_router_documents_and_shutdown(monkeypatch: object, tmp_path: object,
+                                                        caplog: object) -> None:
     async def run() -> None:
         request = BotPeer()
         updates = BotPeer([packet(1, "/ping"), packet(2, "/ping@TestBot", -456),
@@ -76,7 +78,8 @@ def test_real_sdk_polling_router_documents_and_shutdown(monkeypatch: object, tmp
         news = SimpleNamespace(get=lambda: DailyNewsResult(date(2026, 10, 4), None, b"PNG", "Delayed publication"))
         music = SimpleNamespace(music=lambda query: RemoteResult("Song — artist\nhttps://music.163.com/#/song?id=1", music_id="1"))
         router = Dispatcher(frozenset({"123"}), True, frozenset({"-456"}), daily_news=news, public_services=music)
-        settings = Settings("telegram", "test", frozenset({"123"}), True, frozenset({"-456"}), telegram_token="123:synthetic")
+        settings = Settings("telegram", "test", frozenset({"123"}), True, frozenset({"-456"}),
+                            telegram_token="123:synthetic", telegram_message_log_enabled=True)
         adapter = transport.TelegramAdapter(settings, router.dispatch_payload)
         task = asyncio.create_task(adapter._run())
         try:
@@ -99,7 +102,15 @@ def test_real_sdk_polling_router_documents_and_shutdown(monkeypatch: object, tmp
             adapter.close()
             await asyncio.wait_for(task, 3)
         assert adapter.status == "stopped" and request.closed and updates.closed
-    asyncio.run(run())
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Telegram polling ready" in messages
+    assert sum(message.startswith("Received") for message in messages) == 6
+    assert sum(message.startswith("Sent") for message in messages) == 5
+    assert any("document" in message and "caption=" in message for message in messages)
+    assert not any("user=999" in message or "chat=126" in message or "chat=127" in message for message in messages)
+    assert "123:synthetic" not in caplog.text
 
 
 def test_scheduler_cancel_before_sdk_stop(monkeypatch: object, tmp_path: object) -> None:
@@ -203,8 +214,10 @@ def test_partial_initialization_closes_request_clients(monkeypatch: object, capl
             await asyncio.wait_for(adapter._run(), 3)
         assert request.closed and updates.closed and adapter.status == "stopped"
 
-    asyncio.run(run())
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
     assert "SECRET" not in caplog.text
+    assert "Telegram polling ready" not in caplog.text
 
 
 def test_full_queue_shutdown_drains_bounded_work(monkeypatch: object) -> None:
@@ -232,3 +245,22 @@ def test_full_queue_shutdown_drains_bounded_work(monkeypatch: object) -> None:
         await asyncio.wait_for(task, 3)
         assert request.closed and updates.closed and adapter.status == "stopped"
     asyncio.run(run())
+
+
+def test_application_start_failure_emits_no_polling_ready(monkeypatch: object, caplog: object) -> None:
+    """Polling alone is insufficient evidence for a ready application."""
+    async def run() -> None:
+        request, updates = BotPeer(), BotPeer()
+        monkeypatch.setattr(transport, "HTTPXRequest",
+                            lambda **kwargs: updates if kwargs.get("read_timeout") == 35 else request)
+        monkeypatch.setattr(Application, "start", AsyncMock(side_effect=RuntimeError("botSECRET start failed")))
+        settings = Settings("telegram", "test", frozenset({"123"}), False, frozenset(),
+                            telegram_token="123:synthetic", telegram_message_log_enabled=True)
+        adapter = transport.TelegramAdapter(settings, lambda event: None)
+        transport.quiet_sdk_logging()
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(adapter._run(), 3)
+        assert adapter.status == "stopped" and request.closed and updates.closed
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    assert "Telegram polling ready" not in caplog.text and "SECRET" not in caplog.text

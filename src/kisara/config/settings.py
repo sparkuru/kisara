@@ -1,7 +1,7 @@
 """Engine settings with independent feature TOML and legacy environment fallbacks."""
 
-import os
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, FrozenSet, Mapping, Optional, Tuple
@@ -71,10 +71,11 @@ class Settings:
     music_enabled: bool = True
     news_enabled: bool = True
     news_push_enabled: bool = True
+    telegram_message_log_enabled: bool = False
 
     @classmethod
     def from_environment(cls) -> "Settings":
-        """Read common settings and validate only the selected engine."""
+        """Resolve the selected engine namespace, then validate runtime settings."""
 
         engine = os.environ.get("KISARA_ENGINE", DEFAULT_ENGINE).strip().lower()
         if engine not in SUPPORTED_ENGINES:
@@ -85,17 +86,23 @@ class Settings:
                 )
             )
 
-        instance_id = os.environ.get("KISARA_INSTANCE_ID", "personal").strip()
+        environment = _engine_environment(os.environ, engine)
+        instance_id = environment.get("KISARA_INSTANCE_ID", "personal").strip()
         if not instance_id:
             raise ConfigurationError("KISARA_INSTANCE_ID must not be empty.")
 
-        allowed_users = _read_csv("KISARA_ALLOWED_USERS")
-        admin_users = _read_csv("KISARA_ADMIN_USERS")
+        allowed_users = _read_csv("KISARA_ALLOWED_USERS", environment=environment)
+        admin_users = _read_csv("KISARA_ADMIN_USERS", environment=environment)
         if not admin_users.issubset(allowed_users):
             raise ConfigurationError("KISARA_ADMIN_USERS must be allowed users.")
-        groups_enabled = _read_bool("KISARA_GROUPS_ENABLED", default=False)
-        allowed_groups = _read_csv("KISARA_ALLOWED_GROUPS")
-        group_overrides = _read_group_overrides(allowed_groups) if engine != "telegram" else {}
+        groups_enabled = _read_bool(
+            "KISARA_GROUPS_ENABLED", default=False, environment=environment,
+        )
+        allowed_groups = _read_csv("KISARA_ALLOWED_GROUPS", environment=environment)
+        group_overrides = (
+            _read_group_overrides(allowed_groups, environment=environment)
+            if engine != "telegram" else {}
+        )
         chat_file = load_feature("chat") if engine != "telegram" else {}
         tarot_file = load_feature("tarot") if engine != "telegram" else {}
         news_file = load_feature("news")
@@ -105,25 +112,25 @@ class Settings:
         if engine != "telegram":
             chat_options = {
                 "chat_enabled": boolean(chat_file, "enabled",
-                                        lambda: _read_bool("KISARA_CHAT_ENABLED", True), "chat"),
+                                        lambda: _read_bool("KISARA_CHAT_ENABLED", True, environment=environment), "chat"),
                 "chat_bot_name": string(chat_file, "bot_name",
-                                        lambda: os.environ.get("KISARA_CHAT_BOT_NAME", "Kisara").strip(), "chat"),
+                                        lambda: environment.get("KISARA_CHAT_BOT_NAME", "Kisara").strip(), "chat"),
                 "chat_sender_name": string(chat_file, "sender_name",
-                                           lambda: os.environ.get("KISARA_CHAT_SENDER_NAME", "you").strip(), "chat"),
+                                           lambda: environment.get("KISARA_CHAT_SENDER_NAME", "you").strip(), "chat"),
                 "chat_library": string(chat_file, "library",
-                                       lambda: os.environ.get("KISARA_CHAT_LIBRARY", "cute").strip(), "chat").lower(),
+                                       lambda: environment.get("KISARA_CHAT_LIBRARY", "cute").strip(), "chat").lower(),
                 "chat_trigger_rate": percent(chat_file, "trigger_rate",
-                                             lambda: _read_percent("KISARA_CHAT_TRIGGER_RATE", 30), "chat"),
+                                             lambda: _read_percent("KISARA_CHAT_TRIGGER_RATE", 30, environment=environment), "chat"),
                 "chat_similarity_rate": percent(chat_file, "similarity_rate",
-                                                lambda: _read_percent("KISARA_CHAT_SIMILARITY_RATE", 60), "chat"),
+                                                lambda: _read_percent("KISARA_CHAT_SIMILARITY_RATE", 60, environment=environment), "chat"),
                 "chat_ignored_phrases": words(chat_file, "ignored_phrases",
-                                              lambda: _read_csv("KISARA_CHAT_IGNORED_PHRASES"), "chat"),
+                                              lambda: _read_csv("KISARA_CHAT_IGNORED_PHRASES", environment=environment), "chat"),
                 "chat_banned_users": words(chat_file, "banned_users",
-                                           lambda: _read_csv("KISARA_CHAT_BANNED_USERS"), "chat"),
+                                           lambda: _read_csv("KISARA_CHAT_BANNED_USERS", environment=environment), "chat"),
                 "chat_always_reply_users": words(chat_file, "always_reply_users",
-                                                 lambda: _read_csv("KISARA_CHAT_ALWAYS_REPLY_USERS"), "chat"),
+                                                 lambda: _read_csv("KISARA_CHAT_ALWAYS_REPLY_USERS", environment=environment), "chat"),
                 "chat_reply_to_mentions": boolean(chat_file, "reply_to_mentions",
-                                                  lambda: _read_bool("KISARA_CHAT_REPLY_TO_MENTIONS", True), "chat"),
+                                                  lambda: _read_bool("KISARA_CHAT_REPLY_TO_MENTIONS", True, environment=environment), "chat"),
             }
             if not chat_options["chat_bot_name"] or not chat_options["chat_sender_name"]:
                 raise ConfigurationError("Chat display names must not be empty.")
@@ -133,11 +140,11 @@ class Settings:
                 )
             tarot_options = {
                 "tarot_enabled": boolean(tarot_file, "enabled",
-                                         lambda: _read_bool("KISARA_TAROT_ENABLED", True), "tarot"),
+                                         lambda: _read_bool("KISARA_TAROT_ENABLED", True, environment=environment), "tarot"),
                 "tarot_spread_rate": percent(tarot_file, "spread_rate",
-                                            lambda: _read_percent("KISARA_TAROT_SPREAD_RATE", 5), "tarot"),
+                                            lambda: _read_percent("KISARA_TAROT_SPREAD_RATE", 5, environment=environment), "tarot"),
                 "tarot_image_dir": string(tarot_file, "image_dir",
-                                          lambda: os.environ.get(
+                                          lambda: environment.get(
                                               "KISARA_TAROT_IMAGE_DIR", "data/kisara/tarotCards"
                                           ).strip(), "tarot"),
             }
@@ -146,29 +153,49 @@ class Settings:
             tarot_options = {"tarot_enabled": False}
         public_options = {
             "saucenao_key": string(source_file, "api_key",
-                                   lambda: os.environ.get("SAUCENAO_API_KEY", "").strip() if engine != "telegram" else "",
+                                   lambda: environment.get("SAUCENAO_API_KEY", "").strip() if engine != "telegram" else "",
                                    "source", allow_empty=True),
             "music_api_url": string(music_file, "api_url",
-                                    lambda: os.environ.get("KISARA_MUSIC_API_URL", "").strip(),
+                                    lambda: environment.get("KISARA_MUSIC_API_URL", "").strip(),
                                     "music", allow_empty=True),
             "tianapi_key": string(love_file, "api_key",
-                                  lambda: os.environ.get("TIANAPI_KEY", "").strip() if engine != "telegram" else "",
+                                  lambda: environment.get("TIANAPI_KEY", "").strip() if engine != "telegram" else "",
                                   "love", allow_empty=True),
         }
         music_api_url = public_options["music_api_url"]
         if music_api_url and not music_api_url.startswith(("http://", "https://")):
             raise ConfigurationError("KISARA_MUSIC_API_URL must be an HTTP URL.")
         feature_options = {
-            "ping_enabled": boolean(load_feature("ping"), "enabled", lambda: _read_bool("KISARA_PING_ENABLED", True), "ping"),
-            "help_enabled": boolean(load_feature("help"), "enabled", lambda: _read_bool("KISARA_HELP_ENABLED", True), "help"),
-            "music_enabled": boolean(music_file, "enabled", lambda: _read_bool("KISARA_MUSIC_ENABLED", True), "music"),
-            "news_enabled": boolean(news_file, "enabled", lambda: _read_bool("KISARA_NEWS_ENABLED", True), "news"),
-            "news_push_enabled": boolean(news_file, "push_enabled", lambda: _read_bool("KISARA_NEWS_PUSH_ENABLED", True), "news"),
+            "ping_enabled": boolean(
+                load_feature("ping"), "enabled",
+                lambda: _read_bool("KISARA_PING_ENABLED", True, environment=environment),
+                "ping",
+            ),
+            "help_enabled": boolean(
+                load_feature("help"), "enabled",
+                lambda: _read_bool("KISARA_HELP_ENABLED", True, environment=environment),
+                "help",
+            ),
+            "music_enabled": boolean(
+                music_file, "enabled",
+                lambda: _read_bool("KISARA_MUSIC_ENABLED", True, environment=environment),
+                "music",
+            ),
+            "news_enabled": boolean(
+                news_file, "enabled",
+                lambda: _read_bool("KISARA_NEWS_ENABLED", True, environment=environment),
+                "news",
+            ),
+            "news_push_enabled": boolean(
+                news_file, "push_enabled",
+                lambda: _read_bool("KISARA_NEWS_PUSH_ENABLED", True, environment=environment),
+                "news",
+            ),
         }
         news_push_groups = words(news_file, "push_groups",
-                                 lambda: _read_csv("KISARA_NEWS_PUSH_GROUPS"), "news")
+                                 lambda: _read_csv("KISARA_NEWS_PUSH_GROUPS", environment=environment), "news")
         news_push_users = words(news_file, "push_users",
-                                lambda: _read_csv("KISARA_NEWS_PUSH_USERS"), "news")
+                                lambda: _read_csv("KISARA_NEWS_PUSH_USERS", environment=environment), "news")
         if engine != "telegram" and any(not user.isascii() or not user.isdecimal() or user.startswith("0")
                for user in news_push_users):
             raise ConfigurationError("news.push_users must contain positive canonical decimal QQ numbers.")
@@ -186,14 +213,14 @@ class Settings:
         if not news_push_groups.issubset(allowed_groups):
             raise ConfigurationError("News push groups must be in KISARA_ALLOWED_GROUPS.")
         news_time = string(news_file, "push_time",
-                           lambda: os.environ.get("KISARA_NEWS_PUSH_TIME", "10:30").strip(), "news")
+                           lambda: environment.get("KISARA_NEWS_PUSH_TIME", "10:30").strip(), "news")
         news_push_hour, news_push_minute = _parse_clock_time(news_time, "news.push_time")
         news_cache_days = news_file.get("cache_days", 7)
         if type(news_cache_days) is not int or not 1 <= news_cache_days <= 3650:
             raise ConfigurationError("news.cache_days must be an integer from 1 to 3650.")
         news_cache_dir = string(
             news_file, "cache_dir",
-            lambda: os.environ.get("KISARA_NEWS_CACHE_DIR", "data/daily-news").strip(),
+            lambda: environment.get("KISARA_NEWS_CACHE_DIR", "data/daily-news").strip(),
             "news",
         )
         font_paths = news_file.get("font_paths", [])
@@ -205,7 +232,7 @@ class Settings:
         group_overrides = _merge_feature_group_overrides(
             group_overrides, chat_file, tarot_file, allowed_groups
         )
-        state_dir = os.environ.get("KISARA_STATE_DIR", "data/kisara").strip()
+        state_dir = environment.get("KISARA_STATE_DIR", "data/kisara").strip()
         if not state_dir:
             raise ConfigurationError("KISARA_STATE_DIR must not be empty.")
         news_options = {
@@ -223,14 +250,14 @@ class Settings:
 
         if engine == "onebot":
             onebot_ws_url = (
-                os.environ.get("ONEBOT_WS_URL", DEFAULT_ONEBOT_WS_URL).strip()
+                environment.get("ONEBOT_WS_URL", DEFAULT_ONEBOT_WS_URL).strip()
             )
             if not onebot_ws_url.startswith(("ws://", "wss://")):
                 raise ConfigurationError(
                     "ONEBOT_WS_URL must start with ws:// or wss://."
                 )
             onebot_access_token = _read_required(
-                ("ONEBOT_ACCESS_TOKEN",), "ONEBOT_ACCESS_TOKEN"
+                ("ONEBOT_ACCESS_TOKEN",), "ONEBOT_ACCESS_TOKEN", environment=environment,
             )
             return cls(
                 engine=engine,
@@ -251,13 +278,18 @@ class Settings:
             return cls(
                 engine=engine, instance_id=instance_id, allowed_users=allowed_users,
                 groups_enabled=groups_enabled, allowed_groups=allowed_groups,
-                telegram_token=_read_required(("TELEGRAM_BOT_TOKEN",), "TELEGRAM_BOT_TOKEN"),
+                telegram_message_log_enabled=_read_bool(
+                    "TELEGRAM_MESSAGE_LOG_ENABLED", default=False, environment=environment,
+                ),
+                telegram_token=_read_required(
+                    ("TELEGRAM_BOT_TOKEN",), "TELEGRAM_BOT_TOKEN", environment=environment,
+                ),
                 **chat_options, **tarot_options, **public_options, **news_options,
                 **feature_options,
             )
 
-        app_id = _read_required(("AppID", "APP_ID"), "AppID")
-        app_secret = _read_required(("AppSecret", "APP_SECRET"), "AppSecret")
+        app_id = _read_required(("AppID", "APP_ID"), "AppID", environment=environment)
+        app_secret = _read_required(("AppSecret", "APP_SECRET"), "AppSecret", environment=environment)
         return cls(
             engine=engine,
             instance_id=instance_id,
@@ -274,28 +306,65 @@ class Settings:
         )
 
 
-def _read_required(names: Tuple[str, ...], label: str) -> str:
+def _engine_environment(source: Mapping[str, str], engine: str) -> Mapping[str, str]:
+    """Copy deployment aliases into runtime fields without changing the process."""
+    environment = dict(source)
+    suffixes = (
+        "INSTANCE_ID", "ALLOWED_USERS", "ADMIN_USERS", "GROUPS_ENABLED",
+        "ALLOWED_GROUPS", "PING_ENABLED", "HELP_ENABLED", "MUSIC_ENABLED",
+        "NEWS_ENABLED", "NEWS_PUSH_ENABLED", "MUSIC_API_URL", "NEWS_PUSH_USERS",
+        "NEWS_PUSH_GROUPS", "NEWS_PUSH_TIME", "NEWS_CACHE_DIR", "STATE_DIR",
+    )
+    if engine == "onebot":
+        suffixes += (
+            "CHAT_ENABLED", "CHAT_BOT_NAME", "CHAT_SENDER_NAME", "CHAT_LIBRARY",
+            "CHAT_TRIGGER_RATE", "CHAT_SIMILARITY_RATE", "CHAT_IGNORED_PHRASES",
+            "CHAT_BANNED_USERS", "CHAT_ALWAYS_REPLY_USERS", "CHAT_REPLY_TO_MENTIONS",
+            "TAROT_ENABLED", "TAROT_SPREAD_RATE", "TAROT_IMAGE_DIR", "GROUP_CONFIG_PATH",
+        )
+    for suffix in suffixes:
+        alias = "{}_{}".format(engine.upper(), suffix)
+        if alias in source:
+            environment["KISARA_" + suffix] = source[alias]
+    if engine == "onebot":
+        for name in ("SAUCENAO_API_KEY", "TIANAPI_KEY"):
+            alias = "ONEBOT_" + name
+            if alias in source:
+                environment[name] = source[alias]
+    if engine == "official":
+        for suffix, legacy, sdk_alias in (
+            ("APP_ID", "AppID", "APP_ID"),
+            ("APP_SECRET", "AppSecret", "APP_SECRET"),
+        ):
+            alias = "OFFICIAL_" + suffix
+            if alias in source:
+                environment[legacy] = source[alias]
+                environment.pop(sdk_alias, None)
+    return environment
+
+
+def _read_required(names: Tuple[str, ...], label: str, environment: Mapping[str, str]) -> str:
     """Return the first non-empty environment variable in ``names``."""
 
     for name in names:
-        value = os.environ.get(name, "").strip()
+        value = environment.get(name, "").strip()
         if value:
             return value
 
     raise ConfigurationError("Missing required configuration: {}.".format(label))
 
 
-def _read_csv(name: str) -> FrozenSet[str]:
+def _read_csv(name: str, environment: Mapping[str, str]) -> FrozenSet[str]:
     """Read a comma-separated environment variable as normalized identifiers."""
 
-    values = os.environ.get(name, "").split(",")
+    values = environment.get(name, "").split(",")
     return frozenset(value.strip() for value in values if value.strip())
 
 
-def _read_bool(name: str, default: bool) -> bool:
+def _read_bool(name: str, default: bool, environment: Mapping[str, str]) -> bool:
     """Read a strict boolean environment variable."""
 
-    raw_value = os.environ.get(name)
+    raw_value = environment.get(name)
     if raw_value is None or not raw_value.strip():
         return default
 
@@ -309,10 +378,10 @@ def _read_bool(name: str, default: bool) -> bool:
     )
 
 
-def _read_percent(name: str, default: int) -> int:
+def _read_percent(name: str, default: int, environment: Mapping[str, str]) -> int:
     """Read an integer percentage from zero through one hundred."""
 
-    value = os.environ.get(name, str(default)).strip()
+    value = environment.get(name, str(default)).strip()
     try:
         percent = int(value)
     except ValueError:
@@ -333,10 +402,12 @@ def _parse_clock_time(value: str, name: str) -> Tuple[int, int]:
     return hour, minute
 
 
-def _read_group_overrides(allowed_groups: FrozenSet[str]) -> Mapping[str, GroupOverride]:
+def _read_group_overrides(
+    allowed_groups: FrozenSet[str], environment: Mapping[str, str],
+) -> Mapping[str, GroupOverride]:
     """Load optional group settings without accepting unknown or disallowed keys."""
 
-    configured_path = os.environ.get("KISARA_GROUP_CONFIG_PATH", "").strip()
+    configured_path = environment.get("KISARA_GROUP_CONFIG_PATH", "").strip()
     path = Path(configured_path or "config/groups.json")
     if not path.exists():
         if configured_path:

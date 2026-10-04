@@ -1,5 +1,6 @@
 """Tests for engine-aware environment settings."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -305,3 +306,133 @@ def test_private_news_does_not_relax_group_push_permissions(
     settings = Settings.from_environment()
     assert settings.news_push_groups == frozenset({"987"})
     assert settings.news_push_users == frozenset({"123"})
+
+
+@pytest.mark.parametrize("engine", ["onebot", "telegram", "official"])
+def test_selected_engine_namespace_isolated_and_process_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine: str,
+) -> None:
+    """Each direct runtime selects only its own deployment access and flags."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", engine)
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", "999")
+    monkeypatch.setenv("KISARA_PING_ENABLED", "true")
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "synthetic-onebot")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:synthetic")
+    monkeypatch.setenv("OFFICIAL_APP_ID", "synthetic-app")
+    monkeypatch.setenv("OFFICIAL_APP_SECRET", "synthetic-secret")
+    for prefix, user in (("ONEBOT", "111"), ("TELEGRAM", "222"), ("OFFICIAL", "333")):
+        monkeypatch.setenv(prefix + "_INSTANCE_ID", prefix.lower())
+        monkeypatch.setenv(prefix + "_ALLOWED_USERS", user)
+        monkeypatch.setenv(prefix + "_PING_ENABLED", "false")
+    before = dict(os.environ)
+
+    settings = Settings.from_environment()
+
+    expected_user = {"onebot": "111", "telegram": "222", "official": "333"}[engine]
+    assert settings.allowed_users == frozenset({expected_user})
+    assert settings.instance_id == engine
+    assert not settings.ping_enabled
+    assert (settings.onebot_access_token is not None) == (engine == "onebot")
+    assert (settings.telegram_token is not None) == (engine == "telegram")
+    assert (settings.app_secret is not None) == (engine == "official")
+    assert dict(os.environ) == before
+
+
+@pytest.mark.parametrize("engine", ["onebot", "telegram", "official"])
+def test_empty_new_access_and_false_override_legacy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine: str,
+) -> None:
+    """Presence prevents old permissions and true flags from returning."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", engine)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "synthetic")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:synthetic")
+    monkeypatch.setenv("AppID", "synthetic-app")
+    monkeypatch.setenv("AppSecret", "synthetic-secret")
+    monkeypatch.setenv("KISARA_ALLOWED_USERS", "999")
+    monkeypatch.setenv("KISARA_ALLOWED_GROUPS", "888")
+    monkeypatch.setenv("KISARA_GROUPS_ENABLED", "true")
+    monkeypatch.setenv("KISARA_MUSIC_API_URL", "https://legacy.invalid")
+    monkeypatch.setenv(engine.upper() + "_ALLOWED_USERS", "")
+    monkeypatch.setenv(engine.upper() + "_ALLOWED_GROUPS", "")
+    monkeypatch.setenv(engine.upper() + "_GROUPS_ENABLED", "false")
+    monkeypatch.setenv(engine.upper() + "_MUSIC_API_URL", "")
+
+    settings = Settings.from_environment()
+
+    assert not settings.allowed_users and not settings.allowed_groups
+    assert not settings.groups_enabled and not settings.music_api_url
+
+
+@pytest.mark.parametrize("name,label", [("OFFICIAL_APP_ID", "AppID"), ("OFFICIAL_APP_SECRET", "AppSecret")])
+def test_official_empty_new_credential_rejects_all_old_aliases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str, label: str,
+) -> None:
+    """Blank new credentials must not authenticate through mixed-case/SDK names."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", "official")
+    for legacy in ("AppID", "AppSecret", "APP_ID", "APP_SECRET"):
+        monkeypatch.setenv(legacy, "synthetic-legacy")
+    monkeypatch.setenv(name, "")
+    with pytest.raises(ConfigurationError, match=label):
+        Settings.from_environment()
+
+
+def test_official_new_credentials_win_sdk_and_project_aliases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Direct hako preview can consume the new Official dotenv names."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", "official")
+    for legacy in ("AppID", "AppSecret", "APP_ID", "APP_SECRET"):
+        monkeypatch.setenv(legacy, "synthetic-legacy")
+    monkeypatch.setenv("OFFICIAL_APP_ID", "synthetic-new-id")
+    monkeypatch.setenv("OFFICIAL_APP_SECRET", "synthetic-new-secret")
+    settings = Settings.from_environment()
+    assert settings.app_id == "synthetic-new-id"
+    assert settings.app_secret == "synthetic-new-secret"
+
+
+def test_onebot_advanced_aliases_and_toml_precedence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """TOML still wins over namespaced chat, source and news fallbacks."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "synthetic")
+    monkeypatch.setenv("ONEBOT_ALLOWED_USERS", "123")
+    monkeypatch.setenv("ONEBOT_CHAT_TRIGGER_RATE", "41")
+    monkeypatch.setenv("ONEBOT_SAUCENAO_API_KEY", "synthetic-key")
+    monkeypatch.setenv("ONEBOT_NEWS_ENABLED", "true")
+    monkeypatch.setenv("ONEBOT_NEWS_PUSH_USERS", "123")
+    settings = Settings.from_environment()
+    assert settings.chat_trigger_rate == 41
+    assert settings.saucenao_key == "synthetic-key"
+    assert settings.news_push_users == frozenset({"123"})
+
+    _feature_file(tmp_path, "chat", "trigger_rate = 7\n")
+    _feature_file(tmp_path, "source", 'api_key = ""\n')
+    _feature_file(tmp_path, "news", "enabled = false\npush_users = []\n")
+    settings = Settings.from_environment()
+    assert settings.chat_trigger_rate == 7
+    assert not settings.saucenao_key and not settings.news_push_users
+    assert not settings.news_enabled
+
+
+@pytest.mark.parametrize("engine", ["onebot", "telegram", "official"])
+def test_empty_namespaced_instance_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine: str,
+) -> None:
+    """A blank new instance ID cannot fall back to a legacy identity."""
+    _clear_settings(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", engine)
+    monkeypatch.setenv("KISARA_INSTANCE_ID", "legacy")
+    monkeypatch.setenv(engine.upper() + "_INSTANCE_ID", "")
+    with pytest.raises(ConfigurationError, match="INSTANCE_ID"):
+        Settings.from_environment()

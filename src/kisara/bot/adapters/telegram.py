@@ -4,11 +4,15 @@ Only this selected adapter imports python-telegram-bot (community wrapper for
 Telegram's official Bot API). Access and command feature checks live in the
 shared dispatcher. Owned scheduler cancellation precedes SDK stop/shutdown;
 blocking services run in an executor. SDK errors are logged as safe categories.
+Explicit opt-in message summaries disclose only authorized conversations, with
+redacted, escaped previews and confirmed text/document sends.
 """
 
 import asyncio
 import logging
+import re
 import signal
+import unicodedata
 from io import BytesIO
 from typing import Callable, Optional, Union
 
@@ -89,6 +93,36 @@ def split_text(text: str, limit: int = 4096) -> tuple:
     if chunk:
         chunks.append("".join(chunk))
     return tuple(chunks)
+
+
+def message_preview(text: str, token: Optional[str], limit: int = 120) -> str:
+    """Redact credentials first, then bound an escaped single-line preview."""
+    redacted = text.replace(token, "[redacted]") if token else text
+    redacted = re.sub(
+        r"(?i)(api\.telegram\.org/(?:file/)?bot)[^/\s?#]+",
+        r"\1[redacted]", redacted,
+    )
+    pieces = []
+    length = 0
+    for character in redacted:
+        if character == "\n":
+            piece = "\\n"
+        elif character == "\r":
+            piece = "\\r"
+        elif character == "\t":
+            piece = "\\t"
+        elif character == "\\":
+            piece = "\\\\"
+        elif unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}:
+            piece = "\\u{:04x}".format(ord(character))
+        else:
+            piece = character
+        if length + len(piece) > limit:
+            preview = "".join(pieces)
+            return preview[:limit - 1] + "…"
+        pieces.append(piece)
+        length += len(piece)
+    return "".join(pieces)
 
 
 class ManagedPollingBot(ExtBot):
@@ -181,6 +215,7 @@ class TelegramAdapter:
                                                     error_callback=self._polling_error)
             await application.start()
             self._status = "running"
+            _log.info("Telegram polling ready")
             if self._factory is not None and self._store is not None and self._settings.news_push_enabled:
                 targets = tuple(("private", value) for value in sorted(self._settings.news_push_users))
                 targets += tuple(("group", value) for value in sorted(self._settings.news_push_groups))
@@ -257,12 +292,41 @@ class TelegramAdapter:
         event = normalize_update(update, self.instance_id, context.bot.username or "")
         if event is None:
             return
+        log_allowed = self._message_log_allowed(event)
+        if log_allowed:
+            _log.info("Received %s message user=%s chat=%s: %s",
+                      event.conversation_kind, event.sender_id, event.conversation_id,
+                      message_preview(event.text, self._settings.telegram_token))
         try:
             reply = await asyncio.get_running_loop().run_in_executor(None, self._handler, event)
             if reply is not None:
                 await self.send_reply(event, reply)
+            elif log_allowed:
+                _log.info("No reply for %s message user=%s chat=%s",
+                          event.conversation_kind, event.sender_id, event.conversation_id)
         except Exception as error:
             _log.warning("Telegram command failed (%s)", type(error).__name__)
+
+    def _message_log_allowed(self, event: MessageEvent) -> bool:
+        """Gate disclosure using access settings without authorizing any operation."""
+        if not self._settings.telegram_message_log_enabled:
+            return False
+        if event.sender_id not in self._settings.allowed_users:
+            return False
+        return event.conversation_kind == "private" or (
+            event.conversation_kind == "group" and self._settings.groups_enabled
+            and event.conversation_id in self._settings.allowed_groups
+        )
+
+    def _scheduled_log_kind(self, target: str) -> Optional[str]:
+        """Allow scheduled delivery summaries only for authorized destinations."""
+        if not self._settings.telegram_message_log_enabled:
+            return None
+        if target in self._settings.allowed_users:
+            return "private"
+        if self._settings.groups_enabled and target in self._settings.allowed_groups:
+            return "group"
+        return None
 
     async def send_reply(self, event: MessageEvent, content: Union[str, OutgoingMessage]) -> None:
         """Reply within the original chat using plain text or captioned PNG document."""
@@ -270,10 +334,12 @@ class TelegramAdapter:
         chat_id = event.reply_context["chat_id"]
         reply = ReplyParameters(message_id=int(event.reply_context["message_id"]),
                                 allow_sending_without_reply=True)
-        await self._send_payload(chat_id, payload, reply)
+        log_kind = event.conversation_kind if self._message_log_allowed(event) else None
+        await self._send_payload(chat_id, payload, reply, log_kind=log_kind)
 
     async def _send_payload(self, chat_id: Union[int, str], content: OutgoingMessage,
-                            reply: Optional[ReplyParameters] = None) -> str:
+                            reply: Optional[ReplyParameters] = None,
+                            log_kind: Optional[str] = None) -> str:
         bot = self._application.bot
         if content.attachments:
             if len(content.attachments) != 1:
@@ -284,17 +350,30 @@ class TelegramAdapter:
             result = await bot.send_document(chat_id=chat_id, document=BytesIO(attachment.content),
                                              filename=attachment.filename, caption=content.text,
                                              parse_mode=None, reply_parameters=reply)
+            if log_kind is not None:
+                _log.info("Sent %s document chat=%s message=%s file=%s bytes=%s type=%s caption=%s",
+                          log_kind, chat_id, result.message_id,
+                          message_preview(attachment.filename, self._settings.telegram_token),
+                          len(attachment.content),
+                          message_preview(attachment.media_type, self._settings.telegram_token),
+                          message_preview(content.text, self._settings.telegram_token))
             return str(result.message_id)
         message_id = ""
-        for chunk in split_text(content.text):
+        preview = message_preview(content.text, self._settings.telegram_token) if log_kind else ""
+        chunks = split_text(content.text)
+        for index, chunk in enumerate(chunks, 1):
             result = await bot.send_message(chat_id=chat_id, text=chunk, parse_mode=None, reply_parameters=reply)
             message_id = str(result.message_id)
+            if log_kind is not None:
+                _log.info("Sent %s text chat=%s message=%s part=%s/%s: %s",
+                          log_kind, chat_id, message_id, index, len(chunks), preview)
         return message_id
 
     async def _send_news(self, target: str, content: OutgoingMessage) -> str:
         """Classify only explicit API rejections; network results remain uncertain."""
         try:
-            return await self._send_payload(int(target), content)
+            return await self._send_payload(int(target), content,
+                                            log_kind=self._scheduled_log_kind(target))
         except RetryAfter as error:
             value = error.retry_after
             seconds = value.total_seconds() if hasattr(value, "total_seconds") else float(value)

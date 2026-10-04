@@ -50,10 +50,14 @@ The existing QQ runtime paths are:
 
 1. Copy `.env.example` to `.env` and configure the selected engine. For
    OneBot, set `ONEBOT_WS_URL`, `ONEBOT_ACCESS_TOKEN`, and at least one ID in
-   `KISARA_ALLOWED_USERS`. For the official engine, set `AppID` and
-   `AppSecret`. Copy the examples for any features you want to configure from
-   `config/features/<feature>/config.toml.example` to `config.toml` in the
-   same directory.
+   `ONEBOT_ALLOWED_USERS`. For the official engine, set `OFFICIAL_APP_ID`,
+   `OFFICIAL_APP_SECRET`, and `OFFICIAL_ALLOWED_USERS`. Telegram needs
+   `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. Copy desired feature
+   examples to `config.toml` beside each example: OneBot uses
+   `config/features/<feature>/`, Official Compose uses
+   `config/official/features/<feature>/`, and Telegram uses
+   `config/telegram/features/<feature>/`. Direct Official hako preview retains
+   its existing root `config/features/<feature>/` path.
 2. For local tests or the official engine, install the project and development dependencies:
 
    ```bash
@@ -99,6 +103,57 @@ For the OneBot runtime, use `./deploy/onebot.sh` instead of a standalone
 ./deploy/onebot.sh ps
 ```
 
+## Environment ownership and compatibility
+
+The dotenv template groups deployment/shared services, OneBot with NapCat,
+Telegram, and Tencent Official. Set the credentials and allowlists in the
+selected engine's block:
+
+| Owner | Deployment inputs |
+| --- | --- |
+| Deployment / shared provider | `COMPOSE_PROFILES`, `KISARA_MUSIC_IMAGE` |
+| OneBot | `ONEBOT_INSTANCE_ID`, `ONEBOT_ALLOWED_USERS`, `ONEBOT_ADMIN_USERS`, `ONEBOT_GROUPS_ENABLED`, `ONEBOT_ALLOWED_GROUPS`, `ONEBOT_WS_URL`, `ONEBOT_ACCESS_TOKEN` |
+| NapCat / QQ login | `NAPCAT_*` image, device identity, login, WebUI and ownership settings |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_INSTANCE_ID`, `TELEGRAM_ALLOWED_USERS`, `TELEGRAM_GROUPS_ENABLED`, `TELEGRAM_ALLOWED_GROUPS` |
+| Tencent Official | `OFFICIAL_APP_ID`, `OFFICIAL_APP_SECRET`, `OFFICIAL_INSTANCE_ID`, `OFFICIAL_ALLOWED_USERS`, `OFFICIAL_GROUPS_ENABLED`, `OFFICIAL_ALLOWED_GROUPS` |
+
+Instance IDs are internal runtime namespaces, not platform account IDs or bot
+names. Feature flags and music provider URLs also belong to each engine; a
+shared music service does not automatically set any engine's API URL.
+Telegram's retained commands currently do not use administrator privileges;
+`TELEGRAM_ADMIN_USERS` may remain empty. Official has no scheduled news push.
+
+Compose maps each block to its container's existing `KISARA_*` runtime fields;
+credentials, access IDs, mounts and state remain independent. `KISARA_ENGINE`
+is a direct-runtime/preview override and is not assigned in the Compose
+configuration template. It does not select multiple containers. Direct
+`Settings` loading also resolves the selected engine's names without changing
+process environment or the existing preview topology/configuration paths.
+
+Old OneBot deployment `KISARA_<suffix>` fields remain fallbacks for
+`ONEBOT_<suffix>`, including chat/tarot/news/music settings and
+`ONEBOT_WATCH_INTERVAL` / `ONEBOT_SETU_GID`. `KISARA_MUSIC_IMAGE` stays shared.
+Advanced provider aliases `ONEBOT_SAUCENAO_API_KEY` and `ONEBOT_TIANAPI_KEY`
+fall back to `SAUCENAO_API_KEY` and `TIANAPI_KEY`; prefer their feature TOML.
+Official credentials fall back to `AppID` / `AppSecret` (direct loading also
+retains `APP_ID` / `APP_SECRET`). New names win by presence: an explicit empty
+allowlist revokes that access, and an empty new credential fails validation
+rather than falling back to an older credential. Empty booleans retain parser
+defaults, while explicit `false` disables the corresponding flag.
+
+For private file migration, back up the latest `.env`, rename only assignment
+keys, preserve their value syntax and custom inputs, and retain an existing new
+key if both aliases are present. Do not overwrite filled values with template
+placeholders or a redacted historical file. Template additions should not
+mask custom old inputs. Keep the resulting `.env` private and ignored by Git.
+
+Explicit feature TOML keys take precedence over both new and legacy environment
+values, including `false`, empty lists and an empty music URL. To use `.env`
+for a setting, omit that key from the engine's TOML; copying an example with
+`push_users = []` makes the environment recipient list ineffective. Apply
+`.env` changes by targeted recreation (`./deploy.sh up telegram` or
+`./deploy.sh up onebot`); `restart` keeps the previous container environment.
+
 ## OneBot deployment
 
 The normal OneBot path is implemented as a two-service Compose stack:
@@ -112,7 +167,7 @@ Prepare the configuration and start it:
 
 ```bash
 cp .env.example .env
-# Edit at least KISARA_ALLOWED_USERS and ONEBOT_ACCESS_TOKEN.
+# Edit at least ONEBOT_ALLOWED_USERS and ONEBOT_ACCESS_TOKEN.
 # A URL-safe token can be generated with: openssl rand -hex 32
 ./start.sh onebot
 ```
@@ -168,7 +223,7 @@ service. Changes to Python source files restart only the Kisara process;
 NapCat and the persisted QQ login state are not restarted. The watcher is a
 polling development helper, so changes to `pyproject.toml`, `Dockerfile`,
 or other image contents still require starting the mode again so the image
-can be rebuilt. Set `KISARA_WATCH_INTERVAL` in `.env` to adjust the
+can be rebuilt. Set `ONEBOT_WATCH_INTERVAL` in `.env` to adjust the
 polling interval.
 
 Switch back to the normal image-based runtime with:
@@ -226,13 +281,13 @@ push_users = ["123456789", "987654321"]
 push_time = "10:30"
 ```
 
-Add each personal recipient to `KISARA_ALLOWED_USERS` in `.env`. Numbers must
+Add each personal recipient to `ONEBOT_ALLOWED_USERS` in `.env`. Numbers must
 be positive decimal strings without leading zeros. Private push works with
-`KISARA_GROUPS_ENABLED=false`; configured groups still require enabled groups
-and membership in `KISARA_ALLOWED_GROUPS`. Both target kinds share `push_time`
+`ONEBOT_GROUPS_ENABLED=false`; configured groups still require enabled groups
+and membership in `ONEBOT_ALLOWED_GROUPS`. Both target kinds share `push_time`
 in UTC+8 (default 10:30), and scheduled push requires the OneBot engine.
 An empty `push_users` disables private push; an empty `push_groups` disables
-group push. Without the TOML key, `KISARA_NEWS_PUSH_USERS` provides a
+group push. Without the TOML key, `ONEBOT_NEWS_PUSH_USERS` provides a
 comma-separated fallback; explicit TOML values, including `[]`, take precedence.
 Restart Kisara through the normal deployment path after configuration changes;
 the running process does not reload feature configuration.
@@ -269,7 +324,7 @@ mkdir -p data/kisara/setu
 chmod 2770 data/kisara/setu
 ```
 
-Set `KISARA_SETU_GID` to the output of `id -g` when the host's primary group ID
+Set `ONEBOT_SETU_GID` to the output of `id -g` when the host's primary group ID
 is not 1000. After saving, inspect files with `ls -lah data/kisara/setu` or:
 
 ```bash
@@ -327,7 +382,9 @@ stop an already running engine.
 `./preview.sh` also follows profile selection unless `KISARA_ENGINE` explicitly
 overrides it. `./start.sh onebot` and `./start.sh onebot-dev` retain the QQ
 helpers; `./start.sh official` retains the existing hako preview. Compose
-`official` is an additional independent deployment path. `./deploy/onebot.sh down` now stops only QQ services. Logs/status operations in that helper are
+`official` is an additional independent deployment path.
+`./deploy/onebot.sh down` now stops only QQ services. Logs/status operations in
+that helper are
 also scoped to QQ. `down` in the unified helper means selected-service stop;
 `down-all` is the explicit whole-stack operation. Stop does not remove state.
 
@@ -369,9 +426,29 @@ independent `enabled` (manual requests/cache clearing) and `push_enabled`
 override environment fallbacks. Environment-only flags are
 `TELEGRAM_PING_ENABLED`, `TELEGRAM_HELP_ENABLED`, `TELEGRAM_NEWS_ENABLED`,
 `TELEGRAM_NEWS_PUSH_ENABLED`, and `TELEGRAM_MUSIC_ENABLED`. Existing QQ uses the
-corresponding `KISARA_*` fallbacks. Apply TOML changes with a targeted restart.
+corresponding `ONEBOT_*` names (legacy `KISARA_*` remain fallbacks). Apply TOML
+changes with a targeted restart.
 For `.env` or code/image changes use `./deploy.sh up telegram` to rebuild/recreate
 only Telegram; restarting an existing container does not reload its environment.
+
+Telegram receive/send summaries are an explicit opt-in:
+`TELEGRAM_MESSAGE_LOG_ENABLED=true` (default `false`). They log only allowed
+normalized user conversations at INFO, with private/group kind, user/chat IDs
+and up to 120 characters of single-line preview. Newlines, control characters
+and terminal formatting are escaped; the configured token and Bot API URL token
+fragments are redacted before bounding or escaping. Denied senders/chats and
+unsupported update types disclose no content or IDs. These logs contain private
+conversation details: keep deployment logs private. SDK HTTP/error logs remain
+suppressed regardless of this switch.
+
+Successful text chunks and documents are logged only after confirmed SDK
+success, including scheduled news through the shared sending path. Chunk logs
+use a sanitized preview of the complete message and part index/count so a token
+crossing a chunk boundary cannot expose fragments. Documents
+log bounded caption/filename/type metadata and byte count, never media bytes.
+Allowed messages without a reply show a no-reply processing line. A bounded
+`Telegram polling ready` line follows completed polling/application startup.
+Changing this switch requires targeted recreation (`./deploy.sh up telegram`).
 
 Authorized private/group commands:
 

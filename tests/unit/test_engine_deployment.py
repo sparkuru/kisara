@@ -26,6 +26,10 @@ def repository(tmp_path: Path, profiles: str) -> tuple:
 import json, os, sys
 with open(os.environ["CALL_LOG"], "a") as stream:
     stream.write(json.dumps(sys.argv[1:]) + "\\n")
+if "OWNERSHIP_LOG" in os.environ:
+    with open(os.environ["OWNERSHIP_LOG"], "a") as stream:
+        stream.write(json.dumps({name: os.environ.get(name) for name in
+                                ("KISARA_HOST_GID", "KISARA_SETU_GID", "ONEBOT_SETU_GID")}) + "\\n")
 ''')
     docker.chmod(0o755)
     env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"], CALL_LOG=str(tmp_path / "calls.jsonl"))
@@ -114,3 +118,21 @@ def test_config_profile_and_secret_mapping_contract() -> None:
     assert "AppSecret:" in official and "TELEGRAM_BOT_TOKEN:" not in official and "ONEBOT_ACCESS_TOKEN:" not in official
     assert "kisara_state:/app/state" in text and "../data/napcat/QQ:/app/.config/QQ" in text
     assert "env_file:" not in text
+
+
+@pytest.mark.parametrize("entrypoint", ["deploy.sh", "deploy/onebot.sh"])
+def test_ownership_fallback_does_not_mask_dotenv_gid(tmp_path: Path, entrypoint: str) -> None:
+    """Host defaults use a separate fallback, leaving dotenv aliases available."""
+    env, log = repository(tmp_path, "onebot")
+    env.pop("KISARA_SETU_GID", None)
+    env.pop("ONEBOT_SETU_GID", None)
+    ownership_log = tmp_path / "ownership.jsonl"
+    env["OWNERSHIP_LOG"] = str(ownership_log)
+    with (tmp_path / ".env").open("a") as stream:
+        stream.write("ONEBOT_SETU_GID=2345\nKISARA_SETU_GID=3456\n")
+    subprocess.run([str(tmp_path / entrypoint), "up"], env=env, check=True)
+    assert calls(log)[-1][-2:] == ["napcat", "kisara"]
+    exported = json.loads(ownership_log.read_text().splitlines()[-1])
+    assert exported["KISARA_HOST_GID"] == str(os.getgid())
+    assert exported["KISARA_SETU_GID"] is None
+    assert exported["ONEBOT_SETU_GID"] is None

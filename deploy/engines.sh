@@ -71,7 +71,7 @@ main() {
 	up | start | deploy)
 		if [[ ",${profiles[*]}," == *onebot* ]]; then
 			export NAPCAT_UID="${NAPCAT_UID:-$(id -u)}" NAPCAT_GID="${NAPCAT_GID:-$(id -g)}"
-			export KISARA_SETU_GID="${KISARA_SETU_GID:-$(id -g)}"
+			export KISARA_HOST_GID="$(id -g)"
 			mkdir -p -- "${REPO_ROOT}/data/napcat/config" "${REPO_ROOT}/data/napcat/QQ" "${REPO_ROOT}/data/kisara/setu"
 			chmod 2770 -- "${REPO_ROOT}/data/kisara/setu"
 			if [[ " ${profiles[*]} " == *' onebot-dev '* ]]; then

@@ -194,3 +194,167 @@ def test_qq_start_alias_stays_legacy_fallback() -> None:
     event = MessageEvent("onebot", "x", "1", "private", "123", "123", (MessageSegment("text", {"text": "/start"}),), {})
     assert router.dispatch(event) == "Kisara received: /start"
     assert router.router.match("start", "onebot") is None
+
+
+def test_opt_in_receive_no_reply_and_content_sanitization(caplog: object) -> None:
+    """Allowed input is bounded and escaped after full credential redaction."""
+    handled = []
+    text = "Hello\n\r\t\x1b[31m\u202e\u2028\u2029 123:test https://api.telegram.org/bot999:OTHERSECRET/getMe " + "x" * 200
+    adapter = TelegramAdapter(settings(telegram_message_log_enabled=True),
+                              lambda event: handled.append(event.text))
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(adapter._on_update(update(text), SimpleNamespace(bot=SimpleNamespace(username="TestBot"))))
+    received = [record.getMessage() for record in caplog.records if record.getMessage().startswith("Received")]
+    assert len(received) == 1 and "private message user=123 chat=123" in received[0]
+    preview = received[0].split(": ", 1)[1]
+    assert len(preview) <= 120 and preview.endswith("…")
+    assert all(escaped in preview for escaped in ("\\n", "\\u001b", "\\u202e", "\\u2028", "\\u2029"))
+    assert not any(character in preview for character in "\n\r\t\x1b\u202e\u2028\u2029")
+    assert "123:test" not in caplog.text and "OTHERSECRET" not in caplog.text
+    assert "[redacted]" in preview and "No reply" in caplog.text
+    assert handled == [text]
+
+
+@pytest.mark.parametrize("prefix,secret,fragment", [
+    ("a" * 115, "123:test", "123:"),
+    ("a" * 85, "https://api.telegram.org/bot999:OTHERSECRET/getMe", "999:"),
+])
+def test_receive_preview_boundary_redacts_before_truncation(
+    caplog: object, prefix: str, secret: str, fragment: str,
+) -> None:
+    """A preview ending inside a credential must never disclose its prefix."""
+    adapter = TelegramAdapter(settings(telegram_message_log_enabled=True), lambda event: None)
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(adapter._on_update(update(prefix + secret + " suffix"),
+                                      SimpleNamespace(bot=SimpleNamespace(username="TestBot"))))
+    received = [record.getMessage() for record in caplog.records if record.getMessage().startswith("Received")]
+    assert len(received) == 1
+    preview = received[0].split(": ", 1)[1]
+    assert len(preview) <= 120 and "[red" in preview
+    assert fragment not in preview and secret not in preview
+
+
+@pytest.mark.parametrize("enabled,fields", [
+    (False, {}), (True, {"user": 789}),
+    (True, {"chat_id": -999, "kind": "group"}),
+    (True, {"kind": "channel"}), (True, {"is_topic_message": True}),
+    (True, {"sender_chat": object()}), (True, {"text": "/ping@other"}),
+])
+def test_disabled_denied_unsupported_input_logs_no_identity(
+    caplog: object, enabled: bool, fields: dict,
+) -> None:
+    """Logging gates do not change which normalized events reach the handler."""
+    handled = []
+    adapter = TelegramAdapter(settings(telegram_message_log_enabled=enabled),
+                              lambda event: handled.append(event))
+    incoming = update(**dict({"text": "secret-body"}, **fields))
+    normalized = normalize_update(incoming, adapter.instance_id, "TestBot")
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(adapter._on_update(incoming, SimpleNamespace(bot=SimpleNamespace(username="TestBot"))))
+    assert not caplog.records
+    assert bool(handled) == (normalized is not None)
+
+
+def test_allowed_group_receive_and_confirmed_chunk_sends(caplog: object) -> None:
+    """Each completed text chunk is logged; group authorization stays in routing."""
+    async def run() -> None:
+        send = AsyncMock(return_value=SimpleNamespace(message_id=77))
+        adapter = TelegramAdapter(settings(telegram_message_log_enabled=True), lambda event: "a" * 5000)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send))
+        await adapter._on_update(update(chat_id=-456, kind="supergroup"),
+                                 SimpleNamespace(bot=SimpleNamespace(username="TestBot")))
+        assert send.await_count == 2
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Received group message user=123 chat=-456: /ping" in messages
+    sends = [message for message in messages if message.startswith("Sent group text")]
+    assert len(sends) == 2 and all("message=77" in message for message in sends)
+    assert all(len(message.split(": ", 1)[1]) <= 120 for message in sends)
+
+
+def test_scheduled_document_logs_metadata_without_bytes_or_token(caplog: object) -> None:
+    """Scheduled sends share captioned document success logging after confirmation."""
+    async def run() -> None:
+        send = AsyncMock(return_value=SimpleNamespace(message_id=88))
+        adapter = TelegramAdapter(settings(telegram_message_log_enabled=True), lambda event: None)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_document=send))
+        payload = OutgoingMessage("News\n123:test", attachments=(
+            Attachment("brief\n123:test.png", b"private-media-bytes", "image/png\x1b"),
+        ))
+        assert await adapter._send_news("123", payload) == "88"
+        assert send.await_count == 1
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 1 and messages[0].startswith("Sent private document chat=123 message=88")
+    assert "bytes=19" in messages[0] and "caption=News\\n[redacted]" in messages[0]
+    assert "123:test" not in caplog.text and "private-media-bytes" not in caplog.text
+    assert "\x1b" not in messages[0] and "\n" not in messages[0]
+
+
+@pytest.mark.parametrize("document", [False, True])
+def test_failed_sends_do_not_emit_success_summaries(caplog: object, document: bool) -> None:
+    """An SDK failure never creates a misleading send-success record."""
+    async def run() -> None:
+        send = AsyncMock(side_effect=NetworkError("https://api.telegram.org/bot123:test/sendMessage"))
+        adapter = TelegramAdapter(settings(telegram_message_log_enabled=True), lambda event: None)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send, send_document=send))
+        payload = OutgoingMessage("secret-body", attachments=(Attachment("brief.png", b"png"),)) if document else "secret-body"
+        event = normalize_update(update(), "test", "TestBot")
+        with pytest.raises(NetworkError):
+            await adapter.send_reply(event, payload)
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    assert not caplog.records
+
+
+@pytest.mark.parametrize("enabled,target", [(False, "123"), (True, "999"), (True, "-999")])
+def test_disabled_or_denied_sends_do_not_disclose_content(caplog: object, enabled: bool, target: str) -> None:
+    """The log allowlist gates disclosure while leaving existing send calls unchanged."""
+    async def run() -> None:
+        send = AsyncMock(return_value=SimpleNamespace(message_id=90))
+        adapter = TelegramAdapter(settings(telegram_message_log_enabled=enabled), lambda event: None)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send))
+        assert await adapter._send_news(target, OutgoingMessage("secret-body")) == "90"
+        assert send.await_count == 1
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    assert not caplog.records
+
+
+@pytest.mark.parametrize("secret", ["123:test", "https://api.telegram.org/bot999:OTHERSECRET/getMe"])
+def test_text_chunk_boundary_never_logs_credential_fragments(caplog: object, secret: str) -> None:
+    """Chunking cannot bypass redaction by separating token characters."""
+    async def run() -> None:
+        send = AsyncMock(return_value=SimpleNamespace(message_id=91))
+        adapter = TelegramAdapter(settings(telegram_message_log_enabled=True), lambda event: None)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send))
+        event = normalize_update(update(), "test", "TestBot")
+        prefix = "a" * (4096 - len(secret) + 2)
+        await adapter.send_reply(event, prefix + secret + " suffix")
+        assert send.await_count == 2
+        assert "".join(call.kwargs["text"] for call in send.call_args_list) == prefix + secret + " suffix"
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 2
+    assert "part=1/2" in messages[0] and "part=2/2" in messages[1]
+    assert all(message.split(": ", 1)[1] == "a" * 119 + "…" for message in messages)
+    assert "123:test" not in caplog.text and "OTHERSECRET" not in caplog.text
+
+
+def test_partial_chunk_failure_logs_only_confirmed_parts(caplog: object) -> None:
+    """A later failed chunk does not invalidate or invent earlier send receipts."""
+    async def run() -> None:
+        send = AsyncMock(side_effect=[SimpleNamespace(message_id=92), NetworkError("bot123:test failed")])
+        adapter = TelegramAdapter(settings(telegram_message_log_enabled=True), lambda event: None)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send))
+        event = normalize_update(update(), "test", "TestBot")
+        with pytest.raises(NetworkError):
+            await adapter.send_reply(event, "a" * 5000)
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 1 and "part=1/2" in messages[0]
+    assert "part=2/2" not in caplog.text and "123:test" not in caplog.text

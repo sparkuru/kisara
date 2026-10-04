@@ -73,10 +73,9 @@ start_stack() {
 
 	local napcat_uid="${NAPCAT_UID:-$(id -u)}"
 	local napcat_gid="${NAPCAT_GID:-$(id -g)}"
-	local setu_gid="${KISARA_SETU_GID:-$(id -g)}"
 	export NAPCAT_UID="${napcat_uid}"
 	export NAPCAT_GID="${napcat_gid}"
-	export KISARA_SETU_GID="${setu_gid}"
+	export KISARA_HOST_GID="$(id -g)"
 
 	prepare_data_directories
 	stop_service_if_present kisara-dev
@@ -90,10 +89,9 @@ start_dev_stack() {
 
 	local napcat_uid="${NAPCAT_UID:-$(id -u)}"
 	local napcat_gid="${NAPCAT_GID:-$(id -g)}"
-	local setu_gid="${KISARA_SETU_GID:-$(id -g)}"
 	export NAPCAT_UID="${napcat_uid}"
 	export NAPCAT_GID="${napcat_gid}"
-	export KISARA_SETU_GID="${setu_gid}"
+	export KISARA_HOST_GID="$(id -g)"
 
 	prepare_data_directories
 	stop_service_if_present kisara

@@ -106,3 +106,54 @@ def test_telegram_outer_startup_error_is_sanitized(monkeypatch: object, tmp_path
     monkeypatch.setattr(startup, "create_adapter", lambda *args: Adapter())
     assert startup.main() == 1
     assert "SECRET" not in caplog.text and "Telegram stopped unexpectedly" in caplog.text
+
+
+
+def test_telegram_namespaced_subscriptions_and_validation(monkeypatch: object, tmp_path: Path) -> None:
+    """Direct Telegram inputs override generic runtime recipients and access."""
+    prepare(monkeypatch, tmp_path)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "456")
+    monkeypatch.setenv("TELEGRAM_GROUPS_ENABLED", "true")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_GROUPS", "-100456")
+    monkeypatch.setenv("TELEGRAM_NEWS_PUSH_USERS", "456")
+    monkeypatch.setenv("TELEGRAM_NEWS_PUSH_GROUPS", "-100456")
+    monkeypatch.setenv("TELEGRAM_NEWS_PUSH_TIME", "09:15")
+    monkeypatch.setenv("ONEBOT_ALLOWED_USERS", "999")
+    settings = Settings.from_environment()
+    assert settings.allowed_users == settings.news_push_users == frozenset({"456"})
+    assert settings.allowed_groups == settings.news_push_groups == frozenset({"-100456"})
+    assert (settings.news_push_hour, settings.news_push_minute) == (9, 15)
+    monkeypatch.setenv("TELEGRAM_NEWS_PUSH_USERS", "999")
+    with pytest.raises(ConfigurationError, match="ALLOWED_USERS"):
+        Settings.from_environment()
+
+
+@pytest.mark.parametrize("value,expected", [(None, False), ("", False), ("false", False), ("true", True)])
+def test_telegram_message_log_explicit_switch(monkeypatch: object, tmp_path: Path,
+                                             value: object, expected: bool) -> None:
+    """Message summaries are off by default and enabled only by explicit opt-in."""
+    prepare(monkeypatch, tmp_path)
+    monkeypatch.delenv("TELEGRAM_MESSAGE_LOG_ENABLED", raising=False)
+    if value is not None:
+        monkeypatch.setenv("TELEGRAM_MESSAGE_LOG_ENABLED", value)
+    assert Settings.from_environment().telegram_message_log_enabled is expected
+
+
+def test_telegram_message_log_invalid_switch_rejected(monkeypatch: object, tmp_path: Path) -> None:
+    prepare(monkeypatch, tmp_path)
+    monkeypatch.setenv("TELEGRAM_MESSAGE_LOG_ENABLED", "sometimes")
+    with pytest.raises(ConfigurationError, match="TELEGRAM_MESSAGE_LOG_ENABLED"):
+        Settings.from_environment()
+
+
+@pytest.mark.parametrize("engine", ["onebot", "official"])
+def test_telegram_logging_switch_ignored_by_other_engines(monkeypatch: object, tmp_path: Path,
+                                                        engine: str) -> None:
+    """Unselected Telegram configuration cannot break or enable QQ message logging."""
+    prepare(monkeypatch, tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", engine)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "synthetic-onebot")
+    monkeypatch.setenv("OFFICIAL_APP_ID", "synthetic-app")
+    monkeypatch.setenv("OFFICIAL_APP_SECRET", "synthetic-secret")
+    monkeypatch.setenv("TELEGRAM_MESSAGE_LOG_ENABLED", "invalid-for-telegram")
+    assert not Settings.from_environment().telegram_message_log_enabled

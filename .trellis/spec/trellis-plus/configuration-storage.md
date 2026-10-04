@@ -31,10 +31,95 @@ Group overrides must refer to allowed groups. Setu uses its separate
 `Settings.from_environment()` selects `KISARA_ENGINE`, default `onebot`.
 Validate credentials only for the selected engine: OneBot requires
 `ONEBOT_ACCESS_TOKEN` and a `ws://` or `wss://` URL; official requires
-`AppID`/`APP_ID` and `AppSecret`/`APP_SECRET`; Telegram requires
+`OFFICIAL_APP_ID` and `OFFICIAL_APP_SECRET` (legacy `AppID`/`APP_ID` and
+`AppSecret`/`APP_SECRET` remain supported); Telegram requires
 `TELEGRAM_BOT_TOKEN`. Telegram does not load unrelated QQ feature files or
 group overrides. Update `.env.example` and Compose
 environment wiring when a runtime variable changes.
+
+## Engine-owned deployment environment
+
+### 1. Scope / trigger
+
+The shared repository dotenv can configure simultaneous engines. Its public
+deployment names identify ownership; generic runtime names describe fields
+inside one engine process. Keep that boundary explicit when adding settings.
+
+### 2. Signatures
+
+`COMPOSE_PROFILES=onebot,telegram` selects independent Compose services.
+`Settings.from_environment() -> Settings` selects one runtime engine using
+`KISARA_ENGINE`. `_engine_environment(source: Mapping[str, str], engine: str)`
+returns a copied mapping for parsing and never modifies `os.environ`.
+
+### 3. Contracts
+
+Template blocks are deployment/shared services, OneBot/NapCat, Telegram, and
+Official. `KISARA_MUSIC_IMAGE` configures shared optional infrastructure.
+Engine-owned deployment fields use `ONEBOT_*`, `TELEGRAM_*`, or `OFFICIAL_*`;
+NapCat retains `NAPCAT_*`. Keep `KISARA_ENGINE` as a documented explicit runtime
+or preview override rather than a default deployment template assignment.
+
+Compose maps `ONEBOT_ALLOWED_USERS`, `TELEGRAM_ALLOWED_USERS`, and
+`OFFICIAL_ALLOWED_USERS` to each container's `KISARA_ALLOWED_USERS`; instance,
+groups, switches and supported provider/news parameters follow the same rule.
+OneBot accepts old `KISARA_*` deployment inputs when their new counterparts are
+absent. Official credentials map `OFFICIAL_APP_ID/SECRET` to SDK
+`AppID/AppSecret`, retaining the old deployment aliases. Other Compose engines
+must not inherit OneBot deployment permissions or credentials.
+
+New variables win by presence, including empty strings and false. Compose
+unset-only interpolation is `${ONEBOT_ALLOWED_USERS-${KISARA_ALLOWED_USERS:-}}`.
+Direct runtime settings resolve the selected namespace before validation and
+retain generic runtime compatibility. A new empty Official credential must
+suppress both mixed-case and uppercase SDK aliases. Explicit TOML still wins
+over environment, including false, empty lists and empty provider URLs.
+
+For setu ownership, helpers export the host group as `KISARA_HOST_GID`, leaving
+new `ONEBOT_SETU_GID` and legacy `KISARA_SETU_GID` available to interpolation.
+Do not export a default into a user input name and thereby mask dotenv values.
+OneBot source/tianapi aliases are `ONEBOT_SAUCENAO_API_KEY` and
+`ONEBOT_TIANAPI_KEY`; transport credentials retain existing OneBot names.
+
+Local migration rereads the latest private file, backs it up with owner-only
+permissions, preserves original assignment value syntax and custom settings,
+and atomically replaces dotenv at mode 0600. Already-existing new keys win
+over old aliases. Never use redacted historical files to overwrite credentials.
+Environment changes require container recreation; restart alone keeps old env.
+
+### 4. Validation and error matrix
+
+| Input | Result |
+| --- | --- |
+| New name absent, legacy runtime/deployment value present | Compatible fallback |
+| New allowlist empty, legacy allowlist nonempty | Empty list; no revival of access |
+| New switch false, legacy switch true | False unless explicit TOML overrides |
+| New required credential empty, legacy credential present | Startup validation fails |
+| Other engine namespace present | Does not configure selected engine |
+| Explicit TOML value present | TOML wins over new and old env values |
+
+### 5. Good/base/bad cases
+
+Good: migrate a QQ allowlist to `ONEBOT_ALLOWED_USERS` and preserve Telegram
+token and its independent access list. Base: an old OneBot dotenv still works.
+Bad: use non-empty fallback to restore old permissions after new fields were
+explicitly cleared, or pass the complete dotenv to every Compose container.
+
+### 6. Required tests
+
+Settings tests cover selected namespace, unchanged process environment, legacy
+fallback, explicit empty/false precedence, required credential alias suppression
+and TOML precedence. Deployment tests cover actual synthetic interpolation,
+engine-specific credentials/access, host ownership fallback and targeted
+lifecycle. Privately compare effective engine environments across migration;
+never print secret-bearing rendered Compose output. Use offline project checks
+without loading private dotenv or contacting bot APIs.
+
+### 7. Wrong versus correct
+
+Wrong: `${ONEBOT_ALLOWED_USERS:-${KISARA_ALLOWED_USERS}}` revives a legacy list
+when the new one is deliberately empty. Correct: use unset-only fallback and
+validate the resulting runtime field after selected-engine resolution.
 
 ## Setu transfer size settings
 
@@ -250,8 +335,11 @@ profile selection does not stop previously running engines. Ordinary stop keeps
 volumes. Validate profile selection and credential isolation with placeholders,
 never by printing rendered real secret-bearing configuration.
 
-Do not log message bodies, raw events, tokens, login QR codes, or persist
-general chat history. The configured setu archive is an explicit opt-in
+Do not log message bodies by default, raw events, tokens, login QR codes, or
+persist general chat history. Explicit `TELEGRAM_MESSAGE_LOG_ENABLED=true`
+permits bounded, escaped, token-redacted Telegram previews and IDs under the
+[logging contract](../backend/logging-guidelines.md#opt-in-telegram-receivesend-summaries).
+The configured setu archive is an explicit opt-in
 exception; its metadata, media, and backups remain sensitive. Inspect exception
 text before logging so provider URLs and credentials do not leak. Use Python
 logging as already configured in `bot/main.py`; protocol/application failures
