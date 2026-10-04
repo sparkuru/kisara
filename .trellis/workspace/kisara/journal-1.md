@@ -207,3 +207,25 @@ Restore /news during upstream publication delays with a prominent yesterday warn
 ### Next Steps
 
 - No deployment or push performed; rebuild/restart through the normal deployment path when desired.
+
+
+## Session 7: Telegram entry point and engine routing
+<!-- trellis-session: v=2 fp=13e7c200e2983b94 -->
+
+**Date**: 2026-10-04
+**Task**: Telegram entry point and engine routing
+**Branch**: `feat/telegram-bot`
+
+### Summary
+
+Implemented Telegram ping/help/news/scheduled news/music, static feature routing and switches, isolated Compose engines and targeted lifecycle operations. Full regression: 311 passed; SDK lifecycle/protocol, journal recovery and deployment selection verified. User approved work commit with real account/network/music-provider acceptance pending. No online services operated or remote push performed.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1152184` | feat(bot): add Telegram entry point and engine-aware routing |
+
+### Status
+
+[OK] **Completed**

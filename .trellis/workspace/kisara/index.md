@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-10-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~209 | Active |
+| `journal-1.md` | ~231 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-10-04 | Telegram entry point and engine routing | `1152184` | `feat/telegram-bot` |
 | 6 | 2026-10-04 | Restore daily news with labeled fallback | `0db32e3` | `keiyaku-no-kisu` |
 | 5 | 2026-09-28 | Setu quoted results and size units | `0cd7419` | `keiyaku-no-kisu` |
 | 4 | 2026-09-28 | Forwarded video count investigation | - | `keiyaku-no-kisu` |
