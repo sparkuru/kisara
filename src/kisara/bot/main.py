@@ -12,7 +12,7 @@ from kisara.application.services.daily_news import DailyNews
 from kisara.application.services.public import PublicServices
 from kisara.application.services.setu import Setu
 from kisara.application.services.tarot import TarotReader
-from kisara.bot.contracts import MessageAdapter, MessageHandler, OutgoingMessage
+from kisara.bot.contracts import Attachment, MessageAdapter, MessageHandler, OutgoingMessage
 from kisara.bot.dispatcher import Dispatcher
 from kisara.config import ConfigurationError, Settings
 from kisara.config.setu import SetuConfig
@@ -39,6 +39,11 @@ def create_adapter(
             delivery_store=store,
             setu=setu,
         )
+    elif settings.engine == "telegram":
+        module = importlib.import_module("kisara.bot.adapters.telegram")
+        store_module = importlib.import_module("kisara.infrastructure.persistence.telegram_news")
+        store = store_module.TelegramNewsStore(settings.state_dir) if daily_news_factory else None
+        return module.TelegramAdapter(settings, handler, daily_news_factory, store)
     elif settings.engine == "official":
         module = importlib.import_module("kisara.bot.adapters.official")
         adapter_class = getattr(module, "OfficialAdapter")
@@ -67,7 +72,7 @@ def main() -> int:
         return 2
 
     chat_responder = None
-    if settings.chat_enabled:
+    if settings.chat_enabled and settings.engine != "telegram":
         chat_policy = ChatPolicy(
             bot_name=settings.chat_bot_name,
             sender_name=settings.chat_sender_name,
@@ -95,9 +100,9 @@ def main() -> int:
     daily_news = DailyNews(
         cache_dir=Path(settings.news_cache_dir), cache_days=settings.news_cache_days,
         font_paths=settings.news_font_paths or None,
-    )
+    ) if settings.news_enabled or settings.news_push_enabled else None
     tarot_reader = None
-    if settings.tarot_enabled:
+    if settings.tarot_enabled and settings.engine != "telegram":
         try:
             tarot_reader = TarotReader(
                 settings.tarot_spread_rate,
@@ -120,12 +125,21 @@ def main() -> int:
         public_services=public_services,
         daily_news=daily_news,
         admin_users=settings.admin_users,
+        feature_switches={
+            "ping": settings.ping_enabled, "help": settings.help_enabled,
+            "music": settings.music_enabled, "news": settings.news_enabled,
+            "news_push": settings.news_push_enabled and settings.engine in {"onebot", "telegram"},
+        },
     )
 
     def daily_news_factory() -> OutgoingMessage:
         """Build a fresh brief only when the scheduled send is due."""
 
         result = daily_news.get()
+        if settings.engine == "telegram":
+            return OutgoingMessage(result.text, attachments=(
+                Attachment("daily-news-{}.png".format(result.day.isoformat()), result.png_bytes()),
+            ))
         return OutgoingMessage(result.text, (result.onebot_image(),))
 
     try:
@@ -135,7 +149,8 @@ def main() -> int:
         )
         adapter = create_adapter(
             settings, dispatcher.dispatch_payload,
-            daily_news_factory if (settings.news_push_groups or settings.news_push_users) else None,
+            daily_news_factory if dispatcher.router.eligible("news_push", settings.engine)
+            and (settings.news_push_groups or settings.news_push_users) else None,
             setu,
         )
     except ImportError as error:
@@ -144,6 +159,8 @@ def main() -> int:
                 "Official engine dependencies are missing; install .[official]: %s",
                 error,
             )
+        elif settings.engine == "telegram":
+            _log.error("Telegram dependencies are missing; install .[telegram] on Python 3.10+")
         else:
             _log.error("OneBot engine dependencies are missing: %s", error)
         return 2
@@ -158,7 +175,10 @@ def main() -> int:
         _log.info("Stopping Kisara")
         return 130
     except Exception:
-        _log.exception("Kisara stopped unexpectedly")
+        if settings.engine == "telegram":
+            _log.error("Telegram stopped unexpectedly; verify credentials, network and single poller ownership")
+        else:
+            _log.exception("Kisara stopped unexpectedly")
         return 1
     finally:
         adapter.close()

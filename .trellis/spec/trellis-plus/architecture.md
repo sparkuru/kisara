@@ -8,15 +8,16 @@
 ## Scope and responsibilities
 
 The startup entrypoint assembles dependencies in `bot/main.py`. It imports
-only the selected adapter. OneBot is the default engine; official SDK support
-is optional. A process runs one engine; hot switching, simultaneous engines,
-plugin discovery, and automatic cross-engine failover are not current features.
+only the selected adapter. OneBot is the default engine; official and Telegram
+SDK support is optional. A process runs one engine; Compose can run independent
+engine containers concurrently. Hot switching, plugin discovery, and automatic
+cross-engine failover are not current features.
 
 | Location under `src/kisara/` | Responsibility |
 | --- | --- |
 | `bot/contracts.py` | Normalized messages, reply payloads, adapter interfaces |
 | `bot/adapters/` | Protocol parsing, lifecycle, requests, receipts, sending |
-| `bot/dispatcher.py` | Access rules, bounded deduplication, aliases, command routing |
+| `bot/dispatcher.py`, `bot/features.py` | Access rules, bounded deduplication, explicit feature/alias routing and effective help |
 | `bot/commands/` | Simple command parsing and output |
 | `application/services/` | Feature behavior and orchestration |
 | `config/` | Startup configuration parsing and validation |
@@ -35,11 +36,14 @@ such as `SetuGateway` and `ExportImgGateway`.
 `message_id`, `conversation_kind`, `conversation_id`, `sender_id`, plus
 `segments: Tuple[MessageSegment, ...]` and `reply_context: Mapping[str, Any]`.
 Each segment has `kind: str` and `data: Mapping[str, Any]`. `event.text` joins
-only text segments. QQ IDs and official IDs are not interchangeable.
+only text segments. Platform IDs are not interchangeable. Telegram message IDs
+are chat-local and must be scoped to the conversation before shared deduplication.
 
 `Dispatcher.dispatch_result(event: MessageEvent) -> DispatchResult` returns
 `status`, optional `reply`, `reason`, image URLs, optional music ID and recall
-message ID. `dispatch_payload()` produces text or `OutgoingMessage` for the
+message ID, and immutable attachments. `Attachment(filename, content,
+media_type="image/png")` carries bytes without SDK objects. `dispatch_payload()`
+produces text or `OutgoingMessage` for the
 adapter. Do not infer success from reply wording: statuses are `handled`,
 `unhandled`, and `error`.
 
@@ -54,8 +58,9 @@ async def send_reply(
 
 Replies use the source adapter and its reply context. OneBot can send native
 image/music segments; the official adapter currently sends text and image URL
-links. Do not promise equal platform capabilities without implementation and
-verification.
+links. Telegram uploads news PNG bytes as a captioned document and sends music
+as text with a public link. Do not promise equal platform capabilities without
+implementation and verification.
 
 ## Authorization and failure matrix
 
@@ -128,6 +133,73 @@ Wrong: putting a raw OneBot API call and access-control rule into `utils/`.
 Correct: authorize at routing/adapter entry, express feature behavior in an
 application service, and inject a narrow platform gateway implemented by the
 adapter.
+
+## Registered feature routing contract
+
+### 1. Scope / trigger
+
+Applies to command aliases, help, startup switches, and future native platform
+features. Shared routing must check access before invoking a handler.
+
+### 2. Signatures
+
+`FeatureDefinition(name, aliases, help_text, engines, trigger, telegram_aliases)` describes a static
+feature. `RegisteredFeature(definition, handler)` binds its application handler.
+`FeatureRouter(registrations, enabled)` exposes `match(command, engine="")`,
+`eligible(name, engine) -> bool`, and `help(engine) -> str`.
+`Dispatcher.authorize_native(event, feature) -> bool` supplies the shared access,
+feature eligibility and deduplication gate for future adapter-native handlers.
+
+### 3. Contracts
+
+The effective inventory requires platform support, an assembled service where
+needed, and its configured enablement; an explicit true cannot invoke a missing
+service. It owns help and invocation eligibility. Aliases share their
+feature's switch. Register explicitly in code; configuration supplies values,
+never import paths or executable plugins. Telegram's inventory is ping, help,
+news, news_push, and music. `/start` is Telegram onboarding through help, without
+access grants or scheduled subscriptions. Manual news and news_push are separate
+features. News maintenance is part of manual news.
+Telegram advertises `/news_clear`, normalized by its adapter to the registered
+news maintenance action; native command names use letters, digits and underscores.
+See [Telegram commands](https://core.telegram.org/bots/features#commands).
+
+Native SDK handlers remain in adapters and must pass authorization and feature
+eligibility before SDK/business effects. Shared services consume normalized data
+and narrow gateways, never raw SDK updates.
+
+### 4. Validation & error matrix
+
+| Condition | Behavior |
+| --- | --- |
+| Duplicate registered alias | Reject registration |
+| Disallowed sender/chat or duplicate command | No handler/provider effects |
+| Disabled feature or unsupported Telegram slash command | Concise unavailable guidance without invocation |
+| Unknown Telegram slash command | Safe help guidance without echoing the input |
+| Ordinary Telegram text or another bot's addressed command | Ignore |
+| QQ/local service absent without explicit disablement | Preserve existing echo/phrasebook fallback; omit the unavailable feature from help |
+| Explicit false with or without a service | No feature invocation; retained command returns unavailable |
+| Manual news disabled, push enabled with recipients | Scheduler remains eligible |
+| Push disabled or recipient lists empty | No background scheduler |
+
+### 5. Good / base / bad cases
+
+Good: disable music once and its aliases and help all reflect that switch.
+Base: enable ping and help with no provider configuration. Bad: bypass the
+registry for an alias or fabricate a Telegram route to a QQ-only service.
+
+### 6. Tests required
+
+Check effective help, alias switch consistency, platform support, authorized and
+denied private/groups, no side effects on rejection, independent news switches,
+and equal Telegram message IDs in distinct chats. Adapter protocol tests verify
+addressing, readable document bytes/caption, lifecycle, and secret-free failures.
+
+### 7. Wrong versus correct
+
+Wrong: maintain a separate Telegram command inventory and invoke a provider
+before checking enablement. Correct: authorize and resolve a registered feature,
+check its platform/switch, invoke its handler, then send through the source adapter.
 
 ## Setu quoted save contract
 

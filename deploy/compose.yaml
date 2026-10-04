@@ -1,5 +1,6 @@
 services:
   napcat:
+    profiles: [onebot, onebot-dev]
     image: ${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
     hostname: ${NAPCAT_HOSTNAME:-kisara-qq}
     mac_address: ${NAPCAT_MAC_ADDRESS:-02:42:0a:a0:d0:02}
@@ -32,6 +33,7 @@ services:
       - kisara_network
 
   kisara:
+    profiles: [onebot]
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -39,6 +41,11 @@ services:
     group_add:
       - "${KISARA_SETU_GID:-1000}"
     environment:
+      KISARA_PING_ENABLED: ${KISARA_PING_ENABLED:-true}
+      KISARA_HELP_ENABLED: ${KISARA_HELP_ENABLED:-true}
+      KISARA_MUSIC_ENABLED: ${KISARA_MUSIC_ENABLED:-true}
+      KISARA_NEWS_ENABLED: ${KISARA_NEWS_ENABLED:-true}
+      KISARA_NEWS_PUSH_ENABLED: ${KISARA_NEWS_PUSH_ENABLED:-true}
       KISARA_ENGINE: onebot
       KISARA_INSTANCE_ID: ${KISARA_INSTANCE_ID:-personal}
       KISARA_ALLOWED_USERS: ${KISARA_ALLOWED_USERS:-}
@@ -80,6 +87,7 @@ services:
       - kisara_network
 
   kisara-dev:
+    profiles: [onebot-dev]
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -88,6 +96,11 @@ services:
       - "${KISARA_SETU_GID:-1000}"
     command: ["/opt/kisara/kisara-dev-watch.sh"]
     environment:
+      KISARA_PING_ENABLED: ${KISARA_PING_ENABLED:-true}
+      KISARA_HELP_ENABLED: ${KISARA_HELP_ENABLED:-true}
+      KISARA_MUSIC_ENABLED: ${KISARA_MUSIC_ENABLED:-true}
+      KISARA_NEWS_ENABLED: ${KISARA_NEWS_ENABLED:-true}
+      KISARA_NEWS_PUSH_ENABLED: ${KISARA_NEWS_PUSH_ENABLED:-true}
       KISARA_ENGINE: onebot
       KISARA_INSTANCE_ID: ${KISARA_INSTANCE_ID:-personal}
       KISARA_ALLOWED_USERS: ${KISARA_ALLOWED_USERS:-}
@@ -132,9 +145,74 @@ services:
     networks:
       - kisara_network
 
+  telegram:
+    profiles: [telegram]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        KISARA_EXTRA: telegram
+    restart: unless-stopped
+    environment:
+      KISARA_ENGINE: telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      KISARA_INSTANCE_ID: ${TELEGRAM_INSTANCE_ID:-telegram}
+      KISARA_ALLOWED_USERS: ${TELEGRAM_ALLOWED_USERS:-}
+      KISARA_ADMIN_USERS: ${TELEGRAM_ADMIN_USERS:-}
+      KISARA_GROUPS_ENABLED: ${TELEGRAM_GROUPS_ENABLED:-false}
+      KISARA_ALLOWED_GROUPS: ${TELEGRAM_ALLOWED_GROUPS:-}
+      KISARA_PING_ENABLED: ${TELEGRAM_PING_ENABLED:-true}
+      KISARA_HELP_ENABLED: ${TELEGRAM_HELP_ENABLED:-true}
+      KISARA_MUSIC_ENABLED: ${TELEGRAM_MUSIC_ENABLED:-true}
+      KISARA_NEWS_ENABLED: ${TELEGRAM_NEWS_ENABLED:-true}
+      KISARA_NEWS_PUSH_ENABLED: ${TELEGRAM_NEWS_PUSH_ENABLED:-true}
+      KISARA_MUSIC_API_URL: ${TELEGRAM_MUSIC_API_URL:-}
+      KISARA_NEWS_PUSH_GROUPS: ${TELEGRAM_NEWS_PUSH_GROUPS:-}
+      KISARA_NEWS_PUSH_USERS: ${TELEGRAM_NEWS_PUSH_USERS:-}
+      KISARA_NEWS_PUSH_TIME: ${TELEGRAM_NEWS_PUSH_TIME:-10:30}
+      KISARA_NEWS_CACHE_DIR: /app/state/daily-news
+      KISARA_STATE_DIR: /app/state
+    volumes:
+      - ../config/telegram:/app/config:ro
+      - telegram_state:/app/state
+    networks:
+      - kisara_network
+
+  official:
+    profiles: [official]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        KISARA_EXTRA: official
+    restart: unless-stopped
+    environment:
+      KISARA_ENGINE: official
+      AppID: ${AppID:-}
+      AppSecret: ${AppSecret:-}
+      KISARA_INSTANCE_ID: ${OFFICIAL_INSTANCE_ID:-official}
+      KISARA_ALLOWED_USERS: ${OFFICIAL_ALLOWED_USERS:-}
+      KISARA_GROUPS_ENABLED: ${OFFICIAL_GROUPS_ENABLED:-false}
+      KISARA_ALLOWED_GROUPS: ${OFFICIAL_ALLOWED_GROUPS:-}
+      KISARA_PING_ENABLED: ${OFFICIAL_PING_ENABLED:-true}
+      KISARA_HELP_ENABLED: ${OFFICIAL_HELP_ENABLED:-true}
+      KISARA_MUSIC_ENABLED: ${OFFICIAL_MUSIC_ENABLED:-true}
+      KISARA_NEWS_ENABLED: ${OFFICIAL_NEWS_ENABLED:-true}
+      KISARA_NEWS_PUSH_ENABLED: "false"
+      KISARA_MUSIC_API_URL: ${OFFICIAL_MUSIC_API_URL:-}
+      KISARA_NEWS_CACHE_DIR: /app/state/daily-news
+      KISARA_STATE_DIR: /app/state
+    volumes:
+      - ../config/official:/app/config:ro
+      - official_state:/app/state
+    networks:
+      - kisara_network
+
 networks:
   kisara_network:
     driver: bridge
 
 volumes:
   kisara_state:
+  telegram_state:
+  official_state:

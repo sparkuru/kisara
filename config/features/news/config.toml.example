@@ -1,7 +1,9 @@
+enabled = true
+push_enabled = true
 # Every target must be in KISARA_ALLOWED_GROUPS, with groups enabled.
 push_groups = []
 # Personal QQ numbers as strings; every target must be in KISARA_ALLOWED_USERS.
-# Private push does not require groups enabled. Scheduled push is OneBot-only.
+# Private push does not require groups enabled. This directory configures QQ; Telegram uses config/telegram/features/news.
 # Example: [ "123456789" ]
 push_users = []
 push_time = "10:30" # Shared by groups and users; UTC+8, HH:MM

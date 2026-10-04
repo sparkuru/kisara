@@ -29,8 +29,8 @@
 | --- | --- | --- |
 | 启动与组装 | 读取配置、构造服务和分发器、选择协议适配器 | `src/kisara/__main__.py`、`src/kisara/bot/main.py` |
 | 协议契约 | 定义 `MessageEvent`、`MessageSegment`、`DispatchResult`、`OutgoingMessage` | `src/kisara/bot/contracts.py` |
-| 适配器 | 将平台消息归一化，发送文本、图片、音乐或执行平台操作 | `src/kisara/bot/adapters/onebot_v11.py`、`official.py` |
-| 路由 | 用户和群组授权、消息去重、旧命令别名、参数校验、普通命令分发 | `src/kisara/bot/dispatcher.py` |
+| 适配器 | 将平台消息归一化，发送文本、图片、音乐或执行平台操作 | `src/kisara/bot/adapters/onebot_v11.py`、`official.py`、`telegram.py` |
+| 路由 | 用户和群组授权、消息去重、旧命令别名、参数校验、普通命令分发 | `src/kisara/bot/dispatcher.py`、`features.py` |
 | 命令包装 | 简单命令的参数和输出格式 | `src/kisara/bot/commands/` |
 | 应用服务 | 功能行为与编排 | `src/kisara/application/services/` |
 | 通用工具 | 跨功能复用的文本处理和文件发布等小型纯工具 | `src/kisara/utils/` |
@@ -38,9 +38,11 @@
 | 配置 | 全局和功能配置的加载、校验、默认值 | `src/kisara/config/`、`config/features/` |
 | 静态资源 | 随 Python 包发布的食物、聊天、塔罗数据 | `src/kisara/resources/`、`pyproject.toml` |
 
-普通消息的主链路：平台事件 → 适配器转为 `MessageEvent` → `Dispatcher.dispatch_result()` 检查授权与去重 → `_route()` 匹配命令并调用服务 → `DispatchResult` / `OutgoingMessage` → 适配器发送。离线控制台也使用同一个 `Dispatcher`，但只构造聊天和塔罗等本地服务，不代表所有线上能力都能在控制台运行。
+普通消息的主链路：平台事件 → 适配器转为 `MessageEvent` → `Dispatcher.dispatch_result()` 检查授权与去重 → `FeatureRouter` 按静态注册的别名匹配功能，检查开关和平台，再调用 handler/service → `DispatchResult` / `OutgoingMessage` → 适配器发送。离线控制台也使用同一个 `Dispatcher`，但只构造聊天和塔罗等本地服务，不代表所有线上能力都能在控制台运行。
 
-OneBot 在进入普通分发前，还会处理已授权用户的引用图片导出，以及启用后的私聊 setu 合并转发归档；相关逻辑分别在 `application/services/export_img.py`、`setu.py`。这类功能依赖引用消息、转发节点或文件发送能力，不能只在 `Dispatcher` 中加一个文本命令。官方适配器目前发送文本；图片 URL 会转成文本链接，OneBot 可发送原生图片和音乐段。
+OneBot 在进入普通分发前，还会处理已授权用户的引用图片导出，以及启用后的私聊 setu 合并转发归档；相关逻辑分别在 `application/services/export_img.py`、`setu.py`。这类功能依赖引用消息、转发节点或文件发送能力，不能只在 `Dispatcher` 中加一个文本命令。官方适配器目前发送文本；图片 URL 会转成文本链接，OneBot 可发送原生图片和音乐段。Telegram 当前只注册在线检查、帮助、新闻、定时新闻推送、音乐；新闻使用带日期/来源/延期警告的 PNG 文档，音乐使用文字和链接。
+
+新功能在 `bot/features.py` 显式声明别名、帮助、引擎和触发类型，并在 Dispatcher 绑定 handler。有效注册表同时控制路由与帮助；TOML `enabled` 优先于环境变量，新闻的 `enabled` 与 `push_enabled` 独立。原生 Telegram 工作流在 SDK 操作前使用 `Dispatcher.authorize_native()` 检查用户/群、功能能力和消息去重，共享服务不得导入 SDK。Compose 通过 `COMPOSE_PROFILES` 选择独立引擎，Telegram 的配置挂载和状态卷独立；见操作文档。
 
 `domain/models/`、`domain/repositories/`、`shared/` 当前只有包占位。新增功能应依实际需要落到现有的应用服务和基础设施，不必为了目录对称创建空抽象。
 

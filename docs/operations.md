@@ -8,8 +8,8 @@ Common development and runtime commands are:
 ./dev.sh              # Interactive offline bot console; no QQ connection or .env needed
 ./dev.sh --test       # Automated offline functional tests
 ./dev.sh --all        # Full test suite
-./preview.sh          # Start OneBot in the foreground with console logs
-./deploy.sh           # Build and start OneBot in Docker in the background
+./preview.sh          # Start selected Compose engines in the foreground
+./deploy.sh           # Build/start .env-selected engines in the background
 ./deploy.sh logs      # Follow deployment logs
 ./deploy.sh down      # Stop the deployment, preserving QQ login data
 ```
@@ -34,13 +34,14 @@ after a command fails, and status labels remain visible without color.
 These scripts reuse the existing Docker toolchain. Tests require the development
 dependencies installed below. Preview and deployment require a configured
 `.env`. Preview also supports `KISARA_ENGINE=official` and
-`KISARA_ENGINE=onebot-dev`; deployment uses the NapCat + OneBot stack.
+`KISARA_ENGINE=onebot-dev` or `telegram`; deployment follows `COMPOSE_PROFILES`.
+See the Compose/Telegram section below for multiple engines and targeted operations.
 
 The project runs its Python toolchain in Docker. The host only needs Docker;
 Python, pip, and `qq-botpy` stay inside the ephemeral containers managed by
 `hako`.
 
-There are three runtime paths:
+The existing QQ runtime paths are:
 
 - `onebot`: `start.sh` starts the Kisara + NapCat Compose stack.
 - `onebot-dev`: `start.sh` starts the OneBot stack with source hot reload
@@ -71,11 +72,13 @@ There are three runtime paths:
    ./start.sh
    ```
 
-   The interactive menu selects `onebot`, `onebot-dev`, or `official`. It
+   With no profile selection, the interactive menu selects `onebot`, `onebot-dev`,
+   `official`, or `telegram`. It
    can also be chosen directly with `./start.sh onebot`,
    `./start.sh onebot-dev`, `./start.sh official`, or
    `KISARA_ENGINE=onebot ./start.sh`. In non-interactive environments the
-   default is `onebot`.
+   default is `onebot` when profiles are absent. `.env` `COMPOSE_PROFILES`
+   selects concurrent Compose engines automatically.
 
 4. Stop the bot and remove its development container:
 
@@ -293,3 +296,152 @@ Offline functional scenarios use the same normalized dispatcher as the bot:
 2. Tencent `botpy` SDK: <https://github.com/tencent-connect/botpy>
 3. NapCat Docker: <https://github.com/NapNeko/NapCat-Docker>
 4. NapCat network configuration: <https://napneko.github.io/config/basic>
+
+## Compose engines and Telegram
+
+Set `COMPOSE_PROFILES` in the repository `.env` to choose startup engines:
+
+```dotenv
+COMPOSE_PROFILES=onebot,telegram
+```
+
+Supported profiles are `onebot`, `onebot-dev`, `telegram`, `official`, and
+optional `music`. Choose one OneBot owner (`onebot` or `onebot-dev`) per QQ
+login/state directory. The helper rejects selecting both. Direct Compose users
+must also avoid starting both. Missing profile selection keeps the original
+OneBot default in the helpers. Each bot container runs a single `KISARA_ENGINE`;
+profiles determine which containers start. Changing the profile list does not
+stop an already running engine.
+
+```bash
+./start.sh                 # Foreground .env selection; explicit argument/env overrides
+./deploy.sh                # Build/start the selected engines in the background
+./deploy.sh up telegram    # Build/recreate Telegram only
+./deploy.sh down telegram  # Stop Telegram only; keep QQ and all volumes
+./deploy.sh restart telegram
+./deploy.sh logs telegram
+./deploy.sh ps
+./deploy.sh down-all       # Explicit whole-project shutdown; retains volumes
+```
+
+`./preview.sh` also follows profile selection unless `KISARA_ENGINE` explicitly
+overrides it. `./start.sh onebot` and `./start.sh onebot-dev` retain the QQ
+helpers; `./start.sh official` retains the existing hako preview. Compose
+`official` is an additional independent deployment path. `./deploy/onebot.sh down` now stops only QQ services. Logs/status operations in that helper are
+also scoped to QQ. `down` in the unified helper means selected-service stop;
+`down-all` is the explicit whole-stack operation. Stop does not remove state.
+
+Equivalent Compose commands (explicit service targets can override profiles):
+
+```bash
+docker compose --env-file .env --project-name kisara -f deploy/compose.yaml up -d --build
+docker compose --env-file .env --project-name kisara -f deploy/compose.yaml stop telegram
+```
+
+The existing `kisara`/`kisara-dev`/`napcat` service names, project default
+`kisara`, `kisara_state` volume, QQ login/config/art/archive mounts, network and
+loopback NapCat WebUI binding retain their identities. Telegram has
+`telegram_state:/app/state` and `config/telegram:/app/config:ro`; official
+Compose uses `official_state` and `config/official`. Service-specific build
+outputs install only the selected SDK extra. Each container receives explicit
+engine-specific credentials/settings; `.env` is for interpolation, not an
+all-secrets container env file. Keep these volumes private and back them up
+before deployment/rollback. Rollback restores code/images/Compose while
+retaining state/login volumes; no cleanup or data deletion is needed.
+
+### Telegram setup and commands
+
+Configure `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (positive numeric ID
+strings), and optionally `TELEGRAM_GROUPS_ENABLED=true` plus
+`TELEGRAM_ALLOWED_GROUPS` (negative group/supergroup IDs). A group caller must
+also be in the user allowlist. IDs and credentials are independent from QQ.
+Create the token with Telegram's BotFather; keep it out of Git/logs. The bot
+uses outbound long polling, so no inbound port/webhook is required. Only one
+poller may own a token. Telegram network reachability still needs a real
+account/environment check.
+
+Copy desired examples from `config/telegram/features/<name>/config.toml.example`
+to `config.toml` beside them. That directory becomes `/app/config/features` in
+the Telegram container; editing QQ `config/features` does not configure Telegram.
+Optional flags for `ping`, `help`, `news`, and `music` default enabled. News has
+independent `enabled` (manual requests/cache clearing) and `push_enabled`
+(scheduled work). TOML explicit values, including `false` and empty lists,
+override environment fallbacks. Environment-only flags are
+`TELEGRAM_PING_ENABLED`, `TELEGRAM_HELP_ENABLED`, `TELEGRAM_NEWS_ENABLED`,
+`TELEGRAM_NEWS_PUSH_ENABLED`, and `TELEGRAM_MUSIC_ENABLED`. Existing QQ uses the
+corresponding `KISARA_*` fallbacks. Apply TOML changes with a targeted restart.
+For `.env` or code/image changes use `./deploy.sh up telegram` to rebuild/recreate
+only Telegram; restarting an existing container does not reload its environment.
+
+Authorized private/group commands:
+
+| Command | Result |
+| --- | --- |
+| `/ping` | `pong` online check |
+| `/help`, `/start` | Effective enabled/supported help; no access grant/subscription |
+| `/news` (alias `/brief`) | Readable PNG document with date/source and any publication-delay warning |
+| `/news_clear` | Clear only today's engine-local news cache; scheduled receipts remain |
+| `/music <query>` (alias `/song`) | Title/artist/public music link |
+
+Group privacy mode supports explicit `/ping@YourBot` and other addressed
+commands. Commands addressed to other bots are ignored. Ordinary text stays
+silent; disabled/unsupported/unknown commands provide concise help guidance.
+Channel, edited/service-only, anonymous-sender, and topic messages are ignored.
+Help derives from the same effective registry used by routing. Unavailable
+providers return a clear failure without fabricated data.
+
+For music, set Telegram `music.api_url` or `TELEGRAM_MUSIC_API_URL`. Optional
+internal infrastructure uses `COMPOSE_PROFILES=telegram,music` and
+`http://music:3000`; it publishes no host port and does not start inactive bots.
+An empty TOML URL overrides an environment URL, so either configure the file
+or leave `api_url` absent when using the environment fallback.
+
+### Telegram scheduled news and recovery
+
+Configure `news.push_users` and/or `news.push_groups` with allowed ID strings,
+or their `TELEGRAM_NEWS_PUSH_USERS`/`TELEGRAM_NEWS_PUSH_GROUPS` comma-separated
+fallbacks. Groups require enabled group access. Private targets must first start
+the bot; groups must permit document sending. Configuration alone cannot prove
+reachability. Default `push_time` is `10:30` UTC+8 (environment fallback
+`TELEGRAM_NEWS_PUSH_TIME`). Empty targets or `push_enabled=false` create no
+scheduler. Manual news and scheduled news are independent.
+
+Each send is one captioned PNG document, generated once per pending pass.
+Today's uncompleted work catches up after startup; older days are never
+backfilled. A confirmed warned publication-delay fallback completes the day's
+push; `/news` can later fetch newly published content. The private journal
+`/app/state/telegram_news.sqlite3` separates day/kind/target and retains 30 days.
+A short transaction claims before sending; confirmed receipts checkpoint the
+returned message ID. Known transient rejection or generation failure retries
+after 15 minutes, extended for longer Telegram retry-after. Known forbidden/bad
+target rejections stop for that day. Unknown network results remain uncertain
+and are not automatically resent. Restart turns unfinished claims into uncertain;
+a failed local completion write retains its claim, avoiding an automatic replay.
+Use `/news` for manual recovery and inspect safe warning categories; automatic
+exactly-once delivery is not promised. A storage failure stops the bot so restart
+can recover its claims rather than leaving an unnoticed dead scheduler.
+
+SDK/HTTP request logs are suppressed because Telegram request URLs include the
+token; application warnings contain operation/error categories only. Telegram
+supports future native handlers through explicit feature registration and
+`Dispatcher.authorize_native()` before SDK effects. Shared services stay SDK-free.
+
+### Offline and live acceptance
+
+Telegram uses pinned `python-telegram-bot==22.8`, a community Python wrapper
+around the official Bot API, and requires Python 3.10+. Docker runs Python 3.12;
+base/QQ installation does not require/import this extra.
+
+```bash
+./hako python -m pip install --user -e ".[dev,telegram]"
+./hako python -m pytest tests/unit/test_telegram_adapter.py tests/unit/test_telegram_news.py tests/unit/test_telegram_settings.py tests/integration/test_telegram_protocol.py tests/unit/test_engine_deployment.py
+./dev.sh --all
+```
+
+Offline tests simulate SDK/protocol/provider/storage failures and selected
+Compose operations. Before real deployment, verify authorized and denied private
+and group messages, own/other bot targeting, news readability/attribution/warning,
+configured music provider, one near-term private/group push, and restart without
+replaying confirmed sends. Check QQ while Telegram runs and after targeted
+Telegram stop/rebuild. Real credentials/accounts/provider/network behavior needs
+human acceptance; tests do not start real bot services.

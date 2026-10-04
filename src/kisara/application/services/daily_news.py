@@ -6,8 +6,11 @@ almanac, and daily quote. The first request validates the page date and
 headlines, keeps the source HTML temporarily in /tmp, and writes YYYYMMDD.png;
 later requests reuse a valid image for the China Standard Time day. OneBot
 sends the image, which credits https://60s.lylme.com/ at its top. The official
-adapter replies with its date and source URL. config/features/news/config.toml
-controls cache_days (default 7), optional cache_dir, and ordered font_paths
+adapter replies with its date and source URL. Telegram uploads a captioned PNG
+document from DailyNewsResult.png_bytes(), preserving date/source/fallback warning.
+config/features/news/config.toml
+controls independent enabled/push_enabled switches (both default true),
+cache_days (default 7), optional cache_dir, and ordered font_paths
 (the first CJK-capable file is selected, with bundled fonts as fallback).
 The local default is data/daily-news;
 Compose sets /app/state/daily-news in its persistent kisara_state volume.
@@ -49,6 +52,14 @@ the updated brief.
 Unknown remote outcomes or failed local writes can still cause duplicates.
 Private delivery depends on the logged-in QQ account being able to contact the
 recipient. Ordinary /news requests do not need a scheduled subscription.
+
+Telegram scheduling is owned by application/services/news_push.py and a separate
+telegram_news.sqlite3 journal: claimed, confirmed, retry, rejected and uncertain.
+Known generation/transient rejection failures retry after 15 minutes (or longer
+retry-after); unknown sends, cancelled claims and failed completion writes never
+auto-replay. Restart converts unfinished claims to uncertain. Telegram targets
+use allowed positive user and negative chat ID strings, in separate config/state
+mounts; its manual and scheduled switches remain independent.
 """
 
 import base64
@@ -124,8 +135,8 @@ class DailyNewsResult:
             )
         return "Daily news for {}\nSource: {}".format(self.day.isoformat(), SOURCE_URL)
 
-    def onebot_image(self) -> str:
-        """Embed the published file or this result's independent fallback bytes."""
+    def png_bytes(self) -> bytes:
+        """Return platform-neutral PNG bytes, including immutable warned fallbacks."""
 
         content = self.image_bytes
         if self.image_path is not None:
@@ -135,7 +146,12 @@ class DailyNewsResult:
                 raise RemoteServiceError("Cached daily news image is unavailable.") from error
         if not content:
             raise RemoteServiceError("Cached daily news image is unavailable.")
-        return "base64://" + base64.b64encode(content).decode("ascii")
+        return content
+
+    def onebot_image(self) -> str:
+        """Preserve the existing OneBot base64 representation."""
+
+        return "base64://" + base64.b64encode(self.png_bytes()).decode("ascii")
 
 
 class DailyNews:

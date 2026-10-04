@@ -370,3 +370,23 @@ def test_labeled_fallback_completes_delivery_without_resend_after_publication(
     assert reader.calls == len(factory_calls) == 1
     assert news.get().image_path.is_file()
     assert reader.calls == 2
+
+
+def test_disabled_push_gates_direct_onebot_adapter(tmp_path: Path) -> None:
+    """An explicit switch stops the existing runner even outside main assembly."""
+    settings = Settings(
+        engine="onebot", instance_id="test", allowed_users=frozenset({"123"}),
+        groups_enabled=False, allowed_groups=frozenset(), onebot_ws_url="ws://localhost:3001",
+        onebot_access_token="test", news_push_users=frozenset({"123"}), news_push_enabled=False,
+    )
+    generated = []
+    def factory() -> OutgoingMessage:
+        generated.append(True)
+        return OutgoingMessage("never")
+    store = NewsDeliveryStore(str(tmp_path))
+    adapter = OneBotV11Adapter(settings, lambda event: None, daily_news_factory=factory, delivery_store=store)
+    async def run() -> None:
+        await asyncio.wait_for(adapter._run_daily_news(), 0.1)
+    asyncio.run(run())
+    assert generated == []
+    assert not store.was_private_sent(datetime.now(timezone(timedelta(hours=8))).date().isoformat(), "123")

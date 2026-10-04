@@ -36,6 +36,8 @@ Run commands from the repository root. If development dependencies are absent:
 ```
 
 Use `.[dev,official]` only when official SDK work requires it.
+Use `.[dev,telegram]` for Telegram adapter work; the Telegram extra requires
+Python 3.10+ while the existing wrapper runs 3.12.
 
 | Change | Automated checks |
 | --- | --- |
@@ -47,6 +49,7 @@ Use `.[dev,official]` only when official SDK work requires it.
 | News/cache/delivery | `./hako python -m pytest tests/unit/test_daily_news.py tests/unit/test_news_delivery.py` |
 | Utility contracts | `./hako python -m pytest tests/unit/test_utils.py` plus consuming feature tests |
 | OneBot adapter/protocol | `./hako python -m pytest tests/unit/test_onebot_adapter.py tests/integration/test_onebot_protocol.py` |
+| Telegram adapter/scheduler/protocol | `./hako python -m pytest tests/unit/test_telegram_adapter.py tests/unit/test_telegram_news.py tests/integration/test_telegram_protocol.py` |
 | Cross-layer, adapter, schema, or deployment changes | Relevant focused checks followed by `./dev.sh --all` |
 
 Additional feature suites live in `tests/unit/`; choose the matching existing
@@ -90,6 +93,14 @@ and configured external provider availability also need live evidence when
 changed. Do not start or stop live services to validate a docs-only setup.
 Synthetic protocol tests do not establish real account capability or sustained
 service reliability.
+
+Telegram acceptance needs allowed private/group command delivery, another bot's
+addressing ignored, denied users/groups without effects, document readability and
+caption attribution, a reachable configured music provider, and allowed private/
+group scheduled delivery. Verify confirmed sends survive restart without replay
+and targeted Telegram lifecycle operations leave other engines running. Use the
+task's prepared live-validation steps; do not inject production send failures
+when deterministic state/protocol tests establish the recovery contract.
 
 ## Initialization evidence
 

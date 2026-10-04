@@ -1,0 +1,3 @@
+enabled = true
+# Optional internal provider: select music profile and set http://music:3000.
+api_url = ""

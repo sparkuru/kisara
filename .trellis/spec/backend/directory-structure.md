@@ -9,8 +9,9 @@ There is no web frontend or HTTP routing framework.
 | --- | --- |
 | `bot/contracts.py` | Normalized events, dispatch results, outgoing payloads, adapter protocol |
 | `bot/dispatcher.py` | Allowlists, bounded duplicate tracking, aliases, command routing |
+| `bot/features.py` | Static feature definitions, bound handlers, platform switches and effective help |
 | `bot/commands/` | Simple command parsing/output such as ping, roll, help, eat |
-| `bot/adapters/` | OneBot/official parsing, lifecycle, API requests, replies |
+| `bot/adapters/` | OneBot/official/Telegram parsing, lifecycle, API requests, replies |
 | `bot/main.py` | Startup configuration and dependency assembly |
 | `bot/console.py` | Offline interactive console |
 | `application/services/` | Dice, food, chat, tarot, public providers, news, export, setu behavior |
@@ -45,14 +46,17 @@ public_services = PublicServices(
 Protocol-specific workflows use narrow gateways: see `SetuGateway` in
 `application/services/setu.py` and `ExportImgGateway` in
 `application/services/export_img.py`. Shared feature code does not import the
-optional `botpy` SDK; only the selected adapter is loaded at startup.
+optional `botpy` or `telegram` SDKs; only the selected adapter is loaded at startup.
 
 ## Supporting files
 
 Feature examples live in `config/features/<feature>/config.toml.example`;
 private `config.toml` files and `.env` stay ignored. New package data must be
 included in `pyproject.toml` and carry provenance where applicable. Unit tests
-live in `tests/unit/`, OneBot protocol simulations in `tests/integration/`.
+live in `tests/unit/`, platform protocol simulations in `tests/integration/`.
+Compose mounts engine-specific Telegram and official examples from
+`config/telegram/features/` and `config/official/features/` at their runtime
+`/app/config`; feature loaders continue using `config/features/` in each process.
 
 Feature contracts belong in the implementation module's opening docstring and
 `application/services/__init__.py`. Update explicit aliases and

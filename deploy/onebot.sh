@@ -126,15 +126,15 @@ main() {
 		;;
 	down | stop)
 		[[ $# -eq 1 ]] || die "down accepts no additional arguments"
-		run_compose down
+		run_compose stop kisara kisara-dev napcat
 		;;
 	logs)
 		[[ $# -eq 1 ]] || die "logs accepts no additional arguments"
-		run_compose logs --follow --tail "${KISARA_LOG_TAIL:-100}"
+		run_compose logs --follow --tail "${KISARA_LOG_TAIL:-100}" napcat kisara kisara-dev
 		;;
 	ps | status)
 		[[ $# -eq 1 ]] || die "ps accepts no additional arguments"
-		run_compose ps
+		run_compose ps napcat kisara kisara-dev
 		;;
 	pull)
 		[[ $# -eq 1 ]] || die "pull accepts no additional arguments"

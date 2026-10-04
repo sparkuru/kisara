@@ -1,0 +1,2 @@
+# Missing flags default enabled; explicit TOML overrides environment fallbacks.
+enabled = true

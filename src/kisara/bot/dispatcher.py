@@ -18,12 +18,12 @@ from kisara.application.services.daily_news import DailyNews
 from kisara.application.services.public import PublicServices, RemoteResult
 from kisara.application.services.tarot import TarotReader
 from kisara.bot.commands.eat import execute as execute_eat
-from kisara.bot.commands.help import execute as execute_help
 from kisara.bot.commands.ping import execute as execute_ping
 from kisara.bot.commands.roll import execute_validated as execute_roll
 from kisara.bot.contracts import (
-    CommandInputError, DispatchResult, MessageEvent, OutgoingMessage, is_image_segment,
+    Attachment, CommandInputError, DispatchResult, MessageEvent, OutgoingMessage, is_image_segment,
 )
+from kisara.bot.features import FEATURES, FeatureRouter, RegisteredFeature
 from kisara.infrastructure.integrations.http import RemoteServiceError
 
 
@@ -44,6 +44,7 @@ class Dispatcher:
         daily_news: Optional[DailyNews] = None,
         admin_users: FrozenSet[str] = frozenset(),
         tarot_group_rates: Optional[Mapping[str, int]] = None,
+        feature_switches: Optional[Mapping[str, bool]] = None,
     ) -> None:
         """Create a dispatcher with bounded in-memory duplicate tracking."""
 
@@ -61,6 +62,29 @@ class Dispatcher:
         self._daily_news = daily_news
         self._admin_users = admin_users
         self._tarot_group_rates = tarot_group_rates or {}
+        switches = {
+            "chat": chat_responder is not None, "tarot": tarot_reader is not None,
+            "news": daily_news is not None,
+            "news_push": daily_news is not None,
+            **{name: public_services is not None for name in ("music", "wallpaper", "source", "ba", "love", "recall")},
+        }
+        self._disabled_features = frozenset(name for name, enabled in (feature_switches or {}).items()
+                                            if not enabled)
+        for name, enabled in (feature_switches or {}).items():
+            switches[name] = switches.get(name, True) and enabled
+        self.router = FeatureRouter(tuple(
+            RegisteredFeature(definition, self._shared_feature if definition.name in
+                              {"ping", "help", "news", "music"} else self._qq_feature)
+            for definition in FEATURES
+        ), switches)
+
+    def authorize_native(self, event: MessageEvent, feature: str) -> bool:
+        """Gate future registered native workflows before any SDK action."""
+        allowed = event.sender_id in self._allowed_users and (
+            event.conversation_kind == "private" or event.conversation_kind == "group"
+            and self._groups_enabled and event.conversation_id in self._allowed_groups
+        )
+        return allowed and self.router.eligible(feature, event.engine) and not self._is_duplicate(event)
 
     def dispatch(self, event: MessageEvent) -> Optional[str]:
         """Return a shared response for an allowed event, if one is due."""
@@ -74,12 +98,12 @@ class Dispatcher:
 
         result = self.dispatch_result(event)
         if (result.reply is None and not result.image_urls and not result.music_id
-                and not result.recall_message_id):
+                and not result.recall_message_id and not result.attachments):
             return None
-        if result.image_urls or result.music_id or result.recall_message_id:
+        if result.image_urls or result.music_id or result.recall_message_id or result.attachments:
             return OutgoingMessage(
                 result.reply or "", result.image_urls, result.music_id,
-                result.recall_message_id,
+                result.recall_message_id, result.attachments,
             )
         return result.reply
 
@@ -98,11 +122,67 @@ class Dispatcher:
             return DispatchResult("error", str(error), "Remote service failed.")
 
     def _route(self, event: MessageEvent) -> DispatchResult:
+        """Authorize once, resolve registration, then execute its platform handler."""
+        content = event.text.strip()
+        if event.engine != "telegram":
+            content = _normalize_legacy_command(content)
+        parts = content.split(maxsplit=1)
+        command = parts[0].lower() if parts else ""
+        if command.startswith("/"):
+            command = command[1:]
+        arguments = parts[1] if len(parts) == 2 else ""
+        registration = self.router.match(command, event.engine)
+        if event.engine == "telegram" and not content.startswith("/"):
+            return DispatchResult("unhandled", None, "Non-command Telegram message.")
+        if registration is not None:
+            definition = registration.definition
+            if event.engine != "telegram" and command == "ping" and arguments:
+                return self._route_qq(event)
+            if self.router.eligible(definition.name, event.engine):
+                return registration.handler(event, command, arguments)
+            if event.engine != "telegram" and definition.name not in self._disabled_features:
+                return self._route_qq(event)
+            if event.engine == "telegram" or definition.name in {"ping", "help", "news", "music"}:
+                return DispatchResult("unhandled", "This feature is unavailable. Try /help.")
+        if event.engine == "telegram":
+            return DispatchResult("unhandled", "Unknown command. Try /help.")
+        return self._route_qq(event)
+
+    def _shared_feature(self, event: MessageEvent, command: str, arguments: str) -> DispatchResult:
+        """Execute shared retained features and adapt only their normalized output."""
+        name = self.router.match(command, event.engine).definition.name
+        if name in {"ping", "help", "news"} and arguments:
+            if name == "news" and command == "news-clear" and event.engine != "telegram":
+                raise CommandInputError("用法：清除新闻缓存（无需参数）")
+            raise CommandInputError("Usage: /{}".format("news_clear" if command == "news-clear" else name))
+        if name == "ping":
+            return DispatchResult("handled", execute_ping())
+        if name == "help":
+            return DispatchResult("handled", self.router.help(event.engine))
+        if name == "music":
+            if not arguments.strip():
+                raise CommandInputError("Usage: /music <song>")
+            return self._remote_result(self._public_services.music(arguments.strip()))
+        if command == "news-clear":
+            removed = self._daily_news.clear_cache()
+            return DispatchResult("handled", "已清除当日新闻缓存，下次获取新闻时将重新生成。"
+                                  if removed else "当日没有新闻缓存可清除。")
+        result = self._daily_news.get()
+        return DispatchResult(
+            "handled", result.text,
+            image_urls=(result.onebot_image(),) if event.engine == "onebot" else (),
+            attachments=(Attachment("daily-news-{}.png".format(result.day.isoformat()), result.png_bytes()),)
+            if event.engine == "telegram" else (),
+        )
+
+    def _qq_feature(self, event: MessageEvent, command: str, arguments: str) -> DispatchResult:
+        """Keep QQ-only workflow handlers and fallback semantics in their owner."""
+        return self._route_qq(event)
+
+    def _route_qq(self, event: MessageEvent) -> DispatchResult:
         """Execute a recognized command or preserve the fallback reply."""
 
         content = _normalize_legacy_command(event.text.strip())
-        if content.lower() in {"/ping", "ping"}:
-            return DispatchResult("handled", execute_ping())
         command_parts = content.split(maxsplit=1)
         command = command_parts[0].lower() if command_parts else ""
         arguments = command_parts[1] if len(command_parts) == 2 else ""
@@ -115,17 +195,6 @@ class Dispatcher:
             if arguments:
                 raise CommandInputError("Usage: /eat")
             return DispatchResult("handled", execute_eat())
-        if command in {"help", "ahelp"}:
-            if arguments:
-                raise CommandInputError("Usage: /help")
-            return DispatchResult(
-                "handled", execute_help(
-                    self._chat_responder is not None,
-                    self._tarot_reader is not None,
-                    self._public_services is not None,
-                    self._daily_news is not None,
-                )
-            )
         if command in {"tarot", "占卜"} and self._tarot_reader is not None:
             mode = arguments.strip().lower() or "auto"
             if mode not in {"auto", "single", "spread"}:
@@ -148,20 +217,6 @@ class Dispatcher:
             return DispatchResult("handled", response or "No phrasebook reply found.")
         if command == "recall":
             return self._recall(event, arguments)
-        if command == "news-clear" and self._daily_news is not None:
-            if arguments:
-                raise CommandInputError("用法：清除新闻缓存（无需参数）")
-            removed = self._daily_news.clear_cache()
-            return DispatchResult(
-                "handled", "已清除当日新闻缓存，下次获取新闻时将重新生成。"
-                if removed else "当日没有新闻缓存可清除。",
-            )
-        if command in {"news", "brief"} and self._daily_news is not None:
-            if arguments:
-                raise CommandInputError("Usage: /news")
-            result = self._daily_news.get()
-            images = (result.onebot_image(),) if event.engine == "onebot" else ()
-            return DispatchResult("handled", result.text, image_urls=images)
         if self._public_services is not None:
             remote = self._route_public(command, arguments, event)
             if remote is not None:
@@ -198,10 +253,6 @@ class Dispatcher:
             if not arguments.strip():
                 raise CommandInputError("Usage: /ba <name>")
             return services.blue_archive(arguments.strip())
-        if command in {"music", "song"}:
-            if not arguments.strip():
-                raise CommandInputError("Usage: /music <song>")
-            return services.music(arguments.strip())
         if command == "love":
             if arguments:
                 raise CommandInputError("Usage: /love")
@@ -262,7 +313,9 @@ class Dispatcher:
             return False
         if event.conversation_kind == "group":
             return self._groups_enabled and self._group_is_allowed(event)
-        return event.conversation_kind in {"private", "channel"}
+        return event.conversation_kind == "private" or (
+            event.engine != "telegram" and event.conversation_kind == "channel"
+        )
 
     def _group_is_allowed(self, event: MessageEvent) -> bool:
         """Check the group allowlist and trigger for an ordinary message."""
@@ -320,7 +373,8 @@ class Dispatcher:
             (
                 event.engine,
                 event.instance_id,
-                event.message_id,
+                (event.conversation_id + ":" + event.message_id)
+                if event.engine == "telegram" else event.message_id,
             )
         )
         if key in self._seen_messages:

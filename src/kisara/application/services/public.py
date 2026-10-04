@@ -8,7 +8,10 @@ search API; the optional Compose music profile serves http://music:3000 within
 its network. /love needs config/features/love/config.toml api_key for TianAPI.
 
 Responses carry text and optional image URLs or a music ID. OneBot sends native
-image/music segments; the official adapter renders media links as text. HTTP
+image/music segments; official and Telegram render music title/artist/links as
+text. Telegram registers only music from this module; enabled in its independent
+config/features/music/config.toml gates the handler, with api_url or the runtime
+KISARA_MUSIC_API_URL fallback. Other providers remain QQ capabilities. HTTP
 reads have a ten-second timeout and unavailable providers produce an error
 reply. These queries do not create application database records. Daily /news
 is implemented separately in application/services/daily_news.py.
@@ -148,7 +151,7 @@ class PublicServices:
         return RemoteResult("\n".join(lines))
 
     def music(self, query: str) -> RemoteResult:
-        """Search a configured local Netease API and return a native music card."""
+        """Search a configured API for text/link output and an optional QQ music ID."""
 
         if not self._music_api_url:
             raise RemoteServiceError("Music search API is not configured.")

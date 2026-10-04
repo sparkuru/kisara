@@ -1,6 +1,6 @@
 # Kisara is back
 
-QQ bot with one shared message pipeline and switchable OneBot 11 (NapCatQQ) and Tencent official adapters. See [Running Kisara](docs/operations.md) for startup and deployment.
+Bot with one shared feature router and OneBot 11 (NapCatQQ), Tencent official, and Telegram adapters. Compose selects engines through `.env`. See [Running Kisara](docs/operations.md) for startup and deployment.
 
 ## Development
 

@@ -1,0 +1,12 @@
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Applicable repository contract for Telegram integration"}
+{"file":".trellis/tasks/10-04-telegram-bot/research/repository-fit.md","reason":"Telegram integration evidence and platform constraints"}
+{"file":".trellis/tasks/10-04-telegram-bot/research/telegram-library.md","reason":"Telegram integration evidence and platform constraints"}
+{"file":".trellis/tasks/10-04-telegram-bot/research/feature-routing.md","reason":"Feature registry, compatible QQ routing, Telegram inventory, and Compose selection evidence"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Native implement/check ownership and delivery boundaries"}

@@ -1,0 +1,10 @@
+# Manual news and scheduled push have independent switches.
+enabled = true
+push_enabled = true
+# IDs are strings. Private targets must have started the bot; groups must allow sends.
+# All targets must also be allowed in the TELEGRAM_* access settings.
+push_users = []
+push_groups = []
+push_time = "10:30" # UTC+8; today-only catch-up after restart
+cache_days = 7
+cache_dir = "/app/state/daily-news"

@@ -1,2 +1,3 @@
+enabled = true
 # Set to a compatible local music search API, e.g. the optional Compose profile.
 api_url = ""

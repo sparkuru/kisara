@@ -10,6 +10,15 @@ class CommandInputError(ValueError):
 
 
 @dataclass(frozen=True)
+class Attachment:
+    """An immutable file upload, independent of SDK objects and local paths."""
+
+    filename: str
+    content: bytes
+    media_type: str = "image/png"
+
+
+@dataclass(frozen=True)
 class DispatchResult:
     """A routing outcome independent of the user-facing reply text."""
 
@@ -19,6 +28,7 @@ class DispatchResult:
     image_urls: Tuple[str, ...] = ()
     music_id: Optional[str] = None
     recall_message_id: Optional[str] = None
+    attachments: Tuple[Attachment, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -29,6 +39,7 @@ class OutgoingMessage:
     image_urls: Tuple[str, ...] = ()
     music_id: Optional[str] = None
     recall_message_id: Optional[str] = None
+    attachments: Tuple[Attachment, ...] = ()
 
 
 @dataclass(frozen=True)

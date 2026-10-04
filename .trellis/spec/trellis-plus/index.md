@@ -7,7 +7,8 @@
 
 ## Scope and loading
 
-Kisara is a Python QQ bot with OneBot 11 and optional Tencent official adapters.
+Kisara is a Python bot with OneBot 11, optional Tencent official, and optional
+Telegram adapters, each running in a separate process.
 There is no application frontend. The external NapCat administration page is
 not a Kisara UI surface. UUPM and Playwright are not applicable to this setup.
 

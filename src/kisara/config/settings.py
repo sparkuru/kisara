@@ -14,7 +14,7 @@ from .feature_files import (
 
 DEFAULT_ENGINE = "onebot"
 DEFAULT_ONEBOT_WS_URL = "ws://napcat:3001"
-SUPPORTED_ENGINES = ("onebot", "official")
+SUPPORTED_ENGINES = ("onebot", "official", "telegram")
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,13 @@ class Settings:
     group_overrides: Mapping[str, GroupOverride] = field(default_factory=dict)
     news_push_users: FrozenSet[str] = frozenset()
 
+    telegram_token: Optional[str] = None
+    ping_enabled: bool = True
+    help_enabled: bool = True
+    music_enabled: bool = True
+    news_enabled: bool = True
+    news_push_enabled: bool = True
+
     @classmethod
     def from_environment(cls) -> "Settings":
         """Read common settings and validate only the selected engine."""
@@ -88,78 +95,94 @@ class Settings:
             raise ConfigurationError("KISARA_ADMIN_USERS must be allowed users.")
         groups_enabled = _read_bool("KISARA_GROUPS_ENABLED", default=False)
         allowed_groups = _read_csv("KISARA_ALLOWED_GROUPS")
-        group_overrides = _read_group_overrides(allowed_groups)
-        chat_file = load_feature("chat")
-        tarot_file = load_feature("tarot")
+        group_overrides = _read_group_overrides(allowed_groups) if engine != "telegram" else {}
+        chat_file = load_feature("chat") if engine != "telegram" else {}
+        tarot_file = load_feature("tarot") if engine != "telegram" else {}
         news_file = load_feature("news")
-        source_file = load_feature("source")
+        source_file = load_feature("source") if engine != "telegram" else {}
         music_file = load_feature("music")
-        love_file = load_feature("love")
-        chat_options = {
-            "chat_enabled": boolean(chat_file, "enabled",
-                                    lambda: _read_bool("KISARA_CHAT_ENABLED", True), "chat"),
-            "chat_bot_name": string(chat_file, "bot_name",
-                                    lambda: os.environ.get("KISARA_CHAT_BOT_NAME", "Kisara").strip(), "chat"),
-            "chat_sender_name": string(chat_file, "sender_name",
-                                       lambda: os.environ.get("KISARA_CHAT_SENDER_NAME", "you").strip(), "chat"),
-            "chat_library": string(chat_file, "library",
-                                   lambda: os.environ.get("KISARA_CHAT_LIBRARY", "cute").strip(), "chat").lower(),
-            "chat_trigger_rate": percent(chat_file, "trigger_rate",
-                                         lambda: _read_percent("KISARA_CHAT_TRIGGER_RATE", 30), "chat"),
-            "chat_similarity_rate": percent(chat_file, "similarity_rate",
-                                            lambda: _read_percent("KISARA_CHAT_SIMILARITY_RATE", 60), "chat"),
-            "chat_ignored_phrases": words(chat_file, "ignored_phrases",
-                                          lambda: _read_csv("KISARA_CHAT_IGNORED_PHRASES"), "chat"),
-            "chat_banned_users": words(chat_file, "banned_users",
-                                       lambda: _read_csv("KISARA_CHAT_BANNED_USERS"), "chat"),
-            "chat_always_reply_users": words(chat_file, "always_reply_users",
-                                             lambda: _read_csv("KISARA_CHAT_ALWAYS_REPLY_USERS"), "chat"),
-            "chat_reply_to_mentions": boolean(chat_file, "reply_to_mentions",
-                                              lambda: _read_bool("KISARA_CHAT_REPLY_TO_MENTIONS", True), "chat"),
-        }
-        if not chat_options["chat_bot_name"] or not chat_options["chat_sender_name"]:
-            raise ConfigurationError("Chat display names must not be empty.")
-        if chat_options["chat_library"] not in {"cute", "tsundere", "mixed"}:
-            raise ConfigurationError(
-                "KISARA_CHAT_LIBRARY must be cute, tsundere, or mixed."
-            )
-        tarot_options = {
-            "tarot_enabled": boolean(tarot_file, "enabled",
-                                     lambda: _read_bool("KISARA_TAROT_ENABLED", True), "tarot"),
-            "tarot_spread_rate": percent(tarot_file, "spread_rate",
-                                        lambda: _read_percent("KISARA_TAROT_SPREAD_RATE", 5), "tarot"),
-            "tarot_image_dir": string(tarot_file, "image_dir",
-                                      lambda: os.environ.get(
-                                          "KISARA_TAROT_IMAGE_DIR", "data/kisara/tarotCards"
-                                      ).strip(), "tarot"),
-        }
+        love_file = load_feature("love") if engine != "telegram" else {}
+        if engine != "telegram":
+            chat_options = {
+                "chat_enabled": boolean(chat_file, "enabled",
+                                        lambda: _read_bool("KISARA_CHAT_ENABLED", True), "chat"),
+                "chat_bot_name": string(chat_file, "bot_name",
+                                        lambda: os.environ.get("KISARA_CHAT_BOT_NAME", "Kisara").strip(), "chat"),
+                "chat_sender_name": string(chat_file, "sender_name",
+                                           lambda: os.environ.get("KISARA_CHAT_SENDER_NAME", "you").strip(), "chat"),
+                "chat_library": string(chat_file, "library",
+                                       lambda: os.environ.get("KISARA_CHAT_LIBRARY", "cute").strip(), "chat").lower(),
+                "chat_trigger_rate": percent(chat_file, "trigger_rate",
+                                             lambda: _read_percent("KISARA_CHAT_TRIGGER_RATE", 30), "chat"),
+                "chat_similarity_rate": percent(chat_file, "similarity_rate",
+                                                lambda: _read_percent("KISARA_CHAT_SIMILARITY_RATE", 60), "chat"),
+                "chat_ignored_phrases": words(chat_file, "ignored_phrases",
+                                              lambda: _read_csv("KISARA_CHAT_IGNORED_PHRASES"), "chat"),
+                "chat_banned_users": words(chat_file, "banned_users",
+                                           lambda: _read_csv("KISARA_CHAT_BANNED_USERS"), "chat"),
+                "chat_always_reply_users": words(chat_file, "always_reply_users",
+                                                 lambda: _read_csv("KISARA_CHAT_ALWAYS_REPLY_USERS"), "chat"),
+                "chat_reply_to_mentions": boolean(chat_file, "reply_to_mentions",
+                                                  lambda: _read_bool("KISARA_CHAT_REPLY_TO_MENTIONS", True), "chat"),
+            }
+            if not chat_options["chat_bot_name"] or not chat_options["chat_sender_name"]:
+                raise ConfigurationError("Chat display names must not be empty.")
+            if chat_options["chat_library"] not in {"cute", "tsundere", "mixed"}:
+                raise ConfigurationError(
+                    "KISARA_CHAT_LIBRARY must be cute, tsundere, or mixed."
+                )
+            tarot_options = {
+                "tarot_enabled": boolean(tarot_file, "enabled",
+                                         lambda: _read_bool("KISARA_TAROT_ENABLED", True), "tarot"),
+                "tarot_spread_rate": percent(tarot_file, "spread_rate",
+                                            lambda: _read_percent("KISARA_TAROT_SPREAD_RATE", 5), "tarot"),
+                "tarot_image_dir": string(tarot_file, "image_dir",
+                                          lambda: os.environ.get(
+                                              "KISARA_TAROT_IMAGE_DIR", "data/kisara/tarotCards"
+                                          ).strip(), "tarot"),
+            }
+        else:
+            chat_options = {"chat_enabled": False}
+            tarot_options = {"tarot_enabled": False}
         public_options = {
             "saucenao_key": string(source_file, "api_key",
-                                   lambda: os.environ.get("SAUCENAO_API_KEY", "").strip(),
+                                   lambda: os.environ.get("SAUCENAO_API_KEY", "").strip() if engine != "telegram" else "",
                                    "source", allow_empty=True),
             "music_api_url": string(music_file, "api_url",
                                     lambda: os.environ.get("KISARA_MUSIC_API_URL", "").strip(),
                                     "music", allow_empty=True),
             "tianapi_key": string(love_file, "api_key",
-                                  lambda: os.environ.get("TIANAPI_KEY", "").strip(),
+                                  lambda: os.environ.get("TIANAPI_KEY", "").strip() if engine != "telegram" else "",
                                   "love", allow_empty=True),
         }
         music_api_url = public_options["music_api_url"]
         if music_api_url and not music_api_url.startswith(("http://", "https://")):
             raise ConfigurationError("KISARA_MUSIC_API_URL must be an HTTP URL.")
+        feature_options = {
+            "ping_enabled": boolean(load_feature("ping"), "enabled", lambda: _read_bool("KISARA_PING_ENABLED", True), "ping"),
+            "help_enabled": boolean(load_feature("help"), "enabled", lambda: _read_bool("KISARA_HELP_ENABLED", True), "help"),
+            "music_enabled": boolean(music_file, "enabled", lambda: _read_bool("KISARA_MUSIC_ENABLED", True), "music"),
+            "news_enabled": boolean(news_file, "enabled", lambda: _read_bool("KISARA_NEWS_ENABLED", True), "news"),
+            "news_push_enabled": boolean(news_file, "push_enabled", lambda: _read_bool("KISARA_NEWS_PUSH_ENABLED", True), "news"),
+        }
         news_push_groups = words(news_file, "push_groups",
                                  lambda: _read_csv("KISARA_NEWS_PUSH_GROUPS"), "news")
         news_push_users = words(news_file, "push_users",
                                 lambda: _read_csv("KISARA_NEWS_PUSH_USERS"), "news")
-        if any(not user.isascii() or not user.isdecimal() or user.startswith("0")
+        if engine != "telegram" and any(not user.isascii() or not user.isdecimal() or user.startswith("0")
                for user in news_push_users):
             raise ConfigurationError("news.push_users must contain positive canonical decimal QQ numbers.")
         if not news_push_users.issubset(allowed_users):
             raise ConfigurationError("News push users must be in KISARA_ALLOWED_USERS.")
         if news_push_groups and not groups_enabled:
             raise ConfigurationError("News push requires KISARA_GROUPS_ENABLED=true.")
-        if (news_push_groups or news_push_users) and engine != "onebot":
+        if (news_push_groups or news_push_users) and engine not in {"onebot", "telegram"}:
             raise ConfigurationError("Scheduled news push requires the OneBot engine.")
+        if engine == "telegram":
+            if any(not _canonical_id(user, negative=False) for user in allowed_users | news_push_users):
+                raise ConfigurationError("Telegram users must be positive canonical decimal IDs.")
+            if any(not _canonical_id(group, negative=True) for group in allowed_groups | news_push_groups):
+                raise ConfigurationError("Telegram groups must be negative canonical decimal IDs.")
         if not news_push_groups.issubset(allowed_groups):
             raise ConfigurationError("News push groups must be in KISARA_ALLOWED_GROUPS.")
         news_time = string(news_file, "push_time",
@@ -221,6 +244,16 @@ class Settings:
                 **tarot_options,
                 **public_options,
                 **news_options,
+                **feature_options,
+            )
+
+        if engine == "telegram":
+            return cls(
+                engine=engine, instance_id=instance_id, allowed_users=allowed_users,
+                groups_enabled=groups_enabled, allowed_groups=allowed_groups,
+                telegram_token=_read_required(("TELEGRAM_BOT_TOKEN",), "TELEGRAM_BOT_TOKEN"),
+                **chat_options, **tarot_options, **public_options, **news_options,
+                **feature_options,
             )
 
         app_id = _read_required(("AppID", "APP_ID"), "AppID")
@@ -237,6 +270,7 @@ class Settings:
             **tarot_options,
             **public_options,
             **news_options,
+            **feature_options,
         )
 
 
@@ -395,3 +429,10 @@ def _validate_percent(value: object, name: str, group_id: str) -> int:
     if type(value) is not int or value < 0 or value > 100:
         raise ConfigurationError("Invalid {} for group {}: expected 0-100.".format(name, group_id))
     return value
+
+
+def _canonical_id(value: str, negative: bool) -> bool:
+    """Validate Telegram identifiers without coercing ambiguous representations."""
+    digits = value[1:] if negative and value.startswith("-") else value
+    return (value.startswith("-") == negative and bool(digits) and digits.isascii()
+            and digits.isdecimal() and not digits.startswith("0"))

@@ -1,6 +1,10 @@
 """Tests for protocol-neutral message routing."""
 
+from dataclasses import replace
+from types import SimpleNamespace
 from typing import Mapping, Optional
+
+import pytest
 
 from kisara.bot.contracts import MessageEvent, MessageSegment
 from kisara.bot.dispatcher import Dispatcher
@@ -192,3 +196,32 @@ def test_recall_requires_quoted_bot_message_and_group_authority() -> None:
     result = dispatcher.dispatch_payload(authorized)
     assert result is not None
     assert result.recall_message_id == "42"
+
+
+@pytest.mark.parametrize("engine", ["onebot", "local", "telegram"])
+@pytest.mark.parametrize("feature,command", [("music", "/music song"), ("news", "/news")])
+@pytest.mark.parametrize("configured", [None, True, False])
+def test_missing_service_preserves_qq_fallback_without_enabling_handler(
+        engine: str, feature: str, command: str, configured: Optional[bool]) -> None:
+    """A true switch cannot manufacture a provider; only explicit false alters QQ fallback."""
+    switches = {} if configured is None else {feature: configured}
+    dispatcher = Dispatcher(frozenset({"user-1"}), False, frozenset(), feature_switches=switches)
+    event = replace(_event(text=command), engine=engine)
+    assert not dispatcher.router.eligible(feature, engine)
+    result = dispatcher.dispatch_result(event)
+    assert result.status == "unhandled"
+    if engine == "telegram" or configured is False:
+        assert result.reply == "This feature is unavailable. Try /help."
+    else:
+        assert result.reply == "Kisara received: " + command
+
+
+def test_missing_music_preserves_non_slash_phrasebook_fallback() -> None:
+    calls = []
+    def reply(content: str, sender: str, **kwargs: object) -> str:
+        calls.append(content)
+        return "phrasebook reply"
+    dispatcher = Dispatcher(frozenset({"user-1"}), False, frozenset(),
+                            chat_responder=SimpleNamespace(reply=reply))
+    assert dispatcher.dispatch(_event(text="music song")) == "phrasebook reply"
+    assert calls == ["music song"]

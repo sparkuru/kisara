@@ -16,6 +16,20 @@ The optional official adapter uses `botpy.logging.get_logger()` and is loaded
 only for that engine. `infrastructure/logging/` contains no separate logging
 implementation. There is no JSON structured logging framework.
 
+Telegram uses `kisara.telegram` and `kisara.telegram.news`. Suppress SDK/httpx/
+httpcore request and exception logging before polling: Bot API URLs embed the
+token. Log safe categories at the owned adapter/request/process boundaries,
+including startup, fatal polling, and shutdown errors. A safe callback does not
+make SDK internal tracebacks safe. Test synthetic token-bearing failures.
+Pinned PTB's network loop raises `InvalidToken` without invoking the ordinary
+polling error callback. `ManagedPollingBot.get_updates` is the public SDK method
+boundary for signaling this fatal condition. It returns an empty fetched update
+tuple while the owner stops and raises a bounded error, avoiding an orphan SDK
+task exception containing the token. Cleanup continues through SDK failures.
+`ManagedPollingBot.initialize()` closes its owned request clients through public
+`request.shutdown()` if initialization fails or is cancelled; Application's
+shutdown can otherwise return before closing partially initialized clients.
+
 ## Existing levels and examples
 
 | Level / call | Existing examples |

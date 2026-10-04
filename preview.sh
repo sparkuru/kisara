@@ -4,7 +4,7 @@
 # OneBot uses deploy/onebot.sh for the NapCat + Kisara Compose stack.
 # Official uses the executable ./hako wrapper.
 # Service:  bot (outbound protocol connection; no host port is published).
-# Select the engine with KISARA_ENGINE=onebot|onebot-dev|official or use ./start.sh.
+# Select the engine with KISARA_ENGINE=onebot|onebot-dev|official|telegram|selected or use ./start.sh.
 #
 # The bot service has no local URL. If a future inbound service is added, keep
 # its container binding on 0.0.0.0 and add an explicit mapping in ./hako.
@@ -24,7 +24,7 @@ service_pids=()
 
 usage() {
 	printf 'Usage: %s [start|down|stop]\n' "${SCRIPT_NAME}" >&2
-	printf '       KISARA_ENGINE=onebot|onebot-dev|official %s start\n' "${SCRIPT_NAME}" >&2
+	printf '       KISARA_ENGINE=onebot|onebot-dev|official|telegram|selected %s start\n' "${SCRIPT_NAME}" >&2
 }
 
 die() {
@@ -87,16 +87,30 @@ run_service() {
 
 start_services() {
 	local status=0
-	local engine="${KISARA_ENGINE:-onebot}"
+	local engine="${KISARA_ENGINE:-}"
+	if [[ -z "${engine}" ]]; then
+		if [[ -n "${COMPOSE_PROFILES:-}" ]] || { [[ -f "${REPO_ROOT}/.env" ]] && grep -q '^[[:space:]]*COMPOSE_PROFILES[[:space:]]*=' "${REPO_ROOT}/.env"; }; then
+			engine=selected
+		else
+			engine=onebot
+		fi
+	fi
 
 	case "${engine}" in
-	onebot | onebot-dev | official) ;;
+	onebot | onebot-dev | official | telegram | selected) ;;
 	*)
-		die "unknown KISARA_ENGINE: ${engine}; choose onebot, onebot-dev, or official"
+		die "unknown KISARA_ENGINE: ${engine}; choose onebot, onebot-dev, official, telegram, or selected"
 		;;
 	esac
 
 	require_command docker
+
+	if [[ "${engine}" == telegram || "${engine}" == selected ]]; then
+		if [[ "${engine}" == telegram ]]; then
+			exec "${REPO_ROOT}/deploy/engines.sh" up telegram
+		fi
+		exec "${REPO_ROOT}/deploy/engines.sh" up
+	fi
 
 	if [[ "${engine}" == onebot || "${engine}" == onebot-dev ]]; then
 		[[ -x "${REPO_ROOT}/deploy/onebot.sh" ]] || {
@@ -134,11 +148,16 @@ main() {
 		start_services
 		;;
 	down | stop)
-		cd "${REPO_ROOT}"
-		down_services
-		if [[ -x "${REPO_ROOT}/deploy/onebot.sh" ]]; then
-			"${REPO_ROOT}/deploy/onebot.sh" down
+		if [[ -z "${KISARA_ENGINE:-}" ]] && { [[ -n "${COMPOSE_PROFILES:-}" ]] || { [[ -f "${REPO_ROOT}/.env" ]] && grep -q '^[[:space:]]*COMPOSE_PROFILES[[:space:]]*=' "${REPO_ROOT}/.env"; }; }; then
+			exec "${REPO_ROOT}/deploy/engines.sh" stop
 		fi
+		case "${KISARA_ENGINE:-onebot}" in
+		telegram) exec "${REPO_ROOT}/deploy/engines.sh" stop telegram ;;
+		selected) exec "${REPO_ROOT}/deploy/engines.sh" stop ;;
+		onebot | onebot-dev) exec "${REPO_ROOT}/deploy/onebot.sh" down ;;
+		official) down_services ;;
+		*) die "unknown engine" ;;
+		esac
 		;;
 	--help | -h)
 		usage

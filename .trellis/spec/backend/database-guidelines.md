@@ -15,6 +15,9 @@ Sources: `src/kisara/infrastructure/persistence/news_delivery.py` and
   `mark_private_sent(day, user_id) -> None` for personal QQ recipients.
 - `SetuStore(state_dir: str)` owns batch claims, prompt identity, per-item
   checkpoints, expiry, and restart recovery.
+- `TelegramNewsStore(state_dir: str)` owns pre-send claims, confirmed receipts,
+  known rejection retries and uncertain outcomes. See its complete
+  [journal contract](../trellis-plus/configuration-storage.md#telegram-news-delivery-journal).
 
 ## Storage and schema contracts
 
@@ -27,6 +30,7 @@ this is separate from confirmed setu media. See
 | --- | --- |
 | `news_delivery.sqlite3` | Unchanged `deliveries(day TEXT, group_id TEXT)` for groups; additive `private_deliveries(day TEXT, user_id TEXT)` for individuals; all columns NOT NULL, each table keyed by its day and recipient ID |
 | `setu.sqlite3` | `batches` keyed by `id`, index `batches_status(state, deadline)`; `seen` primary key `(instance_id, message_id)` |
+| `telegram_news.sqlite3` | `deliveries(day, kind, target, status, next_attempt, message_id)` keyed by `(day, kind, target)`; Telegram state volume only |
 
 Setu stores media metadata in `media_json`; binary media stays in the file
 archive. The setu database has mode `0600`. News completion is recorded only
@@ -64,6 +68,7 @@ return row is not None
 | Save already claimed or confirmation expired | `claim_save` returns `False`; no new save claim |
 | Setu `PRAGMA user_version < 2` | Expire legacy collecting batches; set version to 2 |
 | Restart with batches in `saving` | Return them to `awaiting` so unfinished files can be retried |
+| Restart with Telegram delivery in `claimed` | Change to uncertain; never automatically resend |
 | Initialization filesystem/SQLite error | `bot/main.py` logs failure and returns exit code 2 |
 
 Do not assume deployed databases will be recreated. A schema change needs an

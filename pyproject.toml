@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kisara"
 version = "0.1.0"
-description = "A QQ bot with switchable OneBot 11 and official platform adapters."
+description = "A bot with OneBot 11, official QQ and Telegram adapters."
 readme = "readme.md"
 requires-python = ">=3.8"
 dependencies = [
@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+telegram = [
+    "python-telegram-bot==22.8",
+]
 official = [
     "qq-botpy==1.2.1",
 ]

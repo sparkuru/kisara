@@ -13,7 +13,8 @@ COPY pyproject.toml readme.md ./
 COPY src ./src
 COPY deploy/kisara-dev-watch.sh /opt/kisara/kisara-dev-watch.sh
 
-RUN python -m pip install --no-cache-dir .
+ARG KISARA_EXTRA=""
+RUN python -m pip install --no-cache-dir ".${KISARA_EXTRA:+[${KISARA_EXTRA}]}"
 
 RUN chmod 755 /opt/kisara/kisara-dev-watch.sh \
     && useradd --create-home --uid 10001 kisara \

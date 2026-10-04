@@ -1,42 +1,14 @@
-"""List available text commands for /help and its ahelp alias.
+"""Compatibility help entrypoint using the shared effective feature inventory."""
 
-The dispatcher passes enabled service flags, so the output reflects assembled
-chat, tarot, public-provider, and daily-news capabilities. This command has no
-independent configuration or persistent state.
-"""
+from kisara.bot.features import FEATURES, render_help
 
 
-def execute(
-    chat_enabled: bool = False,
-    tarot_enabled: bool = False,
-    public_enabled: bool = False,
-    news_enabled: bool = False,
-) -> str:
-    """Return a concise list of commands supported by Kisara."""
-
-    commands = (
-        "Available commands:\n"
-        "/ping — check whether Kisara is online\n"
-        "/help — show this command list\n"
-        "/eat — choose food suggestions\n"
-        "/roll [sides] or /roll <minimum> <maximum> [count]"
-    )
-    if chat_enabled:
-        commands += "\n/chat <message> — ask the phrasebook directly"
-    if tarot_enabled:
-        commands += "\n/tarot [single|spread] — draw a daily tarot reading"
-    if public_enabled:
-        commands += (
-            "\n/wallpaper — a Pixiv illustration"
-            "\n/source [similarity] + image — find an image source"
-            "\n/ba <name> — find a Blue Archive guide"
-            "\n/music <song> — search a configured music API"
-            "\n/love — fetch a short love note"
-            "\n/recall — recall a quoted bot message (OneBot)"
-        )
-    if news_enabled:
-        commands += (
-            "\n/news — today's daily news"
-            "\n清除新闻缓存 — clear today's news PNG and HTML cache"
-        )
-    return commands
+def execute(chat_enabled: bool = False, tarot_enabled: bool = False,
+            public_enabled: bool = False, news_enabled: bool = False) -> str:
+    """Return existing QQ/offline help from the same definitions as the router."""
+    enabled = {
+        "chat": chat_enabled, "tarot": tarot_enabled, "news": news_enabled,
+        "news_push": False,
+        **{name: public_enabled for name in ("wallpaper", "source", "ba", "music", "love", "recall")},
+    }
+    return render_help(FEATURES, enabled, "local")

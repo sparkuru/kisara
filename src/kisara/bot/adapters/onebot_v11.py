@@ -57,7 +57,7 @@ class OneBotV11Adapter:
         self._pending: Dict[str, asyncio.Future] = {}
         self._message_tasks: Set[asyncio.Task] = set()
         self._conversation_tasks: Dict[str, asyncio.Task] = {}
-        self._daily_news_factory = daily_news_factory
+        self._daily_news_factory = daily_news_factory if settings.news_push_enabled else None
         self._delivery_store = delivery_store
         self._news_push_groups = tuple(sorted(settings.news_push_groups))
         self._news_push_users = tuple(sorted(settings.news_push_users))

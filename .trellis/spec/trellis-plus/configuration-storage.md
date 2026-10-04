@@ -31,7 +31,9 @@ Group overrides must refer to allowed groups. Setu uses its separate
 `Settings.from_environment()` selects `KISARA_ENGINE`, default `onebot`.
 Validate credentials only for the selected engine: OneBot requires
 `ONEBOT_ACCESS_TOKEN` and a `ws://` or `wss://` URL; official requires
-`AppID`/`APP_ID` and `AppSecret`/`APP_SECRET`. Update `.env.example` and Compose
+`AppID`/`APP_ID` and `AppSecret`/`APP_SECRET`; Telegram requires
+`TELEGRAM_BOT_TOKEN`. Telegram does not load unrelated QQ feature files or
+group overrides. Update `.env.example` and Compose
 environment wiring when a runtime variable changes.
 
 ## Setu transfer size settings
@@ -95,10 +97,24 @@ integers to the service.
 | Enabled setu users outside global allowlist | Startup configuration failure |
 | Group news push without groups enabled or outside group allowlist | Configuration failure |
 | Personal news push outside user allowlist, or either push kind in official mode | Configuration failure |
+| Telegram user ID not positive canonical decimal, or group ID not negative canonical decimal | Configuration failure |
 | Empty global user allowlist | Startup can validate, but dispatcher denies every sender |
 
 For new dedicated configuration, document missing-file, invalid-value, disabled,
 and override behavior. Do not assume a new feature inherits group overrides.
+
+## Retained-feature switches
+
+`Settings.ping_enabled`, `help_enabled`, `music_enabled`, `news_enabled`, and
+`news_push_enabled` default to true. `config/features/ping/config.toml`, help,
+and music accept `enabled`; news accepts `enabled` and `push_enabled`. Explicit
+TOML booleans override `KISARA_PING_ENABLED`, `KISARA_HELP_ENABLED`,
+`KISARA_MUSIC_ENABLED`, `KISARA_NEWS_ENABLED`, and `KISARA_NEWS_PUSH_ENABLED`.
+Missing keys preserve environment/default fallback. Invalid values fail startup.
+Manual news and push are independent; no recipients means no scheduler.
+Apply TOML changes through a targeted bot restart. Apply `.env` container
+environment changes through targeted recreation (`./deploy.sh up telegram`);
+Compose restart retains the previous container environment.
 
 ## Storage contracts
 
@@ -134,6 +150,66 @@ batch state from media files and records seen `(instance_id, message_id)` keys.
 It already handles legacy state through `PRAGMA user_version`; do not assume
 databases will be recreated on deployment.
 
+## Telegram news delivery journal
+
+### 1. Scope / trigger
+
+Telegram scheduled private/group news needs durable evidence before a remote send.
+One runtime owns its state directory; transactions never span generation/network
+work. Isolate state and news caches between engine containers.
+
+### 2. Signatures
+
+`TelegramNewsStore(state_dir)` uses `telegram_news.sqlite3`.
+`claim(day, kind, target, now) -> bool`, `complete(day, kind, target, message_id)`,
+`reject(day, kind, target, next_attempt, permanent=False)`,
+`uncertain(day, kind, target)`, `prune(day)`, and `status(day, kind, target)` own
+persistence. `TelegramNewsPush(...).deliver_due()` coordinates the gateway.
+
+### 3. Contracts
+
+`deliveries` columns are `day TEXT`, `kind TEXT`, `target TEXT`, `status TEXT`,
+`next_attempt REAL DEFAULT 0`, and nullable `message_id TEXT`, with primary key
+`(day, kind, target)`. Day is the scheduled UTC+8 day; kind separates private and
+group recipients. States are pending, claimed, retry, rejected, confirmed, and
+uncertain. Claim is atomic before sending. Startup changes leftover claimed rows
+to uncertain. Only a confirmed remote receipt advances claimed to confirmed.
+Unknown outcomes and local completion failures never become new work. Known
+transient rejection or generation failure retries after 15 minutes or a longer
+server retry-after; permanent rejection stops for that day. Retention uses the
+current day minus 30 days. Catch-up is for today only. A successfully sent warned
+publication-delay fallback completes today's scheduled send.
+
+### 4. Validation & error matrix
+
+| Event | Evidence / recovery |
+| --- | --- |
+| Existing confirmed, rejected, uncertain or claimed row | Claim denied |
+| New target or due retry | Claim before send |
+| Timeout/network result unknown | Uncertain; no automatic resend |
+| Cancellation after claim | Claim survives; restart makes it uncertain |
+| Remote success followed by failed completion write | Claim evidence retained; no automatic resend |
+| Generation fails before remote operation | Known retry; no confirmed completion |
+
+### 5. Good / base / bad cases
+
+Good: checkpoint the returned message ID, restart, and skip the confirmed target.
+Base: no recipients creates no scheduled work. Bad: mark only after sending while
+leaving no prior evidence, allowing a crash to replay an already delivered message.
+
+### 6. Tests required
+
+Verify atomic claims, private/group key separation, confirmed restart, interrupted
+claim recovery, retry deadlines, permanent rejections, unknown sends, failed local
+completion writes, cancellation, retention, today-only catch-up, and successful
+fallback completion. Inject safe synthetic errors without real credentials.
+
+### 7. Wrong versus correct
+
+Wrong: retry every SDK exception or fall back from an unknown document send to a
+photo send. Correct: classify known rejection separately, retain uncertain send
+evidence, and leave manual `/news` available.
+
 ## External requests and resumable cache
 
 `HttpReader(timeout=10.0, max_bytes=2_000_000)` provides bounded UTF-8/JSON
@@ -156,6 +232,23 @@ not provide it. `atomic_write_bytes(path, content)` publishes a complete file;
 resume logic remains the downloader's responsibility.
 
 ## Privacy and deployment boundaries
+
+Compose engine profiles are `onebot`, `onebot-dev`, `telegram`, and `official`;
+`music` is optional infrastructure. `.env` `COMPOSE_PROFILES=onebot,telegram`
+selects concurrent containers. `deploy/engines.sh <action> [profile,...]` powers
+the unified entrypoints, with a compatible OneBot fallback when no selection is
+configured. Reject simultaneous onebot/onebot-dev owners. Each container runs
+one `KISARA_ENGINE` and receives explicit environment mappings, never the entire
+shared `.env`. Telegram's namespaced deployment access/feature fields map to
+runtime `KISARA_*` fields and `TELEGRAM_BOT_TOKEN`. Its read-only configuration
+mount is `config/telegram:/app/config` and its independent `telegram_state` volume
+is mounted at `/app/state`; official uses config/official and official_state.
+
+`stop`/`down`, restart, logs, and rebuild through explicit targets affect only
+selected engines. `down-all` is the explicit whole-project operation. Changing
+profile selection does not stop previously running engines. Ordinary stop keeps
+volumes. Validate profile selection and credential isolation with placeholders,
+never by printing rendered real secret-bearing configuration.
 
 Do not log message bodies, raw events, tokens, login QR codes, or persist
 general chat history. The configured setu archive is an explicit opt-in
