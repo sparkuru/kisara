@@ -8,8 +8,6 @@ The [application development template](docs/application-template.md) maps the cu
 
 ## Copyright and attribution
 
-Bundled data retains its source and license notices in [resources/SOURCES.md](src/kisara/resources/SOURCES.md) and [tarot-LICENSE.txt](src/kisara/resources/tarot-LICENSE.txt).
-
-Daily news content is attributed to [LyToday](https://60s.lylme.com/).
+Bundled data retains its source and license notices in [resources/SOURCES.md](src/kisara/resources/SOURCES.md).
 
 No repository-wide license is declared here.
