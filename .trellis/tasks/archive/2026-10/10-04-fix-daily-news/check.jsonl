@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Python conventions and focused regression validation"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Provider failure conversion and authorization before effects"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Routing, engine-neutral contracts, help and feature docs"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "News cache paths and stale content preservation"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Docker wrapper and full-scope validation"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Trellis dispatch and delivery ownership"}
+{"file": ".trellis/tasks/archive/2026-10/10-04-fix-daily-news/research/reproduction.md", "reason": "Observed upstream notice and approved labeled fallback behavior"}
