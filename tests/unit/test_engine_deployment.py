@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -14,10 +15,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def repository(tmp_path: Path, profiles: str) -> tuple:
     (tmp_path / "deploy").mkdir()
-    for name in ("engines.sh", "onebot.sh", "compose.yaml"):
+    for name in ("engines.sh", "onebot.sh", "compose.yaml", "dotenv.sh"):
         shutil.copy2(ROOT / "deploy" / name, tmp_path / "deploy" / name)
-    for name in ("deploy.sh", "start.sh", "preview.sh"):
+    for name in ("deploy.sh", "start.sh"):
         shutil.copy2(ROOT / name, tmp_path / name)
+    # This suite isolates start.sh selection; the full preview lifecycle has its own fixture suite.
+    preview = tmp_path / "preview.sh"
+    preview.write_text('''#!/usr/bin/env bash
+set -eu
+root=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
+if [[ ${KISARA_ENGINE:-} == selected ]]; then
+    exec "$root/deploy/engines.sh" up
+fi
+exec "$root/deploy/engines.sh" up "${KISARA_ENGINE:-onebot}"
+''')
+    preview.chmod(0o755)
     (tmp_path / ".env").write_text("COMPOSE_PROFILES={}\n".format(profiles))
     binary = tmp_path / "bin"
     binary.mkdir()
@@ -134,5 +146,20 @@ def test_ownership_fallback_does_not_mask_dotenv_gid(tmp_path: Path, entrypoint:
     assert calls(log)[-1][-2:] == ["napcat", "kisara"]
     exported = json.loads(ownership_log.read_text().splitlines()[-1])
     assert exported["KISARA_HOST_GID"] == str(os.getgid())
-    assert exported["KISARA_SETU_GID"] is None
-    assert exported["ONEBOT_SETU_GID"] is None
+    assert exported["KISARA_SETU_GID"] == "3456"
+    assert exported["ONEBOT_SETU_GID"] == "2345"
+
+
+@pytest.mark.parametrize("override", [None, "environment-project"])
+def test_legacy_onebot_project_name_uses_dotenv_with_environment_precedence(tmp_path: Path, override: Optional[str]) -> None:
+    """The legacy helper selects the actual configured project after loading dotenv."""
+    env, log = repository(tmp_path, "onebot")
+    env.pop("COMPOSE_PROJECT_NAME", None)
+    if override is not None:
+        env["COMPOSE_PROJECT_NAME"] = override
+    with (tmp_path / ".env").open("a") as stream:
+        stream.write("COMPOSE_PROJECT_NAME=file-project\n")
+    result = subprocess.run([str(tmp_path / "deploy/onebot.sh"), "ps"], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    operation = calls(log)[-1]
+    assert operation[operation.index("--project-name") + 1] == (override or "file-project")

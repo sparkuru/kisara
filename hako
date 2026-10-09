@@ -20,7 +20,7 @@
 # commands do not receive that file unless HAKO_SERVICE=bot is set.
 set -Eeuo pipefail
 
-IMAGE="python:3.12-slim"
+IMAGE="${HAKO_IMAGE:-python:3.12-slim}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STEP_INDEX=0
 
@@ -72,6 +72,7 @@ main() {
 	local -a port_flags=()
 	local -a tty_flags=(-i)
 	local -a docker_cmd=()
+	local -a lifecycle_flags=()
 
 	require_command docker
 	require_command id
@@ -82,7 +83,17 @@ main() {
 	group_id=$(id -g)
 
 	if [[ -f "${env_file}" && "${HAKO_SERVICE:-}" == bot ]]; then
-		env_file_flags=(--env-file "${env_file}")
+		source "${REPO_ROOT}/deploy/dotenv.sh"
+		DOTENV_KEYS=()
+		dotenv_load "${env_file}" || return $?
+		IMAGE="${HAKO_IMAGE:-python:3.12-slim}"
+		local key
+		while IFS= read -r key; do
+			case $key in
+			KISARA_* | ONEBOT_* | OFFICIAL_* | TELEGRAM_* | NAPCAT_* | AppID | AppSecret | SAUCENAO_API_KEY | TIANAPI_KEY)
+				env_file_flags+=(-e "$key") ;;
+			esac
+		done < <(compgen -e)
 	fi
 
 	if [[ -n "${KISARA_ENGINE:-}" ]]; then
@@ -104,9 +115,18 @@ main() {
 	esac
 
 	[[ -t 0 && -t 1 ]] && tty_flags+=(-t)
+	if [[ ${HAKO_DETACH:-false} == true ]]; then
+		[[ ${HAKO_SCOPE:-} == preview.sh && ${HAKO_SERVICE:-} == bot && -n ${HAKO_CONFIG:-} ]] || {
+			printf '[hako] detached mode requires the owned preview bot configuration\n' >&2
+			return 2
+		}
+		tty_flags=()
+		lifecycle_flags=(--detach --label "hako.config=${HAKO_CONFIG}" --label "hako.attempt=${HAKO_ATTEMPT:-}")
+	fi
 
 	docker_cmd=(
 		docker run --rm
+		"${lifecycle_flags[@]}"
 		"${tty_flags[@]}"
 		--user "${user_id}:${group_id}"
 		-e HOME=/app/.devhome

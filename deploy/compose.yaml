@@ -9,8 +9,8 @@ services:
       - /bin/bash
       - /opt/kisara/napcat-entrypoint.sh
     environment:
-      NAPCAT_UID: ${NAPCAT_UID:-1000}
-      NAPCAT_GID: ${NAPCAT_GID:-1000}
+      NAPCAT_UID: ${NAPCAT_UID:-${KISARA_HOST_UID:-1000}}
+      NAPCAT_GID: ${NAPCAT_GID:-${KISARA_HOST_GID:-1000}}
       ACCOUNT: ${NAPCAT_ACCOUNT:-}
       WEBUI_TOKEN: ${NAPCAT_WEBUI_TOKEN:-}
       ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}

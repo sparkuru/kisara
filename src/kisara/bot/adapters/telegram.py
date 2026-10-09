@@ -24,6 +24,7 @@ from telegram.request import HTTPXRequest
 from kisara.application.services.news_push import DeliveryRejected, TelegramNewsPush
 from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment, OutgoingMessage
 from kisara.config.settings import Settings
+from kisara.bot.preview_readiness import publish as publish_readiness
 from kisara.infrastructure.persistence.telegram_news import TelegramNewsStore
 
 
@@ -128,9 +129,10 @@ def message_preview(text: str, token: Optional[str], limit: int = 120) -> str:
 class ManagedPollingBot(ExtBot):
     """Report fatal revoked-token polling through the public ExtBot extension seam."""
 
-    __slots__ = ("_fatal_callback", "_owned_requests")
+    __slots__ = ("_fatal_callback", "_owned_requests", "_polling_callback")
 
-    def __init__(self, token: str, fatal_callback: Callable[[], None]) -> None:
+    def __init__(self, token: str, fatal_callback: Callable[[], None],
+                 polling_callback: Optional[Callable[[], None]] = None) -> None:
         request = HTTPXRequest(connect_timeout=10, read_timeout=30,
                                write_timeout=30, pool_timeout=10)
         updates_request = HTTPXRequest(connect_timeout=10, read_timeout=35,
@@ -138,6 +140,7 @@ class ManagedPollingBot(ExtBot):
         super().__init__(token=token, request=request, get_updates_request=updates_request)
         object.__setattr__(self, "_owned_requests", (request, updates_request))
         object.__setattr__(self, "_fatal_callback", fatal_callback)
+        object.__setattr__(self, "_polling_callback", polling_callback)
 
     async def initialize(self) -> None:
         """Close clients when initialization fails before SDK ownership is established."""
@@ -153,7 +156,10 @@ class ManagedPollingBot(ExtBot):
 
     async def get_updates(self, *args: object, **kwargs: object) -> tuple:
         try:
-            return await super().get_updates(*args, **kwargs)
+            updates = await super().get_updates(*args, **kwargs)
+            if self._polling_callback is not None:
+                self._polling_callback()
+            return updates
         except InvalidToken:
             self._fatal_callback()
             # The fatal owner stops polling; avoid an unobserved SDK child-task exception.
@@ -188,10 +194,15 @@ class TelegramAdapter:
     def start(self) -> None:
         """Run the owned event loop until signal or close request."""
         quiet_sdk_logging()
-        asyncio.run(self._run())
+        publish_readiness(self.engine, False)
+        try:
+            asyncio.run(self._run())
+        finally:
+            publish_readiness(self.engine, False)
 
     def close(self) -> None:
         """Request shutdown without closing an active SDK from another thread."""
+        publish_readiness(self.engine, False)
         if self._loop is not None and self._stop_event is not None and not self._loop.is_closed():
             self._loop.call_soon_threadsafe(self._stop_event.set)
 
@@ -202,7 +213,8 @@ class TelegramAdapter:
             self._loop.add_signal_handler(name, self._stop_event.set)
         application = None
         try:
-            bot = ManagedPollingBot(self._settings.telegram_token, self._fatal_polling_error)
+            bot = ManagedPollingBot(self._settings.telegram_token, self._fatal_polling_error,
+                                    self._polling_succeeded)
             application = (Application.builder().bot(bot)
                            .update_queue(asyncio.Queue(maxsize=128)).concurrent_updates(False).build())
             self._application = application
@@ -229,6 +241,7 @@ class TelegramAdapter:
                 raise RuntimeError("Telegram polling stopped after a fatal credential/ownership error")
         finally:
             self._status = "stopping"
+            publish_readiness(self.engine, False)
             if self._scheduler_task is not None:
                 self._scheduler_task.cancel()
                 try:
@@ -263,6 +276,7 @@ class TelegramAdapter:
             raise RuntimeError("Telegram cleanup failed") from None
 
     def _fatal_polling_error(self) -> None:
+        publish_readiness(self.engine, False)
         self._fatal_polling = True
         _log.error("Telegram polling credentials invalid; stopping")
         if self._stop_event is not None:
@@ -279,10 +293,16 @@ class TelegramAdapter:
 
     def _polling_error(self, error: TelegramError) -> None:
         """PTB requires a synchronous polling error callback."""
+        publish_readiness(self.engine, False)
         _log.warning("Telegram polling failed (%s)", type(error).__name__)
         if isinstance(error, (Conflict, InvalidToken)) and self._stop_event is not None:
             self._fatal_polling = True
             self._stop_event.set()
+
+    def _polling_succeeded(self) -> None:
+        """Restore preview evidence only after recovery of the running poller."""
+        if self._status == "running" and not self._fatal_polling:
+            publish_readiness(self.engine, True)
 
     @staticmethod
     async def _on_error(update: object, context: object) -> None:

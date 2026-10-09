@@ -37,6 +37,31 @@ Validate credentials only for the selected engine: OneBot requires
 group overrides. Update `.env.example` and Compose
 environment wiring when a runtime variable changes.
 
+## Incremental environment maintenance
+
+For consumed-key changes, update safe examples and real consumers together.
+Compare presence using the actual dotenv grammar; never print private values or
+diffs. Empty values count as present, not permission to replace them. Report
+ambiguous duplicate keys; do not guess which value the user intended.
+
+If the local file exists, append only missing keys with safe defaults or clear
+placeholders, retaining original comments/quoting/value bytes/line endings and a
+separating newline. Repeating the change appends nothing. Use a syntax-aware
+edit, never eval/source or unconditional echo. If absent, show setup rather
+than create a partial file containing only new keys. Copy the full example only
+when the file is absent and setup authorizes it.
+
+For renamed/removed keys, update known consumers/example and report the exact
+local action; do not silently delete user values or add speculative aliases.
+Report tracked secrets without rewriting history. Report added keys,
+purpose/source and required user input, plus actual targeted restart/recreation
+command. TOML changes use bot restart; dotenv changes need container recreation.
+
+Verify changed maintenance logic in temporary files: missing file, custom value,
+existing empty value, comments/quoting/line endings, new key, duplicate and second
+identical run. A prose rule is configuration evidence, not proof an unrun updater
+works. Do not create a permanent synchronization tool for one reversible update.
+
 ## Engine-owned deployment environment
 
 ### 1. Scope / trigger

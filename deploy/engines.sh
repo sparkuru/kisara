@@ -7,6 +7,8 @@ readonly COMPOSE_FILE="${REPO_ROOT}/deploy/compose.yaml"
 compose_command=()
 services=()
 profiles=()
+# shellcheck source=deploy/dotenv.sh
+source "${REPO_ROOT}/deploy/dotenv.sh"
 
 usage() {
 	printf 'Usage: %s [up|deploy|stop|restart|logs|ps|pull|down-all] [onebot,onebot-dev,telegram,official,music]\n' "${SCRIPT_NAME}" >&2
@@ -56,22 +58,26 @@ select_services() {
 
 main() {
 	local action=${1:-deploy}
+	if [[ $action == preview ]]; then
+		shift
+		source "${REPO_ROOT}/deploy/preview-console.sh"
+		source "${REPO_ROOT}/deploy/preview-runtime.sh"
+		preview_run "$@"
+		return
+	fi
 	local selection=${2:-${COMPOSE_PROFILES:-}}
 	[[ $# -le 2 ]] || { usage; return 2; }
 	case "${action}" in --help | -h) usage; return 0 ;; esac
 	[[ -f "${REPO_ROOT}/.env" ]] || die 'missing .env; copy .env.example and configure selected engines'
-	if [[ -z "${selection}" ]]; then
-		selection=$(sed -n 's/^[[:space:]]*COMPOSE_PROFILES[[:space:]]*=[[:space:]]*//p' "${REPO_ROOT}/.env" | tail -n 1 | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//')
-		selection=${selection%\"}; selection=${selection#\"}
-		selection=${selection%\'}; selection=${selection#\'}
-	fi
-	select_services "${selection:-onebot}"
+	DOTENV_KEYS=()
+	dotenv_load "${REPO_ROOT}/.env" || return $?
+	if [[ $# -lt 2 || -z $2 ]]; then selection=${COMPOSE_PROFILES-onebot}; fi
+	select_services "$selection"
 	resolve_compose
 	case "${action}" in
 	up | start | deploy)
 		if [[ ",${profiles[*]}," == *onebot* ]]; then
-			export NAPCAT_UID="${NAPCAT_UID:-$(id -u)}" NAPCAT_GID="${NAPCAT_GID:-$(id -g)}"
-			export KISARA_HOST_GID="$(id -g)"
+			export KISARA_HOST_UID="$(id -u)" KISARA_HOST_GID="$(id -g)"
 			mkdir -p -- "${REPO_ROOT}/data/napcat/config" "${REPO_ROOT}/data/napcat/QQ" "${REPO_ROOT}/data/kisara/setu"
 			chmod 2770 -- "${REPO_ROOT}/data/kisara/setu"
 			if [[ " ${profiles[*]} " == *' onebot-dev '* ]]; then

@@ -20,6 +20,7 @@ from kisara.bot.contracts import (
 from kisara.application.services.export_img import handle_export_img
 from kisara.application.services.setu import Setu
 from kisara.config import Settings
+from kisara.bot.preview_readiness import publish as publish_readiness
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 
 
@@ -85,16 +86,19 @@ class OneBotV11Adapter:
 
         self._stop_requested = False
         self._status = "starting"
+        publish_readiness(self.engine, False)
         try:
             asyncio.run(self._run())
         finally:
             self._status = "stopped"
+            publish_readiness(self.engine, False)
 
     def close(self) -> None:
         """Request that the current connection loop stop after its next await."""
 
         self._stop_requested = True
         self._status = "stopped"
+        publish_readiness(self.engine, False)
 
     @property
     def status(self) -> str:
@@ -114,6 +118,7 @@ class OneBotV11Adapter:
                 if self._stop_requested:
                     break
                 self._status = "disconnected"
+                publish_readiness(self.engine, False)
                 delay = min(reconnect_delay, 30.0) + random.uniform(0.0, 0.5)
                 _log.warning(
                     "OneBot connection unavailable; retrying in %.1fs (%s)",
@@ -137,6 +142,7 @@ class OneBotV11Adapter:
         ) as websocket:
             self._websocket = websocket
             self._status = "connected"
+            publish_readiness(self.engine, True)
             _log.info("OneBot WebSocket connected")
             news_task = None
             setu_task = None
@@ -151,6 +157,7 @@ class OneBotV11Adapter:
                     if packet is not None:
                         self._handle_packet(packet)
             finally:
+                publish_readiness(self.engine, False)
                 if news_task is not None:
                     news_task.cancel()
                     await asyncio.gather(news_task, return_exceptions=True)

@@ -8,6 +8,7 @@ from botpy import logging as bot_logging
 
 from kisara.bot.contracts import MessageEvent, MessageHandler, MessageSegment, OutgoingMessage
 from kisara.config import Settings
+from kisara.bot.preview_readiness import publish as publish_readiness
 
 
 _log = bot_logging.get_logger()
@@ -28,20 +29,24 @@ class OfficialAdapter(botpy.Client):
         self._app_secret = settings.app_secret or ""
         self._message_handler = message_handler
         self._status = "stopped"
+        self._preview_connections = 0
 
     def start(self) -> None:
         """Start the blocking botpy client."""
 
         self._status = "starting"
+        publish_readiness(self.engine, False)
         try:
             super().run(appid=self._app_id, secret=self._app_secret)
         finally:
             self._status = "stopped"
+            publish_readiness(self.engine, False)
 
     def close(self) -> None:
         """Leave shutdown to the blocking botpy run loop."""
 
         self._status = "stopped"
+        publish_readiness(self.engine, False)
 
     @property
     def status(self) -> str:
@@ -53,7 +58,22 @@ class OfficialAdapter(botpy.Client):
         """Log the bot identity after the gateway connection is ready."""
 
         self._status = "connected"
+        publish_readiness(self.engine, self._preview_connections > 0)
         _log.info("Official bot is ready: %s", self.robot.name)
+
+    async def on_resumed(self) -> None:
+        """Publish readiness after the SDK resumes an authenticated gateway session."""
+        publish_readiness(self.engine, self._preview_connections > 0)
+
+    async def bot_connect(self, session: Any) -> None:
+        """Clear preview evidence at the installed SDK's connection boundaries."""
+        publish_readiness(self.engine, False)
+        self._preview_connections += 1
+        try:
+            await super().bot_connect(session)
+        finally:
+            self._preview_connections -= 1
+            publish_readiness(self.engine, False)
 
     async def on_at_message_create(self, message: Any) -> None:
         """Normalize a botpy mention event and send the shared response."""

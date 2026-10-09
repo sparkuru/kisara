@@ -1,0 +1,2 @@
+# Preserve the recovered third-party notice bytes, including original CRLF/spacing.
+legacy-LICENSE.txt -text whitespace=-blank-at-eol,cr-at-eol

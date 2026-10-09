@@ -8,6 +8,7 @@ COMPOSE_FILE="${DEPLOY_DIR}/compose.yaml"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-kisara}"
 
 compose_command=()
+source "${REPO_ROOT}/deploy/dotenv.sh"
 
 usage() {
 	printf 'Usage: %s [up|dev|deploy|down|logs|ps|pull]\n' "${SCRIPT_NAME}" >&2
@@ -71,11 +72,7 @@ start_stack() {
 		die "missing .env; copy .env.example and configure OneBot"
 	}
 
-	local napcat_uid="${NAPCAT_UID:-$(id -u)}"
-	local napcat_gid="${NAPCAT_GID:-$(id -g)}"
-	export NAPCAT_UID="${napcat_uid}"
-	export NAPCAT_GID="${napcat_gid}"
-	export KISARA_HOST_GID="$(id -g)"
+	export KISARA_HOST_UID="$(id -u)" KISARA_HOST_GID="$(id -g)"
 
 	prepare_data_directories
 	stop_service_if_present kisara-dev
@@ -87,11 +84,7 @@ start_dev_stack() {
 		die "missing .env; copy .env.example and configure OneBot"
 	}
 
-	local napcat_uid="${NAPCAT_UID:-$(id -u)}"
-	local napcat_gid="${NAPCAT_GID:-$(id -g)}"
-	export NAPCAT_UID="${napcat_uid}"
-	export NAPCAT_GID="${napcat_gid}"
-	export KISARA_HOST_GID="$(id -g)"
+	export KISARA_HOST_UID="$(id -u)" KISARA_HOST_GID="$(id -g)"
 
 	prepare_data_directories
 	stop_service_if_present kisara
@@ -107,6 +100,9 @@ main() {
 		return 0
 	fi
 	set -- "${command}"
+	DOTENV_KEYS=()
+	if [[ -f ${REPO_ROOT}/.env ]]; then dotenv_load "${REPO_ROOT}/.env" || return $?; fi
+	PROJECT_NAME="${COMPOSE_PROJECT_NAME:-kisara}"
 	require_command docker
 	resolve_compose
 

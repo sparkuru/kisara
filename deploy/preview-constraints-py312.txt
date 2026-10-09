@@ -1,0 +1,26 @@
+# Runtime closure captured from installed Python 3.12 METADATA on 2026-10-09.
+# Exact constraints, not a cross-Python lock or package hash verification.
+# Base: pillow, websockets. Official adds qq-botpy and its closure.
+# Telegram adds python-telegram-bot and its closure; no optional SDK extras.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+anyio==4.15.1
+APScheduler==3.11.3
+attrs==26.1.0
+certifi==2026.7.22
+frozenlist==1.8.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+multidict==6.8.0
+pillow==11.3.0
+propcache==0.5.4
+python-telegram-bot==22.8
+PyYAML==6.0.3
+qq-botpy==1.2.1
+typing_extensions==4.16.0
+tzlocal==5.4.4
+websockets==13.1
+yarl==1.25.1

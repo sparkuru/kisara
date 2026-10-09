@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared policy and ownership"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Approved policy/runtime boundaries and project checks"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Approved policy/runtime boundaries and project checks"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "Approved policy/runtime boundaries and project checks"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Approved policy/runtime boundaries and project checks"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Shared loading, scope and prospective delivery policy"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Existing adapter/process contracts for opt-in preview readiness"}

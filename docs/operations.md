@@ -8,7 +8,10 @@ Common development and runtime commands are:
 ./dev.sh              # Interactive offline bot console; no QQ connection or .env needed
 ./dev.sh --test       # Automated offline functional tests
 ./dev.sh --all        # Full test suite
-./preview.sh          # Start selected Compose engines in the foreground
+./preview.sh          # Prepare missing preview resources, start detached, wait for readiness
+./preview.sh status   # Inspect preview state/readiness; no preparation or startup
+./preview.sh build    # Explicit preview rebuild; stop an existing preview group first
+./preview.sh stop     # Remove only preview-owned containers, preserving storage
 ./deploy.sh           # Build/start .env-selected engines in the background
 ./deploy.sh logs      # Follow deployment logs
 ./deploy.sh down      # Stop the deployment, preserving QQ login data
@@ -37,9 +40,10 @@ dependencies installed below. Preview and deployment require a configured
 `KISARA_ENGINE=onebot-dev` or `telegram`; deployment follows `COMPOSE_PROFILES`.
 See the Compose/Telegram section below for multiple engines and targeted operations.
 
-The project runs its Python toolchain in Docker. The host only needs Docker;
-Python, pip, and `qq-botpy` stay inside the ephemeral containers managed by
-`hako`.
+The project runs its Python toolchain in Docker. Preview requires Bash 4.4+,
+Docker/Compose and standard lifecycle tools listed by `./preview.sh --help`;
+`ip` is additionally required for local wildcard publishing. Python, pip and
+bot SDKs stay inside the existing images/ephemeral containers managed by `hako`.
 
 The existing QQ runtime paths are:
 
@@ -48,7 +52,7 @@ The existing QQ runtime paths are:
   for Kisara development.
 - `official`: `start.sh` keeps the existing Tencent official bot path.
 
-1. Copy `.env.example` to `.env` and configure the selected engine. For
+1. Only if `.env` is absent, copy `.env.example` to `.env`, then configure the selected engine. For
    OneBot, set `ONEBOT_WS_URL`, `ONEBOT_ACCESS_TOKEN`, and at least one ID in
    `ONEBOT_ALLOWED_USERS`. For the official engine, set `OFFICIAL_APP_ID`,
    `OFFICIAL_APP_SECRET`, and `OFFICIAL_ALLOWED_USERS`. Telegram needs
@@ -58,25 +62,32 @@ The existing QQ runtime paths are:
    `config/official/features/<feature>/`, and Telegram uses
    `config/telegram/features/<feature>/`. Direct Official hako preview retains
    its existing root `config/features/<feature>/` path.
-2. For local tests or the official engine, install the project and development dependencies:
+2. For local tests, install the project and development dependencies:
 
    ```bash
    ./hako python -m pip install --user -e ".[dev]"
    ```
 
-   If the official engine is needed, also install its optional dependency:
+   If tests exercise the official engine, include its optional dependency:
 
    ```bash
    ./hako python -m pip install --user -e ".[dev,official]"
    ```
 
-3. Start the bot:
+   Preview itself prepares only missing images/pinned runtime dependencies after
+   configuration. It never runs tests or installs the development extra. First
+   preparation can download resources and take several minutes. Set
+   `KISARA_PREVIEW_OFFLINE=true` to prohibit automatic preparation; arrange the
+   documented image/dependency prerequisites explicitly while online first.
+
+3. Start the configured preview:
 
    ```bash
-   ./start.sh
+   ./preview.sh
    ```
 
-   With no profile selection, the interactive menu selects `onebot`, `onebot-dev`,
+   Alternatively `./start.sh` retains engine selection. With no profile selection,
+   its interactive menu selects `onebot`, `onebot-dev`,
    `official`, or `telegram`. It
    can also be chosen directly with `./start.sh onebot`,
    `./start.sh onebot-dev`, `./start.sh official`, or
@@ -91,8 +102,25 @@ The existing QQ runtime paths are:
    ```
 
 The Kisara bot process does not expose a public application HTTP port.
-`./preview.sh` remains attached so connection logs are visible in the current
-terminal. For one-off commands, use `./hako`; for example:
+Preview returns after bounded readiness and prints one summary using actual
+service listeners/published mappings. Outbound-only engines have no browser URL.
+Loopback NapCat access and SSH tunneling remain the default; wildcard addresses
+are candidates, not proof of access from another device. Initial NapCat login
+and external gateway/network readiness may require user action; failed startup
+reports diagnostics and never prints a ready banner.
+
+Healthy, identically configured preview instances are reused. Existing deployment
+containers, incomplete/unhealthy groups and changed preview configuration require
+explicit recovery; preview does not silently replace them. Stop with
+`./preview.sh stop`, then use `build` and `start` when configuration/dependencies
+require recreation. Never remove login directories or state volumes as recovery.
+Stopping preview does not depend on host-address discovery. OneBot preview
+rejects empty/example access tokens before preparation. Telegram preview becomes
+ready only after a successful poll while its application is running.
+
+Preview help/status/stop/down do not build, install or start services; verbose
+details are captured then redacted, not raw streaming. For deployment logs use
+`./deploy.sh logs`; for one-off commands use `./hako`.
 
 For the OneBot runtime, use `./deploy/onebot.sh` instead of a standalone
 `hako` bot container so Kisara and NapCat share the same Compose network.
@@ -434,7 +462,7 @@ profiles determine which containers start. Changing the profile list does not
 stop an already running engine.
 
 ```bash
-./start.sh                 # Foreground .env selection; explicit argument/env overrides
+./start.sh                 # Select/start preview; explicit argument/env overrides
 ./deploy.sh                # Build/start the selected engines in the background
 ./deploy.sh up telegram    # Build/recreate Telegram only
 ./deploy.sh down telegram  # Stop Telegram only; keep QQ and all volumes
@@ -444,9 +472,10 @@ stop an already running engine.
 ./deploy.sh down-all       # Explicit whole-project shutdown; retains volumes
 ```
 
-`./preview.sh` also follows profile selection unless `KISARA_ENGINE` explicitly
-overrides it. `./start.sh onebot` and `./start.sh onebot-dev` retain the QQ
-helpers; `./start.sh official` retains the existing hako preview. Compose
+`./preview.sh` follows profile selection unless `KISARA_ENGINE` explicitly
+overrides it. `./start.sh onebot` and `./start.sh onebot-dev` retain QQ selection
+through the existing engine lifecycle; `./start.sh official` retains the hako
+configuration path with detached preview ownership. Compose
 `official` is an additional independent deployment path.
 `./deploy/onebot.sh down` now stops only QQ services. Logs/status operations in
 that helper are
