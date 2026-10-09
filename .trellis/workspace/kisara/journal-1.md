@@ -261,3 +261,39 @@ Namespaced engine dotenv inputs with legacy compatibility; migrated local config
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: Setu archive saving and progress notices
+<!-- trellis-session: v=2 fp=189598bd99da1f5f -->
+
+**Date**: 2026-10-09
+**Task**: Setu archive saving and progress notices
+**Branch**: `feat/setu-archive-files`
+
+### Summary
+
+Implemented and committed quoted archive saving, native file streaming, renewed-source retry and start notices; deployed acceptance remains pending.
+
+### Main Changes
+
+- Preserve archive names with archive-only collision timestamps; support quoted ordinary files and canonical bounded native streaming.
+- Retain failed batch checkpoints across renewed source actions and announce pending-kind counts before transfer.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c3e2f324e3a4a780702cc5c84b3deb670f48d807` | feat(setu): save archive files and announce save progress |
+
+### Testing
+
+- [OK] 308 focused and 580 full-suite tests passed; whitespace and 14/12 task manifests passed.
+- [OK] Real 109092709-byte native temporary copy matched original cache SHA-256 under the bot UID.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Apply the new OneBot image and verify actual start/final replies plus SQLite completion; keep the task in_progress until live acceptance.

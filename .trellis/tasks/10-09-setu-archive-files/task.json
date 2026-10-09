@@ -15,7 +15,7 @@
   "branch": "feat/setu-archive-files",
   "base_branch": "keiyaku-no-kisu",
   "worktree_path": null,
-  "commit": null,
+  "commit": "c3e2f324e3a4a780702cc5c84b3deb670f48d807",
   "pr_url": null,
   "subtasks": [],
   "children": [],
