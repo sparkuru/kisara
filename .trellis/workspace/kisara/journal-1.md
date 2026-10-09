@@ -297,3 +297,38 @@ Implemented and committed quoted archive saving, native file streaming, renewed-
 ### Next Steps
 
 - Apply the new OneBot image and verify actual start/final replies plus SQLite completion; keep the task in_progress until live acceptance.
+
+
+## Session 10: Complete and archive Trellis Plus gap remediation
+<!-- trellis-session: v=2 fp=9c59db483154db8f -->
+
+**Date**: 2026-10-09
+**Task**: Complete and archive Trellis Plus gap remediation
+**Branch**: `chore/trellis-plus-gaps`
+
+### Summary
+
+Repaired 22 prospective GAPs; user approved archival after review. Archive fc0d64f uses exact task scope and one Codex trailer. Final self-check: 45 PASS, 1 historical GAP, 6 UNKNOWN, 5 N/A.
+
+### Main Changes
+
+- Completed shared loading/development/archive policy, source-aware mainline, exact notices and preview lifecycle/readiness/diagnostics.
+- Preserved private dotenv values, protected Trellis files, live services and Setu pending acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6f8f043910e444cf1f2e18a0d5c26ef0668044f7` | feat(preview): complete Trellis Plus gap remediation |
+
+### Testing
+
+- [OK] 643 full-suite tests passed in Docker; 3 existing PTB warnings. Bash syntax and whitespace checks passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Guided read-only Pulse; real preview cold-start/account/device and update/Setu-loading checks need separate authorization or evidence.

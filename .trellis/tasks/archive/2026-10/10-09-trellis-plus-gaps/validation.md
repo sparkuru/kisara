@@ -1,6 +1,6 @@
 # Approved GAP remediation: final evidence
 
-## Closure progress
+## Completed closure
 
 2026-10-09: after explicit user archive approval, all 43 reviewed work paths
 were committed as `6f8f043910e444cf1f2e18a0d5c26ef0668044f7`
@@ -8,8 +8,18 @@ were committed as `6f8f043910e444cf1f2e18a0d5c26ef0668044f7`
 task-archive Codex trailer. The initial implementation checkpoint below records
 the earlier uncommitted/unarchived state; the closure record supersedes only
 those bookkeeping statements, preserving all actual runtime UNKNOWN results.
-Next, use the supported `task.py archive --no-commit` route and a commit scoped
-to this task's source/destination with exactly one attribution trailer.
+The supported `task.py archive --no-commit` route moved the task to
+`.trellis/tasks/archive/2026-10/10-09-trellis-plus-gaps/` and set status
+`completed` on 2026-10-09. Archive commit
+`fc0d64f15f381fae3a4faab57ddcc84e9ddfdeb6` contains only the eight task
+source/destination moves; its exact Codex trailer occurs once. Neither work nor
+separate journal/mainline commit receives that trailer. The active task pointer
+was cleared. Setu task.json and protected files remain unchanged.
+
+Checklist 29.3 is now PASS from actual archive execution and verified commit
+scope/message. Final counts are 45 PASS / 1 historical GAP / 6 UNKNOWN / 5 N/A.
+The implementation-only checkpoint was 44 / 1 / 7 / 5. No unrun preview,
+account/device, update or Setu-loading result was upgraded by archival.
 
 ## Scope and authority
 
@@ -87,7 +97,7 @@ The reviewer re-read the current 7-entry check manifest and complete architectur
 spec after the last registration addition. The opt-in markers preserve existing
 adapter/process, routing, authorization, message and persistent-state contracts.
 
-Main-session checks:
+Main-session implementation checks (before the later approved commits):
 
 - All 32 protected Trellis template-hash targets match installed metadata.
   Managed AGENTS, root attributes, README, version/hash/ignore files and Setu
@@ -122,8 +132,8 @@ Main-session checks:
 
 Each row states the independent constraint, current evidence, target and the
 remaining action or affected path. PASS describes the evidenced portion;
-execution-dependent portions are separate UNKNOWN rows. Counts: **44 PASS,
-1 GAP, 7 UNKNOWN, 5 N/A** across 57 subrows. Initial audit was 20 PASS,
+execution-dependent portions are separate UNKNOWN rows. Counts after the verified
+archive: **45 PASS, 1 GAP, 6 UNKNOWN, 5 N/A** across 57 subrows. Initial audit was 20 PASS,
 23 GAP, 9 UNKNOWN, 5 N/A. All 22 prospectively repairable GAPs are addressed;
 historical attribution remains reported without rewriting history.
 
@@ -143,7 +153,7 @@ repository evidence links are kept local and portable.
 | 05.3 | Actual full loading evidence | UNKNOWN | Current native hook and full fallback reads verified; Setu exceeds total injection budget | Full relevant context before dependent work | Future Setu dispatch must read index-only artifacts/research; no dispatch performed here |
 | 06.1 | Update-safe ownership | PASS | Plus specs/tasks/mainline outside template targets; no update.skip edit | Preserve owned data on update | Revalidate S and manifests after update |
 | 06.2 | Real update/restore scenario | UNKNOWN | No update executed during remediation | Actual post-update loading evidence | Separately review next authorized update; do not claim tested |
-| 07 | Personal files and explicit staging | PASS | Env/platform files excluded; index empty; exact-path policy | No broad/forced staging | No staging authorized; candidate inventory below |
+| 07 | Personal files and explicit staging | PASS | Env/platform files excluded; work and archive committed with exact scoped paths | No broad/forced staging | Authorized candidate inventory below; private env excluded |
 | 08.1 | Existing Trellis/tarot notice provenance | PASS | Scoped license/provenance originals retained and linked | Exact applicable notices | third_party/index.md, existing scoped files |
 | 08.2 | Missing retained legacy notice | PASS | Historical blob/hash/149 CRLFs and package references verified | Exact bytes and known provenance | resources/legacy-LICENSE.txt, SOURCES, scoped attributes |
 | 09 | Development defaults and live-data exceptions | PASS | Principles cover releases/accounts/data, loopback/internal limits and auth conveniences | Evidence-based exceptions | S/development-principles |
@@ -153,7 +163,7 @@ repository evidence links are kept local and portable.
 | 11.2 | Behavioral verification | PASS | Readiness/failure/reuse/env fixtures and adapter regressions | Preserve assertions; report limits | Test results and final reviewer record |
 | 12 | Workspace and README discipline | PASS | README/user work preserved; normal task tree | Only task-owned cleanup | S/principles; no README edits |
 | 13 | Project validation profile | PASS | Real hako/dev commands, tests and unavailable checks documented | Reusable accurate gate | S/validation and docs/operations |
-| 14 | Submit-ready human review gate | PASS | Existing required/optional/not-needed gate retained; scope excludes commits | Concrete feedback only for residual risks | No commit/archive or inferred task completion |
+| 14 | Submit-ready human review gate | PASS | Gate retained; user reviewed results/limits and explicitly approved archival | Concrete feedback only for residual risks | Closure authorized with unrun real acceptance preserved |
 | 15.1 | Existing Docker development entry | PASS | hako/dev wrapper retained; HAKO_IMAGE consumer wired | Reusable toolchain entry | hako, .env.example, S/validation |
 | 15.2 | Scoped execution ability | PASS | Approved wrapper regression runs execute successfully | Evidence separate from permission policy | Docker test escalation only, no preview authorization |
 | 16.1 | Thin reusable preview lifecycle | PASS | preview.sh dispatches existing engine paths | One lifecycle | preview.sh, engines.sh, onebot.sh |
@@ -184,10 +194,10 @@ repository evidence links are kept local and portable.
 | 28.2 | Historical attribution mismatch | GAP | Prior work/archive history follows old rule | Report without invented history correction | Intentionally unchanged; no amend/empty commit |
 | 29.1 | Installed archive/journal interfaces | PASS | Read actual --no-commit, fixed messages and staging scopes | Supported route | Protected runtime inspected only |
 | 29.2 | Safe exact-task archive route/retry | PASS | Explicit source/destination/bookkeeping, path-limited commit and retry rules | No unrelated prestaged/archive collection | S/workflow |
-| 29.3 | Executed archive integration | UNKNOWN | No archive/commit authorized or executed | Successful route and one trailer in actual future archive | Validate on next authorized archive; no test archive |
+| 29.3 | Executed archive integration | PASS | Supported no-auto-commit move; completed task; fc0d64f exact task scope and one trailer | Successful route and one trailer | Verified actual archive, no retry or history rewrite |
 | 30.1 | Source/approval-aware mainline | PASS | Existing approved/proposed/superseded requirements separated | Preserve sources/non-goals/acceptance | .trellis/mainline.md; sources unchanged |
 | 30.2 | Old milestone direction/priority | UNKNOWN | Remaining historical milestones have no current approval | Keep proposed until explicit direction exists | No new priority, serial backlog or task inferred |
-| 31.1 | Lifecycle evidence maintenance | PASS | Approved task creation/start, check results and pending acceptance mapped | Verified progress distinct from implementation | Mainline + T validation; no false completed status |
+| 31.1 | Lifecycle evidence maintenance | PASS | Approved start, results, work/archive commits and remaining acceptance mapped | Verified progress distinct from implementation | Mainline + archived validation; closure does not imply real runtime acceptance |
 | 31.2 | Read-only Project Pulse | PASS | Objective/evidence/blockers/candidates/authority actions explicit | No automatic mutation when no task | S/workflow; current task active |
 | 32 | Guided/serial/paused boundaries | PASS | Guided default; no serial authorization; normal roles/tasks retained | Only approved ready work | Mainline, S/workflow |
 | 33 | Current complete post-change self-check | PASS | Current sources read; all 01–33 and 57 subrows reported, limits retained | No claim of universal integration success | This report; external skill unchanged |
@@ -206,8 +216,8 @@ future authorized lifecycle event, not broader edits to protected loaders:
    readiness/summary, reuse, abnormal existing group, redacted failure and
    stop/down persistence. Login/network cases need explicitly supplied test
    accounts/allowed endpoints; do not reuse personal sessions by implication.
-3. On an authorized update/archive, verify the documented supported interface
-   and actual outcome. Proposed old product milestones require a user priority
+3. On an authorized update, verify retained policy/loading and actual outcome;
+   archive execution is verified above. Proposed old product milestones require a user priority
    decision before task creation or implementation.
 
 Selected pins cover the observed Python 3.12 selected runtime closure, not a

@@ -14,9 +14,9 @@
 ## Requirements and sources
 
 - Current remediation scope/acceptance:
-  [PRD](tasks/10-09-trellis-plus-gaps/prd.md),
-  [design](tasks/10-09-trellis-plus-gaps/design.md),
-  [implementation plan](tasks/10-09-trellis-plus-gaps/implement.md).
+  [PRD](tasks/archive/2026-10/10-09-trellis-plus-gaps/prd.md),
+  [design](tasks/archive/2026-10/10-09-trellis-plus-gaps/design.md),
+  [implementation plan](tasks/archive/2026-10/10-09-trellis-plus-gaps/implement.md).
 - Separately approved product work:
   [setu PRD Goal/Requirements/Acceptance](tasks/10-09-setu-archive-files/prd.md).
   Its 2026-10-09 plan approval covers archive naming, canonical IDs, bounded
@@ -50,7 +50,7 @@ parent/child relationship or serial execution is inferred.
 
 | Order | Task | State | Readiness/dependency evidence |
 | --- | --- | --- | --- |
-| 1 | [Trellis Plus remediation](tasks/10-09-trellis-plus-gaps/task.json) | active, checked, uncommitted | Branch chore/trellis-plus-gaps; policy/runtime implemented; final full suite 643 passed; real preview acceptance remains unrun |
+| 1 | [Trellis Plus remediation](tasks/archive/2026-10/10-09-trellis-plus-gaps/task.json) | completed, archived | Work 6f8f043; archive fc0d64f; final full suite 643 passed; real preview acceptance remains unrun |
 | 2 | [Setu archive attachments](tasks/10-09-setu-archive-files/task.json) | in_progress, pending live acceptance | Work commit c3e2f32; automated/byte-transfer evidence below; updated-runtime command/receipts/checkpoints not yet verified; do not activate, deploy or archive as a side effect of remediation |
 
 ## Evidence and decisions
@@ -70,15 +70,18 @@ parent/child relationship or serial execution is inferred.
   records engine isolation and scoped Telegram readiness on 2026-10-04.
 - Remediation start: normal task created/started after explicit user consent;
   PRD/design/plan and curated context recorded. Implementation and behavioral
-  regression checks are recorded in [validation](tasks/10-09-trellis-plus-gaps/validation.md);
+  regression checks are recorded in [validation](tasks/archive/2026-10/10-09-trellis-plus-gaps/validation.md);
   independent final gate passed 643 tests (3 existing PTB warnings), shell syntax
-  and diff checks. Post-change self-check is 44 PASS / 1 historical GAP /
-  7 UNKNOWN / 5 N/A; the 22 prospectively repairable GAPs are addressed.
-  Real preview cold-start/image/account/device acceptance is unrun. No work commit/archive exists. Preserve
-  the setu task and all prior approvals.
-- Next permitted action: finish the explicitly approved work commit, this task's
-  archive and bookkeeping; retain all unrun runtime checks as UNKNOWN.
-  Actual isolated preview acceptance requires its own authorization.
+  and diff checks. After verified archive execution, self-check is 45 PASS /
+  1 historical GAP / 6 UNKNOWN / 5 N/A; the 22 prospectively repairable GAPs
+  are addressed. Real preview cold-start/image/account/device acceptance is unrun.
+- Remediation closure: user approved archival after reviewing the final report.
+  Work `6f8f043910e444cf1f2e18a0d5c26ef0668044f7`; archive
+  `fc0d64f15f381fae3a4faab57ddcc84e9ddfdeb6`, exact single-task scope and
+  one Codex trailer. Status completed; active pointer cleared. Preserve the
+  Setu task and all prior approvals; no merge or push was performed.
+- Next permitted action: read-only Pulse/status and concrete suggestions under
+  guided mode. Actual isolated preview acceptance needs separate authorization.
   Selecting later product work or deploying setu requires its own decision.
 
 ## Lifecycle maintenance
