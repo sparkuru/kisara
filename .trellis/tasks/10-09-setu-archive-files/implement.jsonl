@@ -1,0 +1,14 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend ownership and pre-development rules."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Python conventions and behavioral validation."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Preserve item failure and adapter boundaries."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Preserve batch claims/checkpoints and restart recovery."}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"OneBot authorization and quoted-save contracts."}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Storage paths, configuration, source protections, and size caps."}
+{"file":".trellis/spec/trellis-plus/setu-storage.md","reason":"Archive-only original-name placement, timestamp collisions, and publication contract."}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Required Docker commands and concrete live acceptance."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/current-behavior.md","reason":"Read-only runtime and naming/resolution evidence."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/napcat-file-resolver-live-failure.md","reason":"Installed NapCat file ID, full-download deadline, and HTTP/cache boundary evidence."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Safe operation diagnostics without private parameters/response bodies."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/napcat-forward-file-native-limit.md","reason":"Native forward ancestry/URL limitations; longer waits do not prove live support."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/live-file-probes.md","reason":"Sanitized canonical-ID120s failure and private-node/URL evidence."}
+{"file": ".trellis/tasks/10-09-setu-archive-files/research/live-cache-and-expired-retry.md", "reason": "Actual expired-failure states, precise NapCat download path, owner-only permissions and complete native chunk validation"}

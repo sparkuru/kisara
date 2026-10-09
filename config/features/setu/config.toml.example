@@ -1,14 +1,17 @@
 enabled = false
 allowed_users = ["123456789"]
 
-# Quote a merged forward and send 保存, setu, or /setu to get a confirmation prompt.
+# Quote a merged forward or file message and send 保存, setu, or /setu for a prompt.
 confirm_timeout_seconds = 60
 # Quote the bot prompt to save. The first word is shown; later words are aliases.
 confirm_words = ["保存"]
-# Quote a merged forward with one of these words to save without a prompt.
+# Quote a merged forward or file message with one of these words to save directly.
 direct_confirm_words = ["直接保存"]
 
 # date_original: YYYY-MM-DD/original-name; timestamp_hash: timestamp-sha256.ext
+# Archive files keep original names in either mode. Different-content name
+# conflicts add _timestamp before the full extension, e.g. name_timestamp.tar.gz.
+# Images, videos, audio, and other files retain their existing naming rules.
 save_mode = "date_original"
 save_root = "/app/setu"
 

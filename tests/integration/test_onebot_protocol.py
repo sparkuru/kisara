@@ -1,6 +1,8 @@
 """Protocol-level tests for OneBot request handling without a live server."""
 
 import asyncio
+import base64
+import io
 import json
 import time
 from dataclasses import replace
@@ -17,6 +19,7 @@ from kisara.bot.adapters.onebot_v11 import OneBotError, OneBotV11Adapter
 from kisara.bot.contracts import MessageEvent, MessageSegment, OutgoingMessage
 from kisara.config import Settings
 from kisara.config.setu import SetuConfig
+from kisara.infrastructure.persistence import setu_files
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 from kisara.infrastructure.persistence.setu import SetuStore
 
@@ -62,6 +65,24 @@ async def _wait_for_requests(
             return
         await asyncio.sleep(delay)
     raise AssertionError("adapter did not emit the expected requests")
+
+
+async def _ack_save_start(adapter: OneBotV11Adapter, websocket: FakeWebSocket,
+                          index: int, quote_id: str, text: str) -> int:
+    """Verify the quoted notice gates all later requests, then acknowledge it."""
+    await _wait_for_requests(websocket, index + 1, delay=0.01)
+    notice = websocket.sent[index]
+    assert notice["action"] == "send_private_msg"
+    assert notice["params"]["message"] == [
+        {"type": "reply", "data": {"id": quote_id}},
+        {"type": "text", "data": {"text": text}},
+    ]
+    assert len(websocket.sent) == index + 1
+    adapter._resolve_pending({
+        "echo": notice["echo"], "status": "ok", "retcode": 0,
+        "data": {"message_id": 600},
+    })
+    return index + 1
 
 
 def test_requests_correlate_out_of_order_echoes() -> None:
@@ -143,6 +164,166 @@ async def _test_request_timeout_is_reported() -> None:
         assert "timed out" in str(error)
     else:
         raise AssertionError("missing response did not time out")
+
+
+def test_file_resolution_outlasts_chat_deadline_without_changing_it() -> None:
+    """A delayed file reply survives while a concurrent unanswered chat call expires."""
+    async def scenario() -> None:
+        """Simulate transfer delay in milliseconds rather than sleeping for minutes."""
+        adapter = _adapter(timeout=0.005)
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        transfer = asyncio.create_task(adapter.media_location({
+            "kind": "file", "file": "canonical-id", "size": "109092709",
+        }))
+        chat = asyncio.create_task(adapter._request("get_msg", {"message_id": "short-chat"}))
+        await _wait_for_requests(websocket, 2)
+        with pytest.raises(OneBotError, match="timed out"):
+            await chat
+        await asyncio.sleep(0.02)
+        assert not transfer.done()
+        request = next(item for item in websocket.sent if item["action"] == "get_file")
+        adapter._resolve_pending({
+            "echo": request["echo"], "status": "ok", "retcode": 0,
+            "data": {"file": "/approved/cache/file"},
+        })
+        assert await transfer == "/approved/cache/file"
+        assert adapter._request_timeout_seconds == 0.005
+        assert not adapter._pending
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["timeout", "rejected", "invalid_response", "out_of_range"])
+def test_file_request_failure_logs_safe_category_and_cleans_pending(
+    failure: str, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transfer diagnostics omit parameters, identifiers, URLs and server messages."""
+    async def scenario() -> None:
+        """Exercise a bounded file timeout or a native download failure response."""
+        adapter = _adapter(timeout=0.005)
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        monkeypatch.setattr(onebot_v11, "_file_request_timeout", lambda size: 0.01)
+        private_marker = "private-file-token-123"
+        task = asyncio.create_task(adapter.media_location({
+            "kind": "file", "file": private_marker, "size": "109092709",
+        }))
+        await _wait_for_requests(websocket, 1)
+        request = websocket.sent[0]
+        oversized_retcode = 10 ** 40 + 123456789
+        if failure != "timeout":
+            adapter._resolve_pending({
+                "echo": request["echo"], "status": "failed",
+                "retcode": private_marker if failure == "invalid_response" else
+                           oversized_retcode if failure == "out_of_range" else 1200,
+                "message": "https://private.example/?token=" + private_marker,
+                "wording": private_marker,
+            })
+        with pytest.raises(OneBotError) as caught:
+            await task
+        onebot_v11._log.error(
+            "Outer request boundary",
+            exc_info=(type(caught.value), caught.value, caught.value.__traceback__),
+        )
+        assert not adapter._pending
+        adapter._resolve_pending({"echo": request["echo"], "data": {"file": private_marker}})
+        assert "action=get_file" in caplog.text
+        assert "reason=" + ("rejected" if failure == "out_of_range" else failure) in caplog.text
+        if failure == "timeout":
+            assert "timeout_seconds=0.010" in caplog.text
+        if failure == "rejected":
+            assert "retcode=1200" in caplog.text
+        if failure == "out_of_range":
+            assert "retcode=invalid" in caplog.text
+            assert str(oversized_retcode) not in caplog.text
+        assert private_marker not in caplog.text
+        assert "private.example" not in caplog.text
+        assert request["echo"] not in caplog.text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", [
+    "timeout", "disconnect", "cancel", "rejected", "invalid_retcode",
+    "invalid_packet", "write_failure",
+])
+def test_partial_native_stream_failure_releases_correlation_and_ignores_late_packets(
+    failure: str, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failed streams cannot retain callbacks or write through a retired echo."""
+    async def scenario() -> None:
+        """Interrupt a partial download and then complete an unrelated chat request."""
+        adapter = _adapter(timeout=0.05)
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        monkeypatch.setattr(onebot_v11, "_file_request_timeout", lambda size: 0.05)
+        private_marker = "private-stream-token-123"
+
+        class Output(io.BytesIO):
+            """Simulate a spool write failure after a valid first chunk."""
+
+            def write(self, content: bytes) -> int:
+                """Keep the first chunk and fail the next write when requested."""
+                if failure == "write_failure" and self.tell():
+                    raise OSError(private_marker)
+                return super().write(content)
+
+        output = Output()
+        task = asyncio.create_task(adapter.download_file({
+            "kind": "file", "file": private_marker, "size": "2",
+        }, output, 2))
+        await _wait_for_requests(websocket, 1)
+        echo = websocket.sent[0]["echo"]
+        adapter._resolve_pending({"echo": echo, "data": {
+            "type": "stream", "data_type": "file_info", "file_size": 2,
+        }})
+        adapter._resolve_pending({"echo": echo, "data": {
+            "type": "stream", "data_type": "file_chunk", "index": 0,
+            "data": "YQ==", "size": 1,
+        }})
+        assert output.getvalue() == b"a"
+        if failure == "disconnect":
+            adapter._fail_pending(OneBotError("OneBot connection closed"))
+        elif failure == "cancel":
+            task.cancel()
+        elif failure in {"rejected", "invalid_retcode"}:
+            adapter._resolve_pending({
+                "echo": echo, "status": "failed",
+                "retcode": private_marker if failure == "invalid_retcode" else 1200,
+                "message": "https://private.example/?token=" + private_marker,
+            })
+        elif failure == "invalid_packet":
+            adapter._resolve_pending({"echo": echo, "data": private_marker})
+        elif failure == "write_failure":
+            adapter._resolve_pending({"echo": echo, "data": {
+                "type": "stream", "data_type": "file_chunk", "index": 1,
+                "data": "Yg==", "size": 1,
+            }})
+        with pytest.raises(asyncio.CancelledError if failure == "cancel" else OneBotError):
+            await task
+        assert not adapter._pending
+        assert not adapter._pending_streams
+        adapter._resolve_pending({"echo": echo, "data": {
+            "type": "stream", "data_type": "file_chunk", "index": 1,
+            "data": "Yg==", "size": 1,
+        }})
+        adapter._resolve_pending({"echo": echo, "data": {
+            "type": "response", "data_type": "file_complete", "total_chunks": 2,
+            "total_bytes": 2,
+        }})
+        assert output.getvalue() == b"a"
+        assert private_marker not in caplog.text
+        assert "private.example" not in caplog.text
+        assert echo not in caplog.text
+        chat = asyncio.create_task(adapter._request("get_msg", {"message_id": "other"}))
+        await _wait_for_requests(websocket, 2)
+        adapter._resolve_pending({"echo": websocket.sent[1]["echo"], "status": "ok", "retcode": 0})
+        assert (await chat)["status"] == "ok"
+        assert not adapter._pending
+        assert not adapter._pending_streams
+
+    asyncio.run(scenario())
 
 
 def test_media_reply_uses_onebot_segments() -> None:
@@ -320,7 +501,7 @@ async def _test_quoted_setu_prompts_once_for_source_forward(
     prompt = websocket.sent[1]
     assert prompt["params"]["message"][0] == {"type": "reply", "data": {"id": "42"}}
     assert prompt["params"]["message"][1]["data"]["text"] == (
-        "这条合并转发共 1 张图片、0 个视频、0 个文件；\n"
+        "这条消息共 1 张图片、0 个视频、0 个文件；\n"
         '引用这条消息并回复 "保存" 以保存（超时 60s 后自动取消）。'
     )
     adapter._resolve_pending({
@@ -381,8 +562,10 @@ async def _test_quoted_direct_save_returns_result_without_question(
                          "file": source.name, "url": str(source)}}]},
                  ]}}]},
     })
-    await _wait_for_requests(websocket, 2, delay=0.01)
-    result = websocket.sent[1]
+    index = await _ack_save_start(adapter, websocket, 1, "100", "正在保存以上 1 张图片。")
+    assert not config.save_root.exists()
+    await _wait_for_requests(websocket, index + 1, delay=0.01)
+    result = websocket.sent[index]
     assert result["action"] == "send_private_msg"
     assert result["params"]["message"][0] == {
         "type": "reply", "data": {"id": "100"},
@@ -397,7 +580,7 @@ async def _test_quoted_direct_save_returns_result_without_question(
         "data": {"message_id": 500},
     })
     await task
-    assert len(websocket.sent) == 2
+    assert len(websocket.sent) == 3
 
 
 def test_quoted_setu_confirmation_result_quotes_command(tmp_path: Path) -> None:
@@ -454,8 +637,10 @@ async def _test_quoted_setu_confirmation_result_quotes_command(tmp_path: Path) -
         "data": {"message_type": "private", "user_id": 999,
                  "message": [{"type": "text", "data": {"text": "保存？"}}]},
     })
-    await _wait_for_requests(websocket, 4, delay=0.01)
-    result = websocket.sent[3]
+    index = await _ack_save_start(adapter, websocket, 3, "101", "正在保存以上 1 张图片。")
+    assert not config.save_root.exists()
+    await _wait_for_requests(websocket, index + 1, delay=0.01)
+    result = websocket.sent[index]
     assert result["action"] == "send_private_msg"
     assert result["params"]["message"][0] == {
         "type": "reply", "data": {"id": "101"},
@@ -469,23 +654,170 @@ async def _test_quoted_setu_confirmation_result_quotes_command(tmp_path: Path) -
     assert next(config.save_root.rglob("confirmed.jpg")).read_bytes() == b"confirmed-media"
 
 
-@pytest.mark.parametrize("conversation_kind, allowed", [("private", False), ("group", True)])
+@pytest.mark.parametrize("mode", ["date_original", "timestamp_hash"])
+@pytest.mark.parametrize("resolution", ["provided", "file", "temp", "stream", "url"])
+@pytest.mark.parametrize("direct", [False, True])
+@pytest.mark.parametrize("source_kind", ["forward", "file"])
+def test_archive_forward_resolves_original_name_and_bytes_through_onebot(
+    tmp_path: Path, mode: str, resolution: str, direct: bool,
+    source_kind: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """File IDs and cache/URL locations save the original archive name after consent."""
+    content = b"archive protocol bytes\x00\xff"
+    remote_url = "https://multimedia.nt.qq.com.cn/download/archive"
+    if resolution == "url":
+        opener = SimpleNamespace(open=lambda location, timeout: io.BytesIO(content))
+        monkeypatch.setattr(setu_files.urllib.request, "build_opener", lambda *args: opener)
+
+    async def scenario() -> None:
+        """Exercise quote lookup, optional prompt, file resolution and quoted result."""
+        adapter = _adapter(timeout=2)
+        adapter._allowed_users = frozenset({"123"})
+        config = replace(
+            SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+            save_mode=mode, save_root=tmp_path / "archive", local_media_root=tmp_path / "cache",
+        )
+        source = config.local_media_root / "nt_qq_test" / "nt_data" / "File" / "cache-id"
+        if resolution in {"temp", "stream"}:
+            source = config.local_media_root / "NapCat" / "temp" / "cache-id"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(content)
+        if resolution == "stream":
+            original_open = Path.open
+
+            def owner_only_open(path: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+                """Model the native 0600 source under the bot's different UID."""
+                if path == source and mode == "rb":
+                    raise PermissionError("native file is owner-only")
+                return original_open(path, mode, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "open", owner_only_open)
+        adapter._setu = Setu(config, str(tmp_path / "state"))
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        original = "\u8d44\u6599 BackUp.TAR.GZ"
+        file_data = {"file": original, "file_id": "opaque-file-id", "file_size": str(len(content))}
+        if resolution == "provided":
+            file_data["url"] = str(source)
+        command = "\u76f4\u63a5\u4fdd\u5b58" if direct else "/setu"
+        task = asyncio.create_task(adapter._process_event(_quoted_event(command)))
+        await _wait_for_requests(websocket, 1)
+        quoted_source = [{"type": "file", "data": file_data}]
+        if source_kind == "forward":
+            quoted_source = [{"type": "forward", "data": {"id": "archive-forward", "content": [
+                {"message": quoted_source},
+            ]}}]
+        adapter._resolve_pending({
+            "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+            "data": {"message_type": "private", "user_id": 123, "message": quoted_source},
+        })
+        count = 1
+        quote_id = "100"
+        if not direct:
+            await _wait_for_requests(websocket, 2, delay=0.01)
+            prompt = websocket.sent[1]
+            assert prompt["action"] == "send_private_msg"
+            assert "1 \u4e2a\u6587\u4ef6" in prompt["params"]["message"][1]["data"]["text"]
+            assert not config.save_root.exists()
+            assert all(request["action"] != "get_file" for request in websocket.sent)
+            adapter._resolve_pending({
+                "echo": prompt["echo"], "status": "ok", "retcode": 0,
+                "data": {"message_id": 500},
+            })
+            await task
+            confirmation = replace(
+                _quoted_event("\u4fdd\u5b58"), message_id="101",
+                segments=(MessageSegment("reply", {"id": "500"}),
+                          MessageSegment("text", {"text": "\u4fdd\u5b58"})),
+                reply_context={"quoted_message_id": "500", "self_id": "999"},
+            )
+            task = asyncio.create_task(adapter._process_event(confirmation))
+            await _wait_for_requests(websocket, 3)
+            adapter._resolve_pending({
+                "echo": websocket.sent[2]["echo"], "status": "ok", "retcode": 0,
+                "data": {"message_type": "private", "user_id": 999,
+                         "message": [{"type": "text", "data": {"text": "prompt"}}]},
+            })
+            count = 3
+            quote_id = "101"
+        assert not config.save_root.exists()
+        count = await _ack_save_start(adapter, websocket, count, quote_id, "正在保存以上 1 个文件。")
+        assert not config.save_root.exists()
+        if resolution != "provided":
+            await _wait_for_requests(websocket, count + 1, delay=0.01)
+            request = websocket.sent[count]
+            assert request["action"] == "get_file"
+            assert request["params"] == {"file": "opaque-file-id", "file_id": "opaque-file-id"}
+            adapter._resolve_pending({
+                "echo": request["echo"], "status": "ok", "retcode": 0,
+                "data": {"file" if resolution in {"temp", "stream"} else resolution:
+                         remote_url if resolution == "url" else str(source)},
+            })
+            count += 1
+        if resolution == "stream":
+            await _wait_for_requests(websocket, count + 1, delay=0.01)
+            request = websocket.sent[count]
+            assert request["action"] == "download_file_stream"
+            assert request["params"] == {
+                "file": "opaque-file-id", "file_id": "opaque-file-id", "chunk_size": 65536,
+            }
+            echo = request["echo"]
+            adapter._resolve_pending({"echo": echo, "status": "ok", "retcode": 0, "data": {
+                "type": "stream", "data_type": "file_info", "file_size": len(content),
+            }})
+            assert not task.done()
+            adapter._resolve_pending({"echo": echo, "status": "ok", "retcode": 0, "data": {
+                "type": "stream", "data_type": "file_chunk", "index": 0,
+                "data": base64.b64encode(content).decode("ascii"), "size": len(content),
+            }})
+            assert not task.done()
+            assert not list(config.save_root.rglob(original))
+            adapter._resolve_pending({"echo": echo, "status": "ok", "retcode": 0, "data": {
+                "type": "response", "data_type": "file_complete", "total_chunks": 1,
+                "total_bytes": len(content),
+            }})
+            count += 1
+        await _wait_for_requests(websocket, count + 1, delay=0.01)
+        result = websocket.sent[count]
+        assert result["action"] == "send_private_msg"
+        assert result["params"]["message"][0] == {"type": "reply", "data": {"id": quote_id}}
+        assert "\u5df2\u4fdd\u5b58 1 \u9879\uff0c\u5931\u8d25 0 \u9879" in result["params"]["message"][1]["data"]["text"]
+        archived = next(config.save_root.rglob(original))
+        assert archived.read_bytes() == content
+        assert str(archived.parent) in result["params"]["message"][1]["data"]["text"]
+        adapter._resolve_pending({
+            "echo": result["echo"], "status": "ok", "retcode": 0,
+            "data": {"message_id": 501},
+        })
+        await task
+        assert all(request["action"] != "get_forward_msg" for request in websocket.sent)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("conversation_kind, global_allowed, feature_allowed", [
+    ("private", False, True), ("private", True, False), ("group", True, True),
+])
 def test_direct_save_does_not_fetch_unauthorized_or_group_quotes(
-    tmp_path: Path, conversation_kind: str, allowed: bool,
+    tmp_path: Path, conversation_kind: str, global_allowed: bool, feature_allowed: bool,
 ) -> None:
     """The configured direct trigger preserves sender and private-chat boundaries."""
     async def scenario() -> None:
         """Reject archive routing before making any OneBot API call."""
         adapter = _adapter()
-        adapter._allowed_users = frozenset({"123"}) if allowed else frozenset()
+        adapter._allowed_users = frozenset({"123"}) if global_allowed else frozenset()
         adapter._setu = Setu(replace(
             SetuConfig.disabled(), enabled=True,
-            allowed_users=frozenset({"123"}) if allowed else frozenset(),
+            allowed_users=frozenset({"123"}) if feature_allowed else frozenset(),
             direct_confirm_words=("archive-now",),
         ), str(tmp_path))
         websocket = FakeWebSocket()
         adapter._websocket = websocket
         event = replace(_quoted_event("archive-now"), conversation_kind=conversation_kind)
+        if conversation_kind == "group":
+            adapter._groups_enabled = True
+            adapter._allowed_groups = frozenset({event.conversation_id})
+            assert adapter._is_authorized(event)
         await adapter._process_event(event)
         assert not websocket.sent
         assert not SetuStore(str(tmp_path)).due(float("inf"))
@@ -517,11 +849,127 @@ def test_direct_save_rejects_quoted_forward_from_another_private_chat(tmp_path: 
         await _wait_for_requests(websocket, 2)
         response = websocket.sent[1]
         assert response["params"]["message"] == [
-            {"type": "text", "data": {"text": "请引用合并转发并发送保存、setu 或 /setu。"}},
+            {"type": "text", "data": {"text": "请引用合并转发或文件消息并发送保存、setu 或 /setu。"}},
         ]
         adapter._resolve_pending({"echo": response["echo"], "status": "ok", "retcode": 0})
         await task
         assert not SetuStore(str(tmp_path)).due(float("inf"))
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("command", ["/setu", "\u76f4\u63a5\u4fdd\u5b58", "\u4fdd\u5b58"])
+@pytest.mark.parametrize("with_quote", [False, True])
+def test_global_denial_blocks_feature_allowed_guidance_and_pending_confirmation(
+    tmp_path: Path, command: str, with_quote: bool,
+) -> None:
+    """Global authorization protects every setu path even with a pending feature batch."""
+    async def scenario() -> None:
+        """Present a denied event and leave an existing confirmation unclaimed."""
+        adapter = _adapter()
+        adapter._allowed_users = frozenset()
+        config = replace(SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+                         save_root=tmp_path / "archive")
+        workflow = Setu(config, str(tmp_path / "state"))
+        adapter._setu = workflow
+        batch = workflow._store.add_setu("test", "123", "source", [
+            {"kind": "file", "file": "canonical-id", "name": "original.zip"},
+        ], 0, time.time())
+        assert batch is not None
+        workflow._store.mark_awaiting(str(batch["id"]), time.time() + 60)
+        workflow._store.set_prompt(str(batch["id"]), "42")
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        event = _quoted_event(command)
+        if not with_quote:
+            event = replace(event, segments=(MessageSegment("text", {"text": command}),),
+                            reply_context={})
+        assert workflow.is_authorized(event)
+        await adapter._process_event(event)
+        assert not websocket.sent
+        pending = workflow._store.awaiting("test", "123", time.time())
+        assert len(pending) == 1
+        assert pending[0]["state"] == "awaiting"
+        assert not config.save_root.exists()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("quoted_kind", ["image", "video", "text"])
+def test_nonfile_ordinary_quotes_do_not_start_setu_archive(tmp_path: Path, quoted_kind: str) -> None:
+    """The ordinary quote extension is limited to file segments."""
+    async def scenario() -> None:
+        """Return a different ordinary message kind and expect only source guidance."""
+        adapter = _adapter()
+        adapter._allowed_users = frozenset({"123"})
+        config = replace(SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+                         save_root=tmp_path / "archive")
+        adapter._setu = Setu(config, str(tmp_path / "state"))
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        task = asyncio.create_task(adapter._process_event(_quoted_event("/setu")))
+        await _wait_for_requests(websocket, 1)
+        adapter._resolve_pending({
+            "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+            "data": {"message_type": "private", "user_id": 123,
+                     "message": [{"type": quoted_kind, "data": {"file": "ordinary.jpg", "text": "plain"}}]},
+        })
+        await _wait_for_requests(websocket, 2)
+        guidance = websocket.sent[1]
+        assert guidance["action"] == "send_private_msg"
+        assert guidance["params"]["message"] == [{"type": "text", "data": {
+            "text": "\u8bf7\u5f15\u7528\u5408\u5e76\u8f6c\u53d1\u6216\u6587\u4ef6\u6d88\u606f\u5e76\u53d1\u9001\u4fdd\u5b58\u3001setu \u6216 /setu\u3002",
+        }}]
+        adapter._resolve_pending({"echo": guidance["echo"], "status": "ok", "retcode": 0})
+        await task
+        assert len(websocket.sent) == 2
+        assert not adapter._setu._store.due(float("inf"))
+        assert not adapter._setu._store.awaiting("test", "123", time.time())
+        assert not config.save_root.exists()
+
+    asyncio.run(scenario())
+
+
+def test_quoted_file_source_excludes_attachment_on_current_command(tmp_path: Path) -> None:
+    """Only the explicitly quoted attachment belongs to the quoted source batch."""
+    async def scenario() -> None:
+        """Save one quoted file without collecting another attachment on the command."""
+        adapter = _adapter(timeout=2)
+        adapter._allowed_users = frozenset({"123"})
+        config = replace(SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+                         save_root=tmp_path / "archive", local_media_root=tmp_path / "cache")
+        adapter._setu = Setu(config, str(tmp_path / "state"))
+        source = config.local_media_root / "nt_qq_test" / "nt_data" / "File" / "quoted-cache"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"quoted archive")
+        current = source.with_name("current-cache")
+        current.write_bytes(b"unquoted archive")
+        event = _quoted_event("\u76f4\u63a5\u4fdd\u5b58")
+        event = replace(event, segments=event.segments + (MessageSegment("file", {
+            "file": "unquoted.zip", "file_id": "unquoted-id", "url": str(current),
+        }),))
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        task = asyncio.create_task(adapter._process_event(event))
+        await _wait_for_requests(websocket, 1)
+        adapter._resolve_pending({
+            "echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+            "data": {"message_type": "private", "user_id": 123, "message": [
+                {"type": "file", "data": {"file": "quoted.zip", "file_id": "quoted-id", "url": str(source)}},
+            ]},
+        })
+        index = await _ack_save_start(adapter, websocket, 1, "100", "正在保存以上 1 个文件。")
+        assert not config.save_root.exists()
+        await _wait_for_requests(websocket, index + 1, delay=0.01)
+        result = websocket.sent[index]
+        assert "\u5df2\u4fdd\u5b58 1 \u9879\uff0c\u5931\u8d25 0 \u9879" in result["params"]["message"][1]["data"]["text"]
+        adapter._resolve_pending({"echo": result["echo"], "status": "ok", "retcode": 0,
+                                  "data": {"message_id": 500}})
+        await task
+        files = [path for path in config.save_root.rglob("*") if path.is_file()]
+        assert len(files) == 1
+        assert files[0].name == "quoted.zip"
+        assert files[0].read_bytes() == b"quoted archive"
 
     asyncio.run(scenario())
 

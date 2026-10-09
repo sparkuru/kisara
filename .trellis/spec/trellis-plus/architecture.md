@@ -81,7 +81,8 @@ cross-restart idempotency must persist its own completion/deduplication record.
 Do not claim exactly-once delivery or complete offline message recovery.
 
 Setu is an opt-in OneBot private-chat flow with both global and feature user
-allowlists. Normal start words require a command quoting a merged forward, then
+allowlists. Normal start words require a command quoting a merged forward or
+ordinary file message, then
 a confirmation quoting the bot's prompt before expiry (default 60 seconds).
 Configured direct confirmation words (default 直接保存) skip the question and
 save immediately. Cancellation words have no workflow behavior.
@@ -210,19 +211,33 @@ Applies to private OneBot archive commands and their result callbacks.
 ### Signatures
 
 `Setu.is_start_word(text: str) -> bool` owns both normal and configured direct
-triggers; the adapter uses it before resolving the quoted merged forward.
+triggers; the adapter uses it before resolving the quoted forward/file message.
+`Setu.is_authorized(event: MessageEvent) -> bool` owns the feature's engine,
+private-session, and user gates; the adapter combines it with global access
+before lookup/handling, and the service reuses it before collection/confirmation.
 `SetuConfig.direct_confirm_words: Tuple[str, ...]` defaults to `(直接保存,)`;
 `confirm_words` defaults to `(保存,)`, `confirm_timeout_seconds` to `60`.
 
 ### Contracts
 
-The adapter adds `setu_source_id` only after resolving a quoted merged forward.
+The adapter adds `setu_source_id` only after resolving an authorized quoted
+merged forward or ordinary file message. Global and feature allowlists must
+both pass before lookup. Ordinary file messages use the same state/confirmation/
+direct-save flow; unquoted files and plain image/video quotes do not start Setu.
+Only the quoted source's forward/file segments enter collection, so a separate
+attachment on the command itself cannot be archived under that source identity.
 Normal saves require the quoted bot prompt ID; direct saves immediately claim
 the batch and use the same file saver and result counts/directory callback.
 Each save result replies to the user command that triggered that attempt:
 the confirmation message for normal saves, or the direct-save message for
 direct saves. A retry result replies to the retry command. This reply target
 is separate from the stored prompt/result ID used to select unfinished items.
+Once a save has been claimed, send one progress-start notice quoting that same
+command before any location resolution/download/copy. Report only unfinished
+file/video/image counts (audio when present), omitting zero categories, e.g.
+正在保存以上 2 个文件、1 个视频、3 张图片。 Normal/direct/retry attempts share
+this boundary. The notice never replaces a stored prompt/result ID, and a
+notice-send failure is safely logged while the claimed save proceeds.
 For direct partial failures, the result message ID becomes the confirmation ID
 for retrying unfinished items. Source deduplication and completed files survive
 retries; no database schema changes are needed. Legacy `cancel_words` is accepted
@@ -234,17 +249,21 @@ remain effective; the prompt describes the configured timeout.
 | Condition | Behavior |
 | --- | --- |
 | Direct words overlap normal start/confirmation words, or either list is empty | ConfigurationError |
-| Missing quote or quote containing no merged forward | No download |
+| Missing quote or quote containing neither a merged forward nor a file | No download |
 | Confirmation has no matching unexpired prompt | Guidance reply; no save |
-| Repeated direct command for completed or processing source | Already-processing/completed reply; no duplicate save |
+| Repeated direct command for completed or processing source | Distinct completed/actively saving reply; no duplicate save |
 | Direct command targets an existing pending source | Save that batch without another question |
+| Fresh quoted-source command targets expired unfinished batch | Rearm original batch, retain completed checkpoints and refresh only matching unresolved metadata |
+| Old prompt/result confirmation has expired | No save; fresh quoted-source intent is required |
 | 取消 or legacy cancellation alias | Unhandled by Setu; pending state stays intact |
 | Attachment save fails | Result reports failure; only failed items remain retryable until expiry |
 | A save completes or partially fails | Result replies to the triggering user command ID |
+| Save claimed with unfinished attachments | One pending-kind progress notice precedes resolution and final result |
+| Start notice delivery fails | Continue the claimed attempt; preserve result/checkpoint/retry state |
 
 ### Good, base, and bad cases
 
-Good: quote a forward with 直接保存, receive one result, then quote that result
+Good: quote a forward with 直接保存, receive a start notice then one result, then quote that result
 with 保存 to retry a failed file. Base: quote a forward with /setu, then quote
 the question with 保存 within 60 seconds. Bad: save an unquoted forward or use
 a global latest-batch fallback for an unrelated quote.
@@ -255,7 +274,10 @@ Unit checks cover immediate save, duplicate sources, pending-to-direct save,
 partial retry without replacing successes, removed cancellation, configured
 aliases, result reply targets, and expiry at the deadline. Protocol checks
 verify quoted lookup, confirmation and direct result reply segments, and result
-sending without an intervening prompt for default and configured words.
+sending without a confirmation question for default and configured words.
+Assert start notices precede resolution, quote the current command, count only
+pending items on retry and cannot be selected as a confirmation target. Rejected,
+expired, duplicate and unconfirmed actions do not emit progress notices.
 
 ### Wrong versus correct
 

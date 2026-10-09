@@ -1,23 +1,35 @@
-"""Archive confirmed media from a quoted private OneBot merged forward.
+"""Archive confirmed media from a quoted private OneBot forward or file message.
 
 Copy config/features/setu/config.toml.example to config.toml, enable it, and
 list allowed_users already present in KISARA_ALLOWED_USERS. A missing file
 disables the feature. Ordinary media and unquoted forwards get no automatic
-archive reply. Quote a merged forward with 保存, setu, or /setu to create one
+archive reply. Quote a merged forward or file message with 保存, setu, or /setu to create one
 confirmation prompt; nested forwards obey max_depth and max_nodes. Quote the
 prompt and reply 保存 to save before confirm_timeout_seconds (default 60s).
-Quote the forward with direct_confirm_words (default 直接保存) to save immediately
+Quote either source with direct_confirm_words (default 直接保存) to save immediately
 without a question. The prompt displays the first configured confirmation word;
 later words and 确认 remain accepted aliases. Cancellation words are ignored.
 Legacy cancel_words config is accepted but inert. Setu replies use pangu spacing.
 Downloads start only after confirmation; the result reports saved and failed
 counts and the actual save directory, quoting the user command that started the save.
+Once saving is claimed, a start notice quotes that command and counts only
+unfinished attachments before their first lookup or transfer. Its best-effort
+delivery does not replace the confirmation or retry-result identity.
 Repeating confirmation retries failed items without replacing completed files.
 For a direct save, quote its result to retry failures with the confirmation word.
+If a file batch fails after its confirmation deadline, a fresh configured
+confirmation window from completion keeps that file retry actionable.
+After expiry, a fresh command quoting the original source rearms its unfinished
+batch with matching metadata and preserved checkpoints; old confirmations stay
+expired. Direct duplicate replies distinguish active saves from completion.
 
 save_mode=date_original uses YYYY-MM-DD/original-name; timestamp_hash uses a
-China Standard Time timestamp and SHA-256 filename. max_file_bytes and
-max_batch_bytes bound transfers. SetuStore persists batch metadata in
+China Standard Time timestamp and SHA-256 filename for non-archive media.
+File-kind archives retain their safe original basename in both layouts;
+different-content name conflicts add _timestamp before the complete extension.
+Matching original or stamped archives are reused without extracting content.
+Archive publication uses Linux/Unix directory locks and non-overwriting links.
+max_file_bytes and max_batch_bytes bound transfers. SetuStore persists batch metadata in
 KISARA_STATE_DIR/setu.sqlite3, separate from the saved media. Compose mounts
 host data/kisara/setu at /app/setu for preview and deployment; save_root must
 name that writable container directory. The startup script prepares group
@@ -28,6 +40,13 @@ NapCat may expose video through local QQ cache paths. The read-only mount at
 /app/.config/QQ, local_media_root, and a media-directory allowlist constrain
 copies; remote media must come from approved HTTPS QQ domains. Unreadable
 sources are reported as failures. The offline console has no OneBot media.
+File attachments prefer raw file_id for resolution and retain the raw file
+basename separately as name. Their get_file call may await a complete NapCat download
+under a separate bounded deadline; ordinary chat requests keep their short wait.
+File downloads directly under mounted NapCat/temp are also approved. When a
+native file is owner-only, a canonical-ID OneBot chunk stream provides its bytes
+without permission changes. Bounded private spooling and validated size/order/
+completion precede the same saver, archive publication and retry checkpoints.
 The older forward_archive configuration and data path must be moved to setu
 when upgrading; the new setu.sqlite3 starts with an empty batch history.
 """
@@ -37,8 +56,9 @@ import json
 import logging
 import threading
 import time
+import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, Set
+from typing import Any, BinaryIO, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Union
 
 from kisara.bot.contracts import MessageEvent, MessageSegment
 from kisara.config.setu import SetuConfig
@@ -66,17 +86,21 @@ class SetuGateway(Protocol):
     async def media_location(self, media: Mapping[str, Any], refresh: bool = False) -> str:
         """Return a URL or approved local path for one media item."""
 
+    async def download_file(self, media: Mapping[str, Any], output: BinaryIO,
+                            maximum: int) -> None:
+        """Copy a canonical file through the bounded native OneBot stream."""
+
 
 class SetuProcessor(Protocol):
     """Replace the final attachment-processing step without changing collection."""
 
-    def save(self, source: Dict[str, object], location: str,
+    def save(self, source: Dict[str, object], location: Union[str, BinaryIO],
              timestamp: float, remaining_bytes: int) -> Dict[str, object]:
         """Process and store one confirmed attachment."""
 
 
 class Setu:
-    """Own one confirmation and save workflow per merged forward."""
+    """Own one confirmation and save workflow per quoted forward or file message."""
 
     def __init__(self, config: SetuConfig, state_dir: str,
                  processor: Optional[SetuProcessor] = None) -> None:
@@ -88,59 +112,58 @@ class Setu:
         self._transfer_loop: Optional[asyncio.AbstractEventLoop] = None
 
     def is_start_word(self, text: str) -> bool:
-        """Share quoted-forward trigger recognition with the transport adapter."""
+        """Share quoted-source trigger recognition with the transport adapter."""
         word = text.strip().casefold()
         return word in SETU_START_WORDS or word in self._config.direct_confirm_words
 
+    def is_authorized(self, event: MessageEvent) -> bool:
+        """Apply feature permission before the adapter resolves a quoted source."""
+        return (event.engine == "onebot" and event.conversation_kind == "private" and
+                event.sender_id in self._config.allowed_users)
+
     async def handle(self, event: MessageEvent, gateway: SetuGateway) -> bool:
-        """Consume an authorized merged forward or a pending confirmation."""
-        if event.engine != "onebot" or event.conversation_kind != "private":
-            return False
-        if event.sender_id not in self._config.allowed_users:
+        """Consume an authorized quoted source or a pending confirmation."""
+        if not self.is_authorized(event):
             return False
         now = time.time()
         word = event.text.strip().casefold()
-        forwards = tuple(segment for segment in event.segments if segment.kind == "forward")
-        if self.is_start_word(word) and event.reply_context.get("setu_source_id") and forwards:
-            media, unsupported = await self._extract(forwards, gateway)
+        sources = tuple(segment for segment in event.segments if segment.kind in {"forward", "file"})
+        if self.is_start_word(word) and event.reply_context.get("setu_source_id") and sources:
+            media, unsupported = await self._extract(sources, gateway)
             if not media and not unsupported:
-                await self._reply(gateway, event.sender_id, "这条转发中没有可保存的附件。")
+                await self._reply(gateway, event.sender_id, "这条消息中没有可保存的附件。")
                 return True
             source_id = str(event.reply_context["setu_source_id"])
-            batch = self._store.add_setu(
+            self._store.add_setu(
                 event.instance_id, event.sender_id, source_id, media, unsupported, now,
             )
-            if word in self._config.direct_confirm_words:
-                await self._save_direct(batch, event, gateway, source_id, now)
-            elif batch is not None:
+            direct = word in self._config.direct_confirm_words
+            action, batch = self._store.prepare_source(
+                event.instance_id, event.sender_id, source_id, media, now,
+                self._config.confirm_timeout_seconds, direct,
+            )
+            if action == "save" and batch is not None:
+                await self._save(batch, gateway, event.message_id, direct=True)
+            elif action == "prompt" and batch is not None:
                 await self._prompt(batch, gateway, now)
                 _log.info("Prompted setu for private user %s", event.sender_id)
+            elif direct or action in {"changed", "missing", "expired"}:
+                replies = {
+                    "saving": "这批附件正在保存，请稍后再试。",
+                    "saved": "这批附件已经保存完成。",
+                    "changed": "原附件信息已变化，无法安全续存；请引用新的文件消息。",
+                    "missing": "这条消息的归档记录已过期，无法续存；请重新发送文件后引用保存。",
+                    "expired": "这批附件无法续存，请引用新的文件消息。",
+                }
+                await self._reply(gateway, event.sender_id, replies[action])
             return True
         if word in self._config.confirm_words or word in {"保存", "确认"}:
             await self._confirmation(event, gateway, now)
             return True
         if self.is_start_word(word):
-            await self._reply(gateway, event.sender_id, "请引用合并转发并发送保存、setu 或 /setu。")
+            await self._reply(gateway, event.sender_id, "请引用合并转发或文件消息并发送保存、setu 或 /setu。")
             return True
         return False
-
-    async def _save_direct(self, batch: Optional[Mapping[str, Any]],
-                           event: MessageEvent, gateway: SetuGateway,
-                           source_id: str, now: float) -> None:
-        """Claim a new or pending source without sending a confirmation prompt."""
-        if batch is None:
-            batch = next((item for item in self._store.awaiting(
-                event.instance_id, event.sender_id, now,
-            ) if item["first_message_id"] == source_id), None)
-        if batch is None:
-            await self._reply(gateway, event.sender_id, "这批附件正在处理或已经处理。")
-            return
-        self._store.mark_awaiting(batch["id"], now + self._config.confirm_timeout_seconds)
-        self._store.set_prompt(batch["id"], source_id)
-        if not self._store.claim_save(batch["id"], now):
-            await self._reply(gateway, event.sender_id, "这批附件正在处理或已经处理。")
-            return
-        await self._save(batch, gateway, event.message_id, direct=True)
 
     async def run(self, gateway: SetuGateway) -> None:
         """Retry interrupted prompts while the adapter is connected."""
@@ -177,7 +200,9 @@ class Setu:
                     data = item.data
                     media.append({
                         "kind": item.kind,
-                        "file": str(data.get("file") or data.get("file_id") or ""),
+                        "file": str((data.get("file_id") or data.get("file") or "")
+                                    if item.kind == "file" else
+                                    (data.get("file") or data.get("file_id") or "")),
                         "name": str(data.get("file_name") or data.get("name") or
                                     data.get("file") or ""),
                         "url": str(data.get("url") or ""),
@@ -220,7 +245,7 @@ class Setu:
 
     async def _prompt(self, batch: Mapping[str, Any],
                       gateway: SetuGateway, now: float) -> None:
-        """Send one question quoting the merged forward."""
+        """Send one question quoting the selected source message."""
         if not self._store.mark_awaiting(batch["id"], now + self._config.confirm_timeout_seconds):
             return
         await self._send_prompt(batch, gateway, now)
@@ -232,7 +257,7 @@ class Setu:
         self._store.retry_prompt_after(batch["id"], now + 30)
         counts = {kind: sum(item["kind"] == kind for item in media) for kind in MEDIA_KINDS}
         summary = (
-            "这条合并转发共 {} 张图片、{} 个视频、{} 个文件；\n"
+            "这条消息共 {} 张图片、{} 个视频、{} 个文件；\n"
             '引用这条消息并回复 "{}" 以保存（超时 {}s 后自动取消）。'
         ).format(
             counts["image"], counts["video"], counts["file"],
@@ -267,6 +292,19 @@ class Setu:
                     command_id: str, direct: bool = False) -> None:
         """Checkpoint each item so a restart can retry only unfinished media."""
         media = json.loads(batch["media_json"])
+        pending = [item for item in media if not item.get("saved_path")]
+        categories = []
+        for kind, label in (("file", "个文件"), ("video", "个视频"),
+                            ("image", "张图片"), ("record", "条语音")):
+            count = sum(item["kind"] == kind for item in pending)
+            if count:
+                categories.append("{} {}".format(count, label))
+        if categories:
+            try:
+                await self._reply(gateway, batch["user_id"],
+                                  "正在保存以上{}。".format("、".join(categories)), command_id)
+            except Exception as error:
+                _log.warning("Could not send setu save-start notice (%s)", type(error).__name__)
         total = sum(int(item.get("saved_size", 0)) for item in media)
         failures = 0
         for item in media:
@@ -284,6 +322,17 @@ class Setu:
                         item, location, batch["first_at"],
                         self._config.max_batch_bytes - total,
                     )
+                except PermissionError:
+                    if item["kind"] != "file":
+                        raise
+                    maximum = min(self._config.max_file_bytes,
+                                  self._config.max_batch_bytes - total)
+                    with tempfile.SpooledTemporaryFile(max_size=1048576, mode="w+b") as stream:
+                        await gateway.download_file(item, stream, maximum)
+                        stream.seek(0)
+                        result = await self._save_file(
+                            item, stream, batch["first_at"], maximum,
+                        )
                 except Exception:
                     refreshed = await gateway.media_location(item, refresh=True)
                     if refreshed == location:
@@ -304,7 +353,14 @@ class Setu:
                 _log.warning("Could not archive one media item: %s", detail)
             self._store.update_media(batch["id"], media)
         saved = sum(bool(item.get("saved_path")) for item in media)
-        self._store.finish(batch["id"], "saved" if not failures else "awaiting")
+        retry_window = self._config.confirm_timeout_seconds if failures and any(
+            item["kind"] == "file" for item in media
+        ) else 0
+        self._store.finish(
+            batch["id"], "saved" if not failures else "awaiting",
+            completed_at=time.time() if retry_window else None,
+            retry_window_seconds=retry_window,
+        )
         answer = "归档完成：共 {} 项，已保存 {} 项，失败 {} 项。".format(
             len(media), saved, failures)
         directories = sorted({str(Path(item["saved_path"]).parent)
@@ -325,7 +381,7 @@ class Setu:
         """Apply plain-text spacing to every setu reply."""
         return await gateway.send_private(user_id, pangu(text), quote_id)
 
-    async def _save_file(self, item: Dict[str, Any], location: str,
+    async def _save_file(self, item: Dict[str, Any], location: Union[str, BinaryIO],
                          timestamp: float, remaining: int) -> Dict[str, object]:
         """Run bounded file transfer without blocking the OneBot event loop."""
         loop = asyncio.get_running_loop()
@@ -360,9 +416,16 @@ class Setu:
                 loop.call_soon_threadsafe(resolve)
 
         threading.Thread(target=worker, name="setu-save", daemon=True).start()
-        while not completed.done():
-            await asyncio.sleep(0.05)
-        return completed.result()
+        try:
+            while not completed.done():
+                await asyncio.sleep(0.05)
+            return completed.result()
+        except asyncio.CancelledError:
+            if completed.done() and not completed.cancelled():
+                completed.exception()
+            else:
+                completed.cancel()
+            raise
 
 
 def _segments(raw: object) -> List[MessageSegment]:

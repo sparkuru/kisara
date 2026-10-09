@@ -1,0 +1,12 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Regression, documentation, and code review criteria."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"No state resets, replacement of completed files, or unintended migration."}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Verify authorization, confirmation, direct saves, and result quote contracts."}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Verify unchanged caps, source restrictions, and storage boundaries."}
+{"file":".trellis/spec/trellis-plus/setu-storage.md","reason":"Verify archive naming, timestamp collisions, matching reuse, and non-archive compatibility."}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Focused/full tests and honest live validation classification."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/current-behavior.md","reason":"Check source/runtime claims and archive-only change scope."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/napcat-file-resolver-live-failure.md","reason":"Review resolver correction against actual installed NapCat contract."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Verify no private ID, filename, URL, token, or response text in failure diagnostics."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/napcat-forward-file-native-limit.md","reason":"Do not conflate bot correlation fixes with unsupported native forward transfer."}
+{"file":".trellis/tasks/10-09-setu-archive-files/research/live-file-probes.md","reason":"Validate honest live status and absent private-origin fallback."}
+{"file": ".trellis/tasks/10-09-setu-archive-files/research/live-cache-and-expired-retry.md", "reason": "Verify native file cache/stream boundary and explicit expired-source retry independently of seen identity"}

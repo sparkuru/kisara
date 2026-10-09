@@ -23,6 +23,7 @@ task merely to install this policy.
 | --- | --- |
 | [Architecture and feature contracts](architecture.md) | Changing routing, services, adapters, utilities, or documentation |
 | [Configuration and storage](configuration-storage.md) | Changing configuration, HTTP, cache, SQLite, files, or deployment paths |
+| [Setu archive storage](setu-storage.md) | Changing archive filenames, collisions, publication, or media naming compatibility |
 | [Validation and development](validation.md) | Before development, checking a change, or requesting manual verification |
 | [Workflow and delivery](workflow.md) | Delegating, proposing a commit, continuing work, or updating Trellis |
 

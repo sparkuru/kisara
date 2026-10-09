@@ -235,6 +235,10 @@ batch state from media files and records seen `(instance_id, message_id)` keys.
 It already handles legacy state through `PRAGMA user_version`; do not assume
 databases will be recreated on deployment.
 
+Setu archive-specific filename, collision, and publication contracts live in
+[Setu archive storage](setu-storage.md); load that document when changing or
+reviewing archive placement. General configuration/state contracts stay here.
+
 ## Telegram news delivery journal
 
 ### 1. Scope / trigger

@@ -1,13 +1,15 @@
 """OneBot 11 forward-WebSocket adapter."""
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import random
 import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Set, Tuple, Union
+from typing import Any, BinaryIO, Callable, Dict, Mapping, Optional, Sequence, Set, Tuple, Union
 
 import websockets
 from websockets.exceptions import ConnectionClosed
@@ -24,6 +26,15 @@ from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 _log = logging.getLogger("kisara.onebot")
 MAX_PENDING_MESSAGE_TASKS = 256
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10.0
+FILE_DOWNLOAD_MIN_SECONDS = 120.0
+FILE_DOWNLOAD_MAX_SECONDS = 1800.0
+FILE_DOWNLOAD_BYTES_PER_SECOND = 256 * 1024
+FILE_RESPONSE_MARGIN_SECONDS = 5.0
+FILE_STREAM_CHUNK_BYTES = 65536
+REQUEST_ACTIONS = frozenset({
+    "delete_msg", "get_msg", "get_forward_msg", "get_file", "get_image",
+    "get_record", "send_private_msg", "send_group_msg", "download_file_stream",
+})
 
 
 class OneBotError(RuntimeError):
@@ -55,6 +66,7 @@ class OneBotV11Adapter:
         self._stop_requested = False
         self._websocket: Any = None
         self._pending: Dict[str, asyncio.Future] = {}
+        self._pending_streams: Dict[str, Callable[[Mapping[str, Any]], bool]] = {}
         self._message_tasks: Set[asyncio.Task] = set()
         self._conversation_tasks: Dict[str, asyncio.Task] = {}
         self._daily_news_factory = daily_news_factory if settings.news_push_enabled else None
@@ -221,17 +233,18 @@ class OneBotV11Adapter:
         try:
             if self._is_authorized(event) and await handle_export_img(event, self):
                 return
-            if self._setu is not None:
-                if (self._is_authorized(event) and
-                        event.conversation_kind == "private" and
-                        event.reply_context.get("quoted_message_id") and
+            if (self._setu is not None and self._is_authorized(event) and
+                    self._setu.is_authorized(event)):
+                if (event.reply_context.get("quoted_message_id") and
                         self._setu.is_start_word(event.text)):
                     quoted, _ = await self.quoted_message(event)
-                    forwards = tuple(segment for segment in quoted if segment.kind == "forward")
-                    if forwards:
+                    sources = tuple(segment for segment in quoted if segment.kind in {"forward", "file"})
+                    if sources:
                         context = dict(event.reply_context)
                         context["setu_source_id"] = context["quoted_message_id"]
-                        event = replace(event, segments=event.segments + forwards,
+                        command_segments = tuple(segment for segment in event.segments
+                                                 if segment.kind not in {"forward", "file"})
+                        event = replace(event, segments=command_segments + sources,
                                         reply_context=context)
                 if await self._setu.handle(event, self):
                     return
@@ -424,7 +437,7 @@ class OneBotV11Adapter:
         return _as_identifier(data.get("message_id")) if isinstance(data, dict) else ""
 
     async def media_location(self, media: Mapping[str, Any], refresh: bool = False) -> str:
-        """Resolve an attachment to a URL or a mounted NapCat cache path."""
+        """Resolve media, allowing file downloads to outlast short chat requests."""
         current = str(media.get("url") or "")
         if current and not refresh:
             return current
@@ -438,7 +451,12 @@ class OneBotV11Adapter:
         if action == "get_file":
             params["file_id"] = file_id
         try:
-            response = await self._request(action, params)
+            if media.get("kind") == "file":
+                response = await self._request(
+                    action, params, timeout_seconds=_file_request_timeout(media.get("size")),
+                )
+            else:
+                response = await self._request(action, params)
         except OneBotError:
             if current:
                 return current
@@ -449,6 +467,22 @@ class OneBotV11Adapter:
             if resolved:
                 return resolved
         return current
+
+    async def download_file(self, media: Mapping[str, Any], output: BinaryIO,
+                            maximum: int) -> None:
+        """Read an owner-only native file through correlated bounded chunks."""
+        identifier = str(media.get("file") or "")
+        if media.get("kind") != "file" or not identifier or maximum <= 0:
+            raise OneBotError("Invalid native file stream request")
+        stream = _FileDownload(output, maximum)
+        await self._request(
+            "download_file_stream",
+            {"file": identifier, "file_id": identifier, "chunk_size": FILE_STREAM_CHUNK_BYTES},
+            timeout_seconds=_file_request_timeout(media.get("size")),
+            stream_handler=stream.consume,
+        )
+        if not stream.complete:
+            raise OneBotError("Native file stream did not complete")
 
     @staticmethod
     def _encode_message(content: Union[str, OutgoingMessage]) -> Any:
@@ -520,17 +554,24 @@ class OneBotV11Adapter:
             ))
 
     async def _request(
-        self, action: str, params: Mapping[str, Any]
+        self, action: str, params: Mapping[str, Any],
+        timeout_seconds: Optional[float] = None,
+        stream_handler: Optional[Callable[[Mapping[str, Any]], bool]] = None,
     ) -> Mapping[str, Any]:
-        """Send a OneBot API request and wait for its correlated response."""
+        """Wait for a correlated response with an optional operation deadline."""
 
+        timeout = self._request_timeout_seconds if timeout_seconds is None else timeout_seconds
+        log_action = action if action in REQUEST_ACTIONS else "unknown"
         websocket = self._websocket
         if websocket is None:
+            _log.warning("OneBot API request failed: action=%s reason=disconnected", log_action)
             raise OneBotError("OneBot WebSocket is not connected")
 
         echo = uuid.uuid4().hex
         future = asyncio.get_running_loop().create_future()
         self._pending[echo] = future
+        if stream_handler is not None:
+            self._pending_streams[echo] = stream_handler
         request = {
             "action": action,
             "params": dict(params),
@@ -539,23 +580,39 @@ class OneBotV11Adapter:
         try:
             await websocket.send(json.dumps(request, ensure_ascii=False))
             response = await asyncio.wait_for(
-                future, timeout=self._request_timeout_seconds
+                future, timeout=timeout
             )
             status = str(response.get("status", "ok"))
-            retcode = int(response.get("retcode", 0) or 0)
+            try:
+                retcode = int(response.get("retcode", 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                _log.warning(
+                    "OneBot API request failed: action=%s reason=invalid_response", log_action,
+                )
+                raise OneBotError("OneBot API response has an invalid retcode") from None
             if status == "failed" or retcode != 0:
+                log_retcode = retcode if -(2 ** 31) <= retcode < 2 ** 31 else "invalid"
+                _log.warning(
+                    "OneBot API request failed: action=%s reason=rejected retcode=%s",
+                    log_action, log_retcode,
+                )
                 raise OneBotError(
                     "OneBot API request failed: {} (retcode={})".format(
-                        action, retcode
+                        log_action, log_retcode
                     )
                 )
             return response
         except asyncio.TimeoutError as error:
+            _log.warning(
+                "OneBot API request failed: action=%s reason=timeout timeout_seconds=%.3f",
+                log_action, timeout,
+            )
             raise OneBotError(
-                "OneBot API request timed out: {}".format(action)
+                "OneBot API request timed out: {}".format(log_action)
             ) from error
         finally:
             self._pending.pop(echo, None)
+            self._pending_streams.pop(echo, None)
 
     def _resolve_pending(self, packet: Mapping[str, Any]) -> None:
         """Resolve the request future identified by a protocol echo value."""
@@ -564,6 +621,16 @@ class OneBotV11Adapter:
         future = self._pending.get(echo)
         if future is None or future.done():
             return
+        stream_handler = self._pending_streams.get(echo)
+        if stream_handler is not None:
+            try:
+                if not stream_handler(packet):
+                    return
+            except (OneBotError, OSError) as error:
+                _log.warning("OneBot API request failed: action=download_file_stream reason=invalid_stream")
+                future.set_exception(OneBotError("Native file stream rejected: {}".format(
+                    type(error).__name__)))
+                return
         future.set_result(packet)
 
     def _fail_pending(self, error: OneBotError) -> None:
@@ -571,6 +638,7 @@ class OneBotV11Adapter:
 
         pending = tuple(self._pending.values())
         self._pending.clear()
+        self._pending_streams.clear()
         for future in pending:
             if not future.done():
                 future.set_exception(error)
@@ -601,6 +669,79 @@ class OneBotV11Adapter:
             _log.warning("Ignoring non-object OneBot packet")
             return None
         return packet
+
+
+class _FileDownload:
+    """Validate ordered bounded NapCat stream packets before writing bytes."""
+
+    def __init__(self, output: BinaryIO, maximum: int) -> None:
+        """Track one canonical file request without retaining packet bodies."""
+        self.output = output
+        self.maximum = maximum
+        self.expected_size: Optional[int] = None
+        self.chunks = 0
+        self.size = 0
+        self.complete = False
+
+    def consume(self, packet: Mapping[str, Any]) -> bool:
+        """Return true only for a terminal reply; reject malformed or excess data."""
+        if packet.get("status") == "failed" or packet.get("retcode", 0) not in (0, "0", None):
+            return True
+        data = packet.get("data")
+        if not isinstance(data, dict):
+            raise OneBotError("Invalid native file stream metadata")
+        kind = data.get("data_type")
+        if kind == "file_info" and data.get("type") == "stream":
+            size = data.get("file_size")
+            if self.expected_size is not None or type(size) is not int or not 0 < size <= self.maximum:
+                raise OneBotError("Invalid native file stream size")
+            self.expected_size = size
+            return False
+        if self.expected_size is None:
+            raise OneBotError("Native file stream has no metadata")
+        if kind == "file_chunk" and data.get("type") == "stream":
+            encoded = data.get("data")
+            if (not isinstance(encoded, str) or not encoded or
+                    len(encoded) > 4 * ((FILE_STREAM_CHUNK_BYTES + 2) // 3) or
+                    type(data.get("index")) is not int or data["index"] != self.chunks):
+                raise OneBotError("Invalid native file stream chunk")
+            try:
+                chunk = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error):
+                raise OneBotError("Invalid native file stream encoding") from None
+            if (not 0 < len(chunk) <= FILE_STREAM_CHUNK_BYTES or
+                    type(data.get("size")) is not int or data["size"] != len(chunk) or
+                    self.size + len(chunk) > min(self.maximum, self.expected_size)):
+                raise OneBotError("Native file stream exceeds its size limit")
+            self.output.write(chunk)
+            self.chunks += 1
+            self.size += len(chunk)
+            return False
+        if kind == "file_complete" and data.get("type") == "response":
+            if (type(data.get("total_chunks")) is not int or data["total_chunks"] != self.chunks or
+                    type(data.get("total_bytes")) is not int or data["total_bytes"] != self.size or
+                    self.size != self.expected_size):
+                raise OneBotError("Native file stream is incomplete")
+            self.complete = True
+            return True
+        raise OneBotError("Invalid native file stream event")
+
+
+def _file_request_timeout(size: Any) -> float:
+    """Cover observed NapCat download bounds plus a small response margin.
+
+    Native cached/model downloads default to 120 seconds. File-assistant
+    fallback uses 10 seconds plus size at 256 KiB/s, capped at 1800 seconds.
+    This bounds only the bot's response wait, not NapCat's native download.
+    """
+    size_text = str(size or "")
+    try:
+        byte_size = max(0, int(size_text)) if size_text.isdecimal() else 0
+    except ValueError:
+        byte_size = 0
+    bounded_size = min(byte_size, int(FILE_DOWNLOAD_MAX_SECONDS * FILE_DOWNLOAD_BYTES_PER_SECOND))
+    fallback = min(10.0 + bounded_size / FILE_DOWNLOAD_BYTES_PER_SECOND, FILE_DOWNLOAD_MAX_SECONDS)
+    return max(FILE_DOWNLOAD_MIN_SECONDS, fallback) + FILE_RESPONSE_MARGIN_SECONDS
 
 
 def _read_segments(raw_segments: Any) -> Tuple[MessageSegment, ...]:

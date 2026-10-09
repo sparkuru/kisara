@@ -331,6 +331,71 @@ is not 1000. After saving, inspect files with `ls -lah data/kisara/setu` or:
 docker compose --env-file .env -f deploy/compose.yaml --project-name kisara exec kisara ls -lah /app/setu
 ```
 
+Quoted ordinary file messages and merged forwards can include archive attachments (`tar`, `tar.gz`,
+`tgz`, `zip`, `7z`, `rar`, `tar.bz2`, `tbz2`, `tar.xz`, `txz`, `tar.zst`, and
+`tzst`). They use the existing private `/setu` confirmation or direct-save flow
+and count as files in the prompt. Archives keep their original names in either
+save mode; a name already occupied by different content produces
+`original_timestamp.ext` in the same directory, with compound extensions intact
+(for example `backup_20261009-153000-123456.tar.gz`). Matching archived content is
+reused. Timestamp suffixing applies only to these archive file attachments;
+images, videos, audio, and other files retain their existing rules.
+
+For an ordinary file, send it as a file message in an authorized private chat,
+then quote that message with `/setu` and confirm the prompt, or quote it with
+直接保存. Plain file messages without a quoted save command do not auto-save.
+The new entry accepts file-kind segments, including generic files with their
+existing placement; it does not add Setu saving for plain image/video quotes.
+After confirmation or 直接保存, the bot first replies with a start notice such
+as `正在保存以上 2 个文件、1 个视频、3 张图片。`, then performs the transfer and
+sends 归档完成 with saved/failed counts. Retry notices count only unfinished
+attachments. The notice is informational; use the existing confirmation prompt
+or direct failure result to select a retry.
+This route avoids merged-forward retrieval, but actual native ordinary-file
+download depends on the selected NapCat runtime. Local sources must resolve
+inside `local_media_root` under approved QQ media directories. Explicit file
+attachments can also use direct files in `NapCat/temp`, where the inspected
+runtime places ordinary native downloads; other NapCat directories and nested
+temp paths remain rejected.
+
+If the downloaded native file is owner-only (`0600`) and the OneBot container
+cannot read it, file attachments use NapCat's bounded `download_file_stream`
+interface over the existing authenticated WebSocket. Chunk order, sizes and
+completion totals are checked before publication; binary copies keep the same
+archive naming and size limits. No account-directory chmod or global base64
+setting is needed.
+
+After a failed batch's retry window expires, quote the original file/forward
+message again with `/setu` to get a fresh prompt, or with 直接保存 to resume
+immediately. The existing batch and saved items remain; only failed items are
+retried. Quoting an expired old prompt/result alone does not renew consent.
+Repeated completed sources and active saves have distinct status replies.
+
+Archive bytes are saved without extraction. Existing source restrictions,
+per-file/batch limits, and failed-item retries still apply. Archive detection
+uses filename suffixes; opaque IDs without original-name metadata cannot
+establish an archive type or its original name. Invalid archive names produce
+item failures instead of silently sanitized names. No private configuration or
+historical-file migration is required for this feature.
+
+NapCat file segments may expose the original name in `file` and a different
+canonical lookup key in `file_id`. Kisara keeps those roles separate. Without
+a supplied URL, `get_file` waits for the complete NapCat download; file requests
+therefore use a separate bounded response wait of 125–1805 seconds based on
+reported size, while ordinary chat requests keep their short deadline. This
+does not extend NapCat's own native transfer timeout. Request failures log safe
+action/reason/retcode details without raw file IDs or URLs.
+If a failed file save outlasts its original confirmation window, its result
+opens one configured retry window from completion. Unstarted confirmations,
+short failures, and image-only batches keep their existing deadlines.
+
+A failed native transfer is not a successful archive save. The inspected NapCat
+4.18.28 runtime returned `get_file` retcode 1200 after 120 seconds for one
+private forwarded archive, and its private URL action could not resolve that
+file. Longer Kisara waits alone do not repair an unavailable native forward
+resource. HTTPS/cache protections remain effective; raw HTTP links and arbitrary
+NapCat temporary paths are not accepted as an automatic workaround.
+
 The optional music API runs only on the Compose network. Set
 `api_url = "http://music:3000"` in `config/features/music/config.toml` and start
 its profile with:
