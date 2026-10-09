@@ -1,5 +1,16 @@
 # Approved GAP remediation: final evidence
 
+## Closure progress
+
+2026-10-09: after explicit user archive approval, all 43 reviewed work paths
+were committed as `6f8f043910e444cf1f2e18a0d5c26ef0668044f7`
+(`feat(preview): complete Trellis Plus gap remediation`). Its message has no
+task-archive Codex trailer. The initial implementation checkpoint below records
+the earlier uncommitted/unarchived state; the closure record supersedes only
+those bookkeeping statements, preserving all actual runtime UNKNOWN results.
+Next, use the supported `task.py archive --no-commit` route and a commit scoped
+to this task's source/destination with exactly one attribution trailer.
+
 ## Scope and authority
 
 2026-10-09: user approved all applicable audit GAP repairs, then explicitly
