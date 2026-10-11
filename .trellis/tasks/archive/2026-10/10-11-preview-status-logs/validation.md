@@ -74,3 +74,24 @@ The user separately authorized the reviewed combined 105-path work commit,
 including implemented Telegram/configuration/canonical-command prerequisites.
 Workspace journals, push and archive remain excluded. Preserve both tasks'
 in-progress state and the separate pending Telegram live acceptance.
+
+## Authorized completion review — 2026-10-11
+
+The user authorized archiving all existing tasks whose acceptance is complete
+and merging/deleting local branches, explicitly excluding new task creation.
+This supersedes this task's earlier archive exclusion. Implementation is in
+`2782454b17ccebad628010f10c2131e89425f86a`; all PRD criteria are met by the
+automated and real read-only evidence above. `human-not-needed` still applies.
+
+Fresh verification on unchanged application source:
+
+- `./kisara.sh test tests/unit/test_preview_lifecycle.py -q -k 'status_follows or status_stream or status_rechecks or ready_auxiliary'`:
+  **20 passed, 89 deselected**, 78.03 seconds.
+- `bash -n kisara.sh deploy/engines.sh deploy/preview-runtime.sh deploy/preview-console.sh`:
+  passed.
+- `git diff --check keiyaku-no-kisu..feat/telegram-tgsetu`: passed.
+
+Corrected the recorded target branch to `keiyaku-no-kisu`; implementation used
+the shared `feat/telegram-tgsetu` branch. No validation bypass, account operation,
+service change or push was needed. Setu and Telegram tasks remain in progress
+because their prepared account acceptance has no completion evidence.

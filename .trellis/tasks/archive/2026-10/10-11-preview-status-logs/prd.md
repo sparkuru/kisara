@@ -76,3 +76,13 @@ The user subsequently authorized a combined work commit containing this task
 and the implemented Telegram/configuration/canonical-command prerequisites:
 105 explicitly reviewed paths, excluding workspace journals. No push or archive
 is authorized; keep both task records in progress.
+
+## Completion review — 2026-10-11
+
+The user subsequently requested review of all existing tasks, completion and
+archival of those ready, and local branch integration/cleanup without creating
+a task. This supersedes the earlier archive exclusion for this completed task.
+All six acceptance criteria have recorded evidence; work commit is
+`2782454b17ccebad628010f10c2131e89425f86a`. The fresh focused archive gate passed
+20 tests. Classification remains `human-not-needed`. Telegram and Setu retain
+their separate pending account acceptance and in-progress records.
