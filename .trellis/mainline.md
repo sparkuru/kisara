@@ -47,7 +47,7 @@
   [design](tasks/archive/2026-10/10-09-trellis-plus-gaps/design.md),
   [implementation plan](tasks/archive/2026-10/10-09-trellis-plus-gaps/implement.md).
 - Separately approved product work:
-  [setu PRD Goal/Requirements/Acceptance](tasks/10-09-setu-archive-files/prd.md).
+  [setu PRD Goal/Requirements/Acceptance](tasks/archive/2026-10/10-09-setu-archive-files/prd.md).
   Its 2026-10-09 plan approval covers archive naming, canonical IDs, bounded
   native transfer/retry and save-start notices; it is not deployment authority.
 - Historical architecture direction:
@@ -80,12 +80,21 @@ parent/child relationship or serial execution is inferred.
 | Order | Task | State | Readiness/dependency evidence |
 | --- | --- | --- | --- |
 | 1 | [Trellis Plus remediation](tasks/archive/2026-10/10-09-trellis-plus-gaps/task.json) | completed, archived | Work 6f8f043; archive fc0d64f; final full suite 643 passed; real preview acceptance remains unrun |
-| 2 | [Setu archive attachments](tasks/10-09-setu-archive-files/task.json) | in_progress, pending live acceptance | Work c3e2f32 retained on keiyaku-no-kisu; automated/isolated byte-transfer evidence below; updated-runtime command/receipts/checkpoints still unverified, so not archived during cleanup |
+| 2 | [Setu archive attachments](tasks/archive/2026-10/10-09-setu-archive-files/task.json) | completed, archived | Work c3e2f32 on keiyaku-no-kisu; user confirmed task acceptance passed on 2026-10-11; archive 10feef1; existing 308 focused/580 full passes and isolated native-byte/digest evidence retained |
 | 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | in_progress, implemented and merged; scoped QQ preview ready | Work 2782454 on keiyaku-no-kisu; final combined Docker suite 913 passed/1 host-verified Git skip; official image/RO-cache smoke passed; scoped OneBot preview ready with data retained; Telegram account/deployment acceptance pending, so not archived |
 | 4 | [Preview status bot logs](tasks/archive/2026-10/10-11-preview-status-logs/task.json) | completed, archived | Work 2782454; archive 47ea1cc on keiyaku-no-kisu; all acceptance met; fresh 20-case focused gate passed; existing full913 passed/1 skipped and real read-only follow/interrupt smoke preserved bot/NapCat |
 
 ## Evidence and decisions
 
+- Setu acceptance closure 2026-10-11: the user confirmed
+  “setu-archive-files 已通过；可以验收；”. This user-reported live pass
+  satisfies the prior human acceptance gate and authorizes completion under
+  the existing archive request. Task archived as `10feef1`, with one Codex
+  trailer. [Acceptance record](tasks/archive/2026-10/10-09-setu-archive-files/validation.md)
+  distinguishes the user report from earlier automated/isolated evidence;
+  no new per-case logs, digests or independent native-forward repair claims
+  were invented. No new application tests, account/service operation or push
+  occurred. Only Telegram remains active and pending its separate acceptance.
 - Existing-task cleanup 2026-10-11: the user explicitly requested no new task,
   review/completion/archival of existing tasks where ready, merge of all local
   branches into the main branch and deletion of the remaining local branches.
@@ -152,14 +161,15 @@ parent/child relationship or serial execution is inferred.
   account acceptance. No live switch,
   deployment, commit or archive performed.
 - Setu work commit: `c3e2f324e3a4a780702cc5c84b3deb670f48d807`.
-  [2026-10-09 validation](tasks/10-09-setu-archive-files/validation.md) records
+  [2026-10-09 validation](tasks/archive/2026-10/10-09-setu-archive-files/validation.md) records
   308 focused/580 full Docker tests and one 109092709-byte native transfer with
   independent hash match. These are historical scoped results, not this task's
   revalidation or proof of deployed quoted-command acceptance.
-- Pending setu acceptance: progress/result receipts and SQLite completion under
-  the updated deployed runtime; separate native private-forward failure remains.
-  See [live instructions](tasks/10-09-setu-archive-files/live-validation.md).
-  Keep task status in_progress and do not mark acceptance complete from commit.
+- Setu acceptance: the formerly pending deployed-command human gate is closed
+  by the user's 2026-10-11 pass confirmation; task completed and archived.
+  See [live acceptance record](tasks/archive/2026-10/10-09-setu-archive-files/live-validation.md).
+  Earlier private-forward diagnostics remain historical, without a new
+  independently verified repair claim.
 - Earlier engine configuration archive:
   [task](tasks/archive/2026-10/10-04-engine-env-config/task.json), work `d89fdbe`,
   archive `45cc86a`; [validation](tasks/archive/2026-10/10-04-engine-env-config/validation.md)
@@ -176,11 +186,10 @@ parent/child relationship or serial execution is inferred.
   `fc0d64f15f381fae3a4faab57ddcc84e9ddfdeb6`, exact single-task scope and
   one Codex trailer. Status completed; active pointer cleared. Preserve the
   Setu task and all prior approvals; no merge or push was performed.
-- Next permitted action: deliver latest script-retirement/probe-fix/startup
-  evidence and retain the requested running QQ preview. Telegram deployment,
-  controlled feature/account acceptance and committing/archive need their own
-  scope. [Prepared acceptance](tasks/10-10-telegram-tgsetu/live-validation.md)
-  is ready; Setu acceptance remains separately pending.
+- Next permitted action: retain the requested running QQ preview; Telegram's
+  separately scoped deployment/account acceptance remains pending. Its
+  [prepared acceptance](tasks/10-10-telegram-tgsetu/live-validation.md) is ready.
+  Setu is accepted and archived; no further work or new task is inferred.
 
 ## Lifecycle maintenance
 

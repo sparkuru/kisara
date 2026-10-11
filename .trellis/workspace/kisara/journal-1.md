@@ -541,3 +541,37 @@ Reviewed all three active tasks without creating a task. Archived completed prev
 ### Next Steps
 
 - Complete the separately prepared Setu and Telegram account acceptance before archiving those tasks; no live account/service operation or push performed in this cleanup.
+
+
+## Session 17: Accept and archive Setu archive attachments
+<!-- trellis-session: v=2 fp=0673d4bcbff8f8a1 -->
+
+**Date**: 2026-10-11
+**Task**: Accept and archive Setu archive attachments
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+User confirmed setu-archive-files passed acceptance. Recorded the user-reported live result, marked the existing task completed and archived it as 10feef1; updated mainline paths and acceptance state. Telegram remains the sole active task.
+
+### Main Changes
+
+- Preserved historical automated/native-transfer evidence and diagnostics; no new task, account/service operation or push.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c3e2f32` | feat(setu): save archive files and announce save progress |
+
+### Testing
+
+- [OK] Record-only closure; existing 308 focused/580 full passes retained, no new application test run.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Telegram task still requires its separately prepared account/deployment acceptance.
