@@ -114,3 +114,14 @@ resource remains unsupported by the observed native/URL responses; no dependency
 patch or relaxed source policy is implied by adding the alternate entry.
 
 Archive recognition is suffix-based. Original-name metadata remains a prerequisite for the archive-specific guarantee; opaque unnamed attachments cannot supply it. This technical limit preserves existing generic-file compatibility and avoids unrequested content inspection.
+
+## Acceptance closure — 2026-10-11
+
+The user confirmed “setu-archive-files 已通过；可以验收；”. Record the task
+as accepted on the user's live result; this supersedes the earlier pending
+human acceptance state. Combined with the existing automated/isolated transfer
+evidence and implementation commit `c3e2f32`, the task is ready for completion
+and archival under the existing cleanup authorization. No new agent account
+operation or service change was performed. The user supplied an overall pass,
+not individual case logs; historical native-forward diagnostic limitations
+remain recorded without an invented independent repair claim.

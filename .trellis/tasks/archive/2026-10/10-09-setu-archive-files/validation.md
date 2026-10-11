@@ -1,5 +1,17 @@
 # Validation and current acceptance state
 
+## Accepted — 2026-10-11
+
+The user confirmed “setu-archive-files 已通过；可以验收；”. The previously
+pending human acceptance gate is satisfied by this user-reported live result.
+Together with the existing 308 focused/580 full test passes, isolated complete
+native transfer/digest match and work commit `c3e2f32`, this authorizes completion
+and archival under the user's existing cleanup request. No new application
+tests, account messages or service operations were run for this record-only
+closure. Earlier pending statements below describe their historical checkpoint.
+No per-case logs or new digests were supplied; the earlier native-forward
+diagnostic boundary is preserved without claiming an independent repair.
+
 ## Current result
 
 Latest live failures exposed two additional application gaps: retained seen IDs

@@ -1,5 +1,13 @@
 # Prepared live QQ acceptance
 
+## Acceptance closure — 2026-10-11
+
+User confirmation: “setu-archive-files 已通过；可以验收；”. The task's live
+acceptance is recorded as passed on the user's report, superseding the pending
+state below. The following preparation and diagnostic facts remain historical;
+no new agent-issued account message, deployment or independent per-case probe
+was performed to archive this accepted task.
+
 Status: native ordinary-file download and complete-byte saving now passed in an
 isolated temporary validation, including the bot UID's owner-only source
 condition. See research/live-cache-and-expired-retry.md. Deployed command/result

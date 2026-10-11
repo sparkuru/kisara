@@ -38,8 +38,9 @@ Latest live defect iteration:
 - [x] Finish latest full-scope review/full-suite gates after stream additions:
   575passed in18.28seconds,3existingPTBwarnings; diff/manifests passed and no
   code defect remained.
-- [ ] Apply latest image externally and verify real quoted-source result/DB
-  checkpoints; no agent deployment or account sends authorized/performed.
+- [x] Close pending live acceptance on the user's 2026-10-11 overall pass
+  confirmation; no new agent deployment or account sends performed. Individual
+  deployment/receipt/checkpoint artifacts were not supplied with the report.
 
 ```bash
 ./hako python -m pytest tests/unit/test_setu.py tests/unit/test_setu_config.py

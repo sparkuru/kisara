@@ -3,7 +3,7 @@
   "name": "setu-archive-files",
   "title": "Extend /setu to save archive attachments with original filenames",
   "description": "Save quoted OneBot file/forward archives with original names, archive-only collision timestamps, canonical IDs and bounded retryable transfers.",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": "backend",
   "scope": "setu",
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "kisara",
   "assignee": "kisara",
   "createdAt": "2026-10-09",
-  "completedAt": null,
+  "completedAt": "2026-10-11",
   "branch": "feat/setu-archive-files",
   "base_branch": "keiyaku-no-kisu",
   "worktree_path": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "2026-10-11 completion review under the user's existing-task cleanup request: implementation c3e2f32 is retained on keiyaku-no-kisu. Keep in_progress: updated-runtime quoted-file command, progress/final receipts, copied digest, saved checkpoints and duplicate suppression still lack live acceptance evidence. Isolated native transfer evidence does not satisfy the pending end-to-end account criteria. No account operation or service change performed.",
+  "notes": "2026-10-11 user confirmed: setu-archive-files 已通过；可以验收；. Accepted on that user-reported live result, superseding the prior pending human acceptance gate. Implementation c3e2f32 is retained on keiyaku-no-kisu; previous automated evidence is 308 focused/580 full passes plus isolated native-byte/digest verification. Archive follows the user's existing completed-task cleanup authorization. No new agent account operation, service change or test run; historical native-forward diagnostic limitations are not independently claimed repaired.",
   "meta": {}
 }
