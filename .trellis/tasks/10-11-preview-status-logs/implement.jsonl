@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared project policy"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Context loading and delivery boundaries"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Preserve user changes and narrow scope"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Preview readiness, ownership and redaction contracts"}
+{"file": ".trellis/spec/trellis-plus/cli-entrypoints.md", "reason": "Canonical preview target and read-only status contracts"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Focused testing and Docker wrapper"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Sensitive diagnostic output"}

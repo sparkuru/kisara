@@ -14,7 +14,7 @@ cache_days = 7
 # not host paths; the font files must be readable inside the running container.
 # font_paths = ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"]
 # Repo-local alternative: place a CJK-capable .ttf, .otf, or .ttc in config/fonts/.
-# Compose mounts config/ at /app/config/ for both kisara and kisara-dev.
+# Compose mounts shared config/fonts/ at /app/config/fonts/ for every bot.
 # font_paths = ["/app/config/fonts/YourFont.ttf"]
 # After changing font_paths, restart the active bot service; no image rebuild is needed.
 # Remove today's cached PNG from the news cache directory to regenerate it with the new font.

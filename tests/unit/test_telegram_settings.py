@@ -17,7 +17,7 @@ def prepare(monkeypatch: object, tmp_path: Path) -> None:
 def test_telegram_skips_qq_features_and_credentials(monkeypatch: object, tmp_path: Path) -> None:
     prepare(monkeypatch, tmp_path)
     for name in ("chat", "tarot", "source", "love"):
-        directory = tmp_path / "config/features" / name
+        directory = tmp_path / "config/telegram/features" / name
         directory.mkdir(parents=True)
         (directory / "config.toml").write_text("invalid_key = true")
     monkeypatch.setenv("KISARA_CHAT_TRIGGER_RATE", "invalid")
@@ -32,7 +32,7 @@ def test_independent_switches_toml_override_env(monkeypatch: object, tmp_path: P
     prepare(monkeypatch, tmp_path)
     monkeypatch.setenv("KISARA_NEWS_ENABLED", "true")
     monkeypatch.setenv("KISARA_NEWS_PUSH_ENABLED", "false")
-    directory = tmp_path / "config/features/news"
+    directory = tmp_path / "config/telegram/features/news"
     directory.mkdir(parents=True)
     (directory / "config.toml").write_text('enabled = false\npush_enabled = true\npush_users = ["123"]')
     settings = Settings.from_environment()
@@ -157,3 +157,82 @@ def test_telegram_logging_switch_ignored_by_other_engines(monkeypatch: object, t
     monkeypatch.setenv("OFFICIAL_APP_SECRET", "synthetic-secret")
     monkeypatch.setenv("TELEGRAM_MESSAGE_LOG_ENABLED", "invalid-for-telegram")
     assert not Settings.from_environment().telegram_message_log_enabled
+
+
+def test_bot_api_default_and_explicit_local_settings(monkeypatch: object, tmp_path: Path) -> None:
+    prepare(monkeypatch, tmp_path)
+    monkeypatch.delenv("TELEGRAM_API_BASE_URL", raising=False)
+    monkeypatch.delenv("TELEGRAM_LOCAL_MODE", raising=False)
+    configured = Settings.from_environment()
+    assert configured.telegram_api_base_url == "https://api.telegram.org"
+    assert not configured.telegram_local_mode
+    monkeypatch.setenv("TELEGRAM_API_BASE_URL", "http://telegram-bot-api:8081/")
+    monkeypatch.setenv("TELEGRAM_LOCAL_MODE", "true")
+    configured = Settings.from_environment()
+    assert configured.telegram_api_base_url == "http://telegram-bot-api:8081"
+    assert configured.telegram_local_mode
+
+
+@pytest.mark.parametrize("name,value", [
+    ("TELEGRAM_API_BASE_URL", "ftp://server"), ("TELEGRAM_API_BASE_URL", ""),
+    ("TELEGRAM_API_BASE_URL", "http://user:secret@server:8081"),
+    ("TELEGRAM_API_BASE_URL", "http://server:8081/?token=SECRET"),
+    ("TELEGRAM_API_BASE_URL", "http://server:8081/#fragment"),
+    ("TELEGRAM_API_BASE_URL", "http://server:invalid"),
+    ("TELEGRAM_API_BASE_URL", "http://some host:8081"),
+    ("TELEGRAM_LOCAL_MODE", "sometimes"), ("TELEGRAM_LOCAL_MODE", "true"),
+])
+def test_invalid_bot_api_settings_rejected(monkeypatch: object, tmp_path: Path,
+                                          name: str, value: str) -> None:
+    prepare(monkeypatch, tmp_path)
+    monkeypatch.delenv("TELEGRAM_API_BASE_URL", raising=False)
+    monkeypatch.delenv("TELEGRAM_LOCAL_MODE", raising=False)
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ConfigurationError) as caught:
+        Settings.from_environment()
+    assert "SECRET" not in str(caught.value)
+
+
+@pytest.mark.parametrize("engine", ["onebot", "official"])
+def test_unselected_bot_api_settings_ignored(monkeypatch: object, tmp_path: Path, engine: str) -> None:
+    prepare(monkeypatch, tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", engine)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "synthetic-onebot")
+    monkeypatch.setenv("OFFICIAL_APP_ID", "synthetic-app")
+    monkeypatch.setenv("OFFICIAL_APP_SECRET", "synthetic-secret")
+    monkeypatch.setenv("TELEGRAM_API_BASE_URL", "invalid")
+    monkeypatch.setenv("TELEGRAM_LOCAL_MODE", "invalid")
+    configured = Settings.from_environment()
+    assert not configured.telegram_local_mode
+    assert configured.telegram_api_base_url == "https://api.telegram.org"
+
+
+@pytest.mark.parametrize("case", ["no_local", "disallowed", "valid"])
+def test_archive_startup_validation_and_native_injection(monkeypatch: object, tmp_path: Path,
+                                                        case: str) -> None:
+    import kisara.bot.main as startup
+    from types import SimpleNamespace
+    prepare(monkeypatch, tmp_path)
+    config = tmp_path / "config/telegram/features/tgsetu/config.toml"
+    config.parent.mkdir(parents=True)
+    user = "999" if case == "disallowed" else "123"
+    config.write_text('enabled = true\nallowed_users = ["' + user + '"]\n')
+    if case != "no_local":
+        monkeypatch.setenv("TELEGRAM_LOCAL_MODE", "true")
+        monkeypatch.setenv("TELEGRAM_API_BASE_URL", "http://telegram-bot-api:8081")
+    captured = []
+    service = SimpleNamespace()
+    monkeypatch.setattr(startup, "TgSetu", lambda *args: service)
+    def create(*args: object, **kwargs: object) -> object:
+        captured.append((args, kwargs))
+        return SimpleNamespace(start=lambda: None, close=lambda: None)
+    monkeypatch.setattr(startup, "create_adapter", create)
+    assert startup.main() == (0 if case == "valid" else 2)
+    if case != "valid":
+        assert captured == []
+    else:
+        args, injected = captured[0]
+        assert args[3] is None and injected["tgsetu"] is service
+        router = injected["native_authorizer"].__self__
+        assert router.router.eligible("tgsetu", "telegram")
+        assert "/tgsetu" in router.router.help("telegram")

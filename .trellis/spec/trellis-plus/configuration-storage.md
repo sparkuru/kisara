@@ -13,7 +13,7 @@ Do not reread configuration on every message.
 Ordinary feature wiring is:
 
 ```text
-config/features/<feature>/config.toml.example
+config/<engine>/features/<feature>/config.toml.example
   -> config/feature_files.py: FEATURE_KEYS and type validation
   -> config/settings.py: Settings fields, defaults, from_environment()
   -> bot/main.py: dependency assembly
@@ -21,10 +21,10 @@ config/features/<feature>/config.toml.example
   -> tests/unit/test_settings.py: loading, precedence, invalid input
 ```
 
-`load_feature(name: str) -> Mapping[str, Any]` returns `{}` for a missing
+`load_feature(name: str, config_root: Path) -> Mapping[str, Any]` returns `{}` for a missing
 ordinary feature file. Explicit TOML values override legacy environment values;
 missing fields use legacy environment values or code defaults. TOML chat/tarot
-group overrides take precedence over legacy `config/groups.json` values.
+group overrides take precedence over legacy `<config_root>/groups.json` values.
 Group overrides must refer to allowed groups. Setu uses its separate
 `config/setu.py` loader; a missing setu file disables that feature.
 
@@ -36,6 +36,8 @@ Validate credentials only for the selected engine: OneBot requires
 `TELEGRAM_BOT_TOKEN`. Telegram does not load unrelated QQ feature files or
 group overrides. Update `.env.example` and Compose
 environment wiring when a runtime variable changes.
+
+Local API and archive/cache/state: [TgSetu](tgsetu.md).
 
 ## Incremental environment maintenance
 
@@ -59,8 +61,8 @@ command. TOML changes use bot restart; dotenv changes need container recreation.
 
 Verify changed maintenance logic in temporary files: missing file, custom value,
 existing empty value, comments/quoting/line endings, new key, duplicate and second
-identical run. A prose rule is configuration evidence, not proof an unrun updater
-works. Do not create a permanent synchronization tool for one reversible update.
+identical run. Verify execution, not just prose. Do not make a permanent updater
+for one reversible update.
 
 ## Engine-owned deployment environment
 
@@ -150,7 +152,7 @@ validate the resulting runtime field after selected-engine resolution.
 
 ### 1. Scope / trigger
 
-The private `config/features/setu/config.toml` and its `.example` set transfer
+The private `config/onebot/features/setu/config.toml` and its `.example` set transfer
 caps for the OneBot setu archive. Load once at startup through `SetuConfig.load`.
 
 ### 2. Signatures
@@ -186,7 +188,7 @@ it rather than silently guessing units.
 types and strings, and the converted batch-versus-file relation.
 `tests/unit/test_setu.py` checks the media saver against byte limits.
 Tests of environment defaults should change to `tmp_path` before loading
-settings, so private `config/features/*/config.toml` files in the repository
+settings, so private `config/<engine>/features/*/config.toml` files in the repository
 cannot change their expected input.
 
 ### 7. Wrong versus correct
@@ -216,14 +218,14 @@ and override behavior. Do not assume a new feature inherits group overrides.
 ## Retained-feature switches
 
 `Settings.ping_enabled`, `help_enabled`, `music_enabled`, `news_enabled`, and
-`news_push_enabled` default to true. `config/features/ping/config.toml`, help,
+`news_push_enabled` default to true. `<config_root>/features/ping/config.toml`, help,
 and music accept `enabled`; news accepts `enabled` and `push_enabled`. Explicit
 TOML booleans override `KISARA_PING_ENABLED`, `KISARA_HELP_ENABLED`,
 `KISARA_MUSIC_ENABLED`, `KISARA_NEWS_ENABLED`, and `KISARA_NEWS_PUSH_ENABLED`.
 Missing keys preserve environment/default fallback. Invalid values fail startup.
 Manual news and push are independent; no recipients means no scheduler.
 Apply TOML changes through a targeted bot restart. Apply `.env` container
-environment changes through targeted recreation (`./deploy.sh up telegram`);
+environment changes through targeted recreation (`./kisara.sh up telegram`);
 Compose restart retains the previous container environment.
 
 ## Storage contracts
@@ -231,7 +233,7 @@ Compose restart retains the previous container environment.
 | Data | Runtime/host location | Compose location and lifetime |
 | --- | --- | --- |
 | Private environment | `.env`, copied from `.env.example` | Only intentional runtime injection; ignored by Git |
-| Private feature config | `config/features/<feature>/config.toml` | `/app/config`, read-only; reload through restart |
+| Private feature config | `config/<engine>/features/<feature>/config.toml` | `/app/config/<engine>`, read-only; restart after TOML edits |
 | SQLite application state | `KISARA_STATE_DIR`, default `data/kisara` | `/app/state`, `kisara_state` named volume |
 | News PNG cache | news `cache_dir`, default `data/daily-news` | `/app/state/daily-news`, persistent state volume |
 | Temporary external cache | `/tmp/kisara/<feature>/` for new features | Container-local; may disappear on recreation |
@@ -347,16 +349,12 @@ resume logic remains the downloader's responsibility.
 
 ## Privacy and deployment boundaries
 
-Compose engine profiles are `onebot`, `onebot-dev`, `telegram`, and `official`;
-`music` is optional infrastructure. `.env` `COMPOSE_PROFILES=onebot,telegram`
-selects concurrent containers. `deploy/engines.sh <action> [profile,...]` powers
-the unified entrypoints, with a compatible OneBot fallback when no selection is
-configured. Reject simultaneous onebot/onebot-dev owners. Each container runs
-one `KISARA_ENGINE` and receives explicit environment mappings, never the entire
-shared `.env`. Telegram's namespaced deployment access/feature fields map to
-runtime `KISARA_*` fields and `TELEGRAM_BOT_TOKEN`. Its read-only configuration
-mount is `config/telegram:/app/config` and its independent `telegram_state` volume
-is mounted at `/app/state`; official uses config/official and official_state.
+Compose profiles select independent onebot/onebot-dev, telegram and official
+containers, plus optional music infrastructure. Helpers retain the default
+OneBot selection and reject simultaneous QQ owners. Each bot receives explicit
+engine environment mappings, never the entire shared .env. Same-path selected
+configuration mounts and migration rules are in [engine roots](engine-config.md).
+Telegram uses telegram_state and official uses official_state at /app/state.
 
 `stop`/`down`, restart, logs, and rebuild through explicit targets affect only
 selected engines. `down-all` is the explicit whole-project operation. Changing

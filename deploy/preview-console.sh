@@ -31,13 +31,16 @@ preview_log() { preview_message log 2 "[log] $*"; }
 preview_error() { preview_message error 2 "[error] $*"; }
 
 preview_usage() {
-	preview_message title 2 'Usage: ./preview.sh [start|stop|down|status|build] [--verbose]'
+	preview_message title 2 'Usage: ./kisara.sh preview [start|stop|down|status|build] [engine-or-profile-list] [--verbose]'
 	preview_message section 2 'Commands:'
 	printf '%s\n' \
 		'  start    Prepare only missing resources, start detached, wait for readiness.' \
-		'  status   Inspect readiness; never build/install/start.' \
+		'  status   Show readiness, then follow selected bot logs (last 80 lines, redacted).' \
+		'           Ctrl+C stops viewing only; bot containers keep running. Never build/install/start.' \
 		'  build    Explicit rebuild/preparation; never start the service group.' \
 		'  stop/down Stop and remove only owned preview containers; preserve volumes/data.' \
+		'  Target   onebot, onebot-dev, telegram, official, music; comma-separated profiles supported.' \
+		'           Explicit target wins over KISARA_ENGINE/COMPOSE_PROFILES; omitted target keeps their selection.' \
 		'  --verbose Show captured, redacted details after each step (not streaming).' \
 		'  --help    Read no configuration and perform no Docker operations.' >&2
 	preview_message section 2 'First use:'
@@ -45,13 +48,13 @@ preview_usage() {
 		'  cp .env.example .env (only if absent); edit selected engine credentials/access lists.' \
 		'  OneBot: ONEBOT_ALLOWED_USERS, ONEBOT_ACCESS_TOKEN, NAPCAT_WEBUI_TOKEN; log into NapCat.' \
 		'  Telegram: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS. Official: OFFICIAL_APP_ID/SECRET.' \
-		'  Required host tools: Bash 4.4+, Docker/Compose, timeout, sha256sum, sed, awk; ip for wildcard local publishing.' \
+		'  Required host tools: Bash 4.4+, Docker/Compose, timeout, sha256sum, sed, awk, mkfifo; ip for wildcard local publishing.' \
 		'  Root .env is data; inherited environment wins by presence, including empty values.' \
 		'  First start may download missing images and pinned Python 3.12 packages; no host Python required.' \
 		'  KISARA_PREVIEW_OFFLINE=true forbids automatic build/pull/install; prepare explicitly when online.' \
-		'  Rebuild after dependency/image source changes: ./preview.sh build; stop first if a group exists.' \
+		'  Rebuild after dependency/image source changes: ./kisara.sh preview build telegram; stop its group first.' \
 		'  Loopback/SSH-tunnel and internal-only boundaries remain; bot engines have no inbound listener.' \
-		'  stdout contains one ready access summary; help/progress/errors use stderr. NO_COLOR disables color.' >&2
+		'  stdout contains a ready summary and status bot logs; help/progress/errors use stderr. NO_COLOR disables color.' >&2
 }
 
 preview_section() {

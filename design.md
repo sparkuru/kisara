@@ -3,6 +3,11 @@
 日期：2026-09-19  
 状态：M1 部署集成与 OneBot 开发热重载已落地；真实账号收发与连续运行验收仍待实施。
 
+当前命令入口已收敛为 `./kisara.sh`，由 `hako` 执行开发命令、
+`deploy/engines.sh` 管理在线服务。旧 `deploy.sh`、`dev.sh`、`start.sh`、
+`preview.sh` 已删除；下文原始阶段设计中的旧入口名称仅为历史记录。
+当前操作方式见 [操作文档](docs/operations.md)。
+
 迁移后的功能现状与旧插件取舍见 [docs/legacy-migration.md](docs/legacy-migration.md)。下文是双引擎接入的原始阶段设计；其中“首版不引入数据库/外部服务”和“群内仅 @ 或命令”等阶段性约束已由迁移实现更新：当前用 SQLite 记录定时简报发送，允许已授权群的词库随机回复，并提供外部内容命令。
 
 ## 1. 目标与范围

@@ -37,6 +37,7 @@ FEATURES = (
     FeatureDefinition("love", ("love",), "/love — fetch a short love note", QQ_ENGINES),
     FeatureDefinition("recall", ("recall",), "/recall — recall a quoted bot message (OneBot)", QQ_ENGINES),
     FeatureDefinition("news", ("news", "brief", "news-clear"), "/news — today's daily news\n清除新闻缓存 — clear today's news PNG and HTML cache"),
+    FeatureDefinition("tgsetu", ("tgsetu",), "/tgsetu [on|off|status|retry <message-id>] — archive received media", ("telegram",), "native"),
     FeatureDefinition("news_push", (), "Scheduled daily news (configured recipients only)", ("onebot", "telegram"), "scheduled"),
 )
 

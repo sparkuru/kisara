@@ -6,12 +6,12 @@ the cute library with a 100 percent trigger rate for exploration. The cute and
 tsundere CSV libraries remain separate; mixed uses the historical JSON reply
 pool. Matching supports exact text and bigram similarity.
 
-config/features/chat/config.toml controls enabled, bot_name, sender_name,
+config/<engine>/features/chat/config.toml controls enabled, bot_name, sender_name,
 library, trigger_rate, similarity_rate, ignored_phrases, banned_users,
 always_reply_users, and reply_to_mentions. Optional [groups."GROUP_ID"] tables
 override the same policy fields for allowed groups; percentages are 0-100.
 KISARA_ALLOWED_USERS and KISARA_ALLOWED_GROUPS still govern access. Feature
-TOML values override matching legacy environment and config/groups.json values.
+TOML values override matching legacy environment and config/<engine>/groups.json values.
 Compose mounts config read-only; restart after changing a feature file. No
 persistent chat database is used.
 """

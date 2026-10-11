@@ -7,8 +7,11 @@ import importlib.util
 import json
 import os
 import shutil
+import signal
 import subprocess
+import time
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -61,7 +64,7 @@ if "ps" in args:
 if "inspect" in args:
     if "image" in args:
         image = args[-1]
-        match = re.search(r"-(kisara-dev|kisara|telegram|official):", image)
+        match = re.search(r"-(telegram-bot-api|kisara-dev|kisara|telegram|official):", image)
         name = match.group(1) if match else "napcat" if "napcat" in image else "music" if "ncm" in image else None
         if image == "python:3.12-slim": name = "hako"
         sys.exit(0 if name in state["images"] else 1)
@@ -73,6 +76,12 @@ if "inspect" in args:
     elif ".State.Status" in fmt: print("running" if facts["running"] else "exited")
     else:
         keys = re.findall(r'\.Config.Labels "([^"]+)"', fmt)
+        if len(keys) == 3 and os.environ.get("FOLLOW_FOREIGN") == name:
+            counter = root / (name + ".ownership-checks")
+            checks = int(counter.read_text()) + 1 if counter.exists() else 1
+            counter.write_text(str(checks))
+            if checks > 1:
+                print("foreign|preview.sh|" + name); sys.exit(0)
         print("|".join(facts["labels"].get(key, "") for key in keys))
     sys.exit(0)
 if "pull" in args:
@@ -86,7 +95,7 @@ if "run" in args:
         save(); sys.exit(0)
     if "check" in args:
         image = next((x for x in args if x.endswith(":latest") or x == "python:3.12-slim"), "")
-        match = re.search(r"-(kisara-dev|kisara|telegram|official):", image)
+        match = re.search(r"-(telegram-bot-api|kisara-dev|kisara|telegram|official):", image)
         name = match.group(1) if match else "hako"
         sys.exit(0 if name in state["dependencies"] else 1)
     if "--detach" in args:
@@ -95,12 +104,24 @@ if "run" in args:
         save(); print("bot"); sys.exit(0)
     sys.exit(0)
 if "exec" in args:
+    if os.environ.get("API_UNREADY") and "telegram-bot-api" in args: sys.exit(1)
     name = args[args.index("exec")+1]
-    if "const requested" in " ".join(args):
+    if name == "napcat":
+        command_index = args.index("exec") + 2
+        if args[command_index:command_index+2] != ["python3", "-c"]: sys.exit(127)
+        if args[-1] == "listeners":
+            if os.environ.get("LISTENERS_FAIL"): sys.exit(5)
+            for port in (3001, 6099):
+                print(os.environ.get("LISTENER_BIND", "0.0.0.0") + "|" + str(port))
+            if os.environ.get("EXTRA_LISTENER"): print(os.environ["EXTRA_LISTENER"])
+    elif "const requested" in " ".join(args):
         if os.environ.get("LISTENERS_FAIL"): sys.exit(5)
         for port in ([3001, 6099] if name == "napcat" else [3000]):
             print(os.environ.get("LISTENER_BIND", "0.0.0.0") + "|" + str(port))
         if os.environ.get("EXTRA_LISTENER"): print(os.environ["EXTRA_LISTENER"])
+    elif "listeners" in args and name == "telegram-bot-api":
+        if os.environ.get("LISTENERS_FAIL"): sys.exit(5)
+        print("0.0.0.0|8081")
     elif "listeners" in args:
         if os.environ.get("BOT_LISTENER"): print(os.environ["BOT_LISTENER"])
     sys.exit(0 if state["containers"].get(name, {}).get("ready", False) else 1)
@@ -109,11 +130,31 @@ if "port" in args:
     sys.exit(0)
 if "logs" in args:
     name = args[-1]
+    if "--follow" in args and os.environ.get("FOLLOW_CONTROLLED"):
+        import time
+        (root / (name + ".reader.pid")).write_text(str(os.getpid()))
+        print("recent " + name + " token=fixture-token account=123456789", flush=True)
+        print("https://name:pass@example.invalid/resource Bearer private-credential", flush=True)
+        print("https://api.telegram.org/botunknown-token/getMe?access_token=unknown-query", flush=True)
+        print("Official bot is ready: private-display-name", flush=True)
+        print("Received private message user=111 chat=222 text=private-message", flush=True)
+        print("QR █ secret", flush=True)
+        print("user_id=hidden-user chat=hidden-chat app_id=hidden-app", flush=True)
+        print("api_hash=" + "a" * 32 + " api_id=12345", flush=True)
+        print("history-end " + name, flush=True)
+        while not (root / (name + ".release")).exists(): time.sleep(0.02)
+        if os.environ.get("FOLLOW_ERROR") == name:
+            print("stream error fixture-token", file=sys.stderr, flush=True)
+            sys.exit(6)
+        print("fresh " + name + " token=fixture-token", flush=True)
+        while True: time.sleep(0.02)
     if os.environ.get("LOG_FAIL"): print("raw must never be emitted"); sys.exit(4)
     if os.environ.get("LOG_TIMEOUT"): import time; time.sleep(10)
     print("watcher alive; application import failed")
     print("token=" + os.environ.get("ONEBOT_ACCESS_TOKEN", "secret-fixture"))
     print("account=" + os.environ.get("NAPCAT_ACCOUNT", "123456789"))
+    print("api_hash=" + "a" * 32)
+    print("api_id=12345")
     print("https://name:pass@example.invalid/resource Bearer private-credential")
     sys.exit(0)
 if "stop" in args:
@@ -130,9 +171,10 @@ def fixture(tmp_path: Path, profile: str = "onebot") -> tuple[dict, Path]:
     """Copy only preview inputs and use private recording fixtures."""
     (tmp_path / "deploy").mkdir()
     for name in ("engines.sh", "onebot.sh", "compose.yaml", "Dockerfile", "dotenv.sh", "preview-runtime.sh",
+                 "telegram-bot-api.Dockerfile", "telegram-bot-api-entrypoint.sh", "telegram-bot-api-probe.sh",
                  "preview-console.sh", "preview-deps.py", "preview-probe.py", "preview-listeners.js", "preview-constraints-py312.txt"):
         shutil.copy2(ROOT / "deploy" / name, tmp_path / "deploy" / name)
-    for name in ("preview.sh", "hako", "start.sh", "pyproject.toml"):
+    for name in ("kisara.sh", "hako", "pyproject.toml"):
         shutil.copy2(ROOT / name, tmp_path / name)
     (tmp_path / "config").mkdir()
     (tmp_path / ".env").write_text("COMPOSE_PROFILES={}\nONEBOT_ACCESS_TOKEN=secret-fixture\nNAPCAT_ACCOUNT=123456789\nTELEGRAM_BOT_TOKEN=fixture-token\nOFFICIAL_APP_ID=fixture-id\nOFFICIAL_APP_SECRET=fixture-secret\n".format(profile))
@@ -149,8 +191,8 @@ def fixture(tmp_path: Path, profile: str = "onebot") -> tuple[dict, Path]:
 
 
 def run(tmp_path: Path, env: dict, *args: str) -> subprocess.CompletedProcess:
-    """Execute the thin entry from an unrelated directory."""
-    return subprocess.run([str(tmp_path / "preview.sh"), *args], cwd="/tmp", env=env, capture_output=True, text=True)
+    """Execute the public preview command from an unrelated directory."""
+    return subprocess.run([str(tmp_path / "kisara.sh"), "preview", *args], cwd="/tmp", env=env, capture_output=True, text=True)
 
 
 def calls(log: Path) -> list:
@@ -197,6 +239,21 @@ def test_first_start_reuses_and_stop_preserves_data(tmp_path: Path) -> None:
     assert state(tmp_path)["containers"] == {}
     assert sentinel.read_bytes() == b"retain" and (tmp_path / ".env").read_bytes() == original
     assert run(tmp_path, env, "stop").returncode == 0
+
+
+def test_napcat_python_probes_preserve_compressed_ipv6_and_music_node(tmp_path: Path) -> None:
+    """A Node-free NapCat uses the real helper source and keeps socket scope facts."""
+    env, log = fixture(tmp_path, "onebot,music")
+    env["LISTENER_BIND"] = "[::]"
+    result = run(tmp_path, env, "start")
+    assert result.returncode == 0, result.stderr
+    assert "napcat: ws://napcat:3001" in result.stdout
+    source = (ROOT / "deploy/preview-probe.py").read_text().rstrip("\n")
+    napcat_commands = [call for call in calls(log) if call[:2] == ["exec", "napcat"]]
+    assert any(call[2:] == ["python3", "-c", source, "napcat"] for call in napcat_commands)
+    assert any(call[2:] == ["python3", "-c", source, "listeners"] for call in napcat_commands)
+    assert all(call[2] not in ("node", "nodejs") for call in napcat_commands)
+    assert any(call[:4] == ["exec", "music", "node", "-e"] for call in calls(log))
 
 
 @pytest.mark.parametrize("missing", ["image", "dependencies", "both", "neither"])
@@ -512,3 +569,371 @@ def test_inspection_or_redaction_failure_is_closed(tmp_path: Path, failure: str)
     if failure == "redaction":
         assert "Diagnostics suppressed" in result.stderr
         assert "application import failed" not in result.stderr
+
+
+def local_api_environment(env: dict) -> None:
+    """Use isolated fake API credentials, not a Telegram account."""
+    env.update(TELEGRAM_LOCAL_MODE="true", TELEGRAM_API_BASE_URL="http://telegram-bot-api:8081",
+               TELEGRAM_API_ID="12345", TELEGRAM_API_HASH="a" * 32)
+
+
+def test_local_api_preview_is_internal_and_owned(tmp_path: Path) -> None:
+    env, log = fixture(tmp_path, "telegram")
+    local_api_environment(env)
+    result = run(tmp_path, env)
+    assert result.returncode == 0, result.stderr
+    assert "http://telegram-bot-api:8081/" in result.stdout and "Open:" not in result.stdout
+    assert set(state(tmp_path)["containers"]) == {"telegram", "telegram-bot-api"}
+    operations = calls(log)
+    api_start = next(index for index, call in enumerate(operations) if "up" in call and call[-1] == "telegram-bot-api")
+    api_ready = next(index for index, call in enumerate(operations) if "exec" in call and "ready" in call)
+    bot_start = next(index for index, call in enumerate(operations) if "up" in call and call[-1] == "telegram")
+    assert api_start < api_ready < bot_start
+    assert any("run" in call and "--version" in call and "--network" in call for call in operations)
+    assert not any("telegram-bot-api" in call and "python" in call for call in operations)
+    log.write_text("")
+    assert run(tmp_path, env).returncode == 0
+    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+    sentinel = tmp_path / "data/kisara/tgsetu/retained.mp4"
+    sentinel.write_bytes(b"retained")
+    assert run(tmp_path, env, "stop").returncode == 0
+    assert state(tmp_path)["containers"] == {} and sentinel.read_bytes() == b"retained"
+
+
+def test_local_api_unready_rolls_back_owned_attempt_before_bot(tmp_path: Path) -> None:
+    env, log = fixture(tmp_path, "telegram")
+    local_api_environment(env)
+    env["API_UNREADY"] = "1"
+    result = run(tmp_path, env)
+    assert result.returncode == 1 and "System is ready." not in result.stdout
+    assert not any("up" in call and call[-1] == "telegram" for call in calls(log))
+    assert state(tmp_path)["containers"] == {}
+    assert env["TELEGRAM_API_HASH"] not in result.stdout + result.stderr
+
+
+def test_local_api_source_change_requires_explicit_stop(tmp_path: Path) -> None:
+    env, log = fixture(tmp_path, "telegram")
+    local_api_environment(env)
+    assert run(tmp_path, env).returncode == 0
+    with (tmp_path / "deploy/telegram-bot-api.Dockerfile").open("a") as stream:
+        stream.write("\n# changed source\n")
+    log.write_text("")
+    result = run(tmp_path, env)
+    assert result.returncode == 2 and "Configuration changed" in result.stderr
+    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+
+
+@pytest.mark.parametrize("command", ["status", "stop"])
+def test_local_api_readonly_commands_need_no_credentials(tmp_path: Path, command: str) -> None:
+    env, log = fixture(tmp_path, "telegram")
+    env["TELEGRAM_LOCAL_MODE"] = "true"
+    result = run(tmp_path, env, command)
+    assert result.returncode == (1 if command == "status" else 0)
+    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+
+
+@pytest.mark.parametrize("target,expected", [
+    ("onebot", {"napcat", "kisara"}),
+    ("onebot-dev", {"napcat", "kisara-dev"}),
+    ("telegram", {"telegram"}),
+    ("official", {"bot"}),
+    ("music", {"music"}),
+    ("telegram,official", {"telegram", "official"}),
+])
+def test_explicit_target_overrides_environment_and_dotenv(
+    tmp_path: Path, target: str, expected: set
+) -> None:
+    """A target selects only its group without rewriting inherited/private inputs."""
+    env, log = fixture(tmp_path, "invalid-dotenv-profile")
+    env.update(KISARA_ENGINE="invalid-env-engine", COMPOSE_PROFILES="invalid-env-profile")
+    original = (tmp_path / ".env").read_bytes()
+    result = run(tmp_path, env, "start", target)
+    assert result.returncode == 0, result.stderr
+    assert set(state(tmp_path)["containers"]) == expected
+    assert (tmp_path / ".env").read_bytes() == original
+    if target == "official":
+        assert any("run" in call and "--detach" in call for call in calls(log))
+        assert not any("up" in call for call in calls(log))
+    if target == "telegram,official":
+        assert not any("--detach" in call and "run" in call for call in calls(log))
+        assert any("up" in call and call[-2:] == ["telegram", "official"] for call in calls(log))
+
+
+@pytest.mark.parametrize("args", [
+    ("start", "unknown"), ("start", "telegram", "official"),
+    ("start", "start", "telegram"), ("telegram", "status"),
+    ("start", "telegram,telegram"), ("start", "telegram,"),
+    ("start", ",telegram"), ("start", "telegram,,official"),
+    ("start", "onebot,onebot-dev"), ("start", ""),
+    ("start", "selected"), ("start", "--unknown"),
+    ("--verbose", "--verbose"),
+])
+def test_invalid_preview_arguments_fail_before_configuration_or_docker(
+    tmp_path: Path, args: tuple
+) -> None:
+    """Invalid public argv cannot load configuration or perform backend operations."""
+    env, log = fixture(tmp_path)
+    (tmp_path / ".env").unlink()
+    result = run(tmp_path, env, *args)
+    assert result.returncode == 2 and calls(log) == []
+    assert "Missing .env" not in result.stderr
+
+
+def test_optional_action_and_targeted_status_stop_preserve_other_group(tmp_path: Path) -> None:
+    """Omitting start is supported, while inspection/teardown cannot grow groups."""
+    env, log = fixture(tmp_path)
+    assert run(tmp_path, env, "telegram").returncode == 0
+    assert run(tmp_path, env, "official").returncode == 0
+    assert set(state(tmp_path)["containers"]) == {"telegram", "bot"}
+    log.write_text("")
+    assert run(tmp_path, env, "status", "telegram").returncode == 0
+    assert run(tmp_path, env, "down", "telegram").returncode == 0
+    assert set(state(tmp_path)["containers"]) == {"bot"}
+    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+
+
+def test_canonical_status_recognizes_stored_ownership_in_space_path(tmp_path: Path) -> None:
+    """Canonical status recognizes stable preview ownership without retired scripts."""
+    root = tmp_path / "repository with spaces"
+    root.mkdir()
+    env, log = fixture(root, "telegram")
+    assert run(root, env, "start", "telegram").returncode == 0
+    log.write_text("")
+    result = run(root, env, "status", "telegram")
+    assert result.returncode == 0, result.stderr
+    assert "System is ready." in result.stdout
+    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+    assert all(value["labels"]["hako.scope"] == "preview.sh" for value in state(root)["containers"].values())
+
+
+@pytest.mark.parametrize("engine,environment_profiles,dotenv_profiles,expected", [
+    ("official", "telegram", "onebot", {"bot"}),
+    ("telegram", "onebot", "official", {"telegram"}),
+    (None, "telegram", "onebot", {"telegram"}),
+    (None, None, "telegram", {"telegram"}),
+    (None, None, None, {"napcat", "kisara"}),
+])
+def test_preview_without_target_retains_engine_profile_and_default_selection(
+    tmp_path: Path, engine: Optional[str], environment_profiles: Optional[str],
+    dotenv_profiles: Optional[str], expected: set
+) -> None:
+    """The owning parser selects env, dotenv or default without a wrapper menu."""
+    env, log = fixture(tmp_path)
+    dotenv = tmp_path / ".env"
+    lines = dotenv.read_text().splitlines()
+    if dotenv_profiles is None:
+        lines = [line for line in lines if not line.startswith("COMPOSE_PROFILES=")]
+    else:
+        lines[0] = "COMPOSE_PROFILES=" + dotenv_profiles
+    dotenv.write_text("\n".join(lines) + "\n")
+    if engine is not None:
+        env["KISARA_ENGINE"] = engine
+    if environment_profiles is not None:
+        env["COMPOSE_PROFILES"] = environment_profiles
+    original = dotenv.read_bytes()
+    result = run(tmp_path, env)
+    assert result.returncode == 0, result.stderr
+    assert set(state(tmp_path)["containers"]) == expected
+    assert dotenv.read_bytes() == original
+    assert any("--detach" in call for call in calls(log))
+
+
+def test_selected_failure_recovery_guidance_names_canonical_target(tmp_path: Path) -> None:
+    """Failure advice can recover the explicitly selected group despite other defaults."""
+    env, log = fixture(tmp_path)
+    env["UNREADY"] = "1"
+    result = run(tmp_path, env, "start", "telegram")
+    assert result.returncode == 1
+    assert "./kisara.sh preview stop telegram" in result.stderr
+    assert "./kisara.sh preview start telegram" in result.stderr
+    assert state(tmp_path)["containers"] == {}
+
+
+def test_preview_up_alias_reuses_matching_explicit_target(tmp_path: Path) -> None:
+    """The historical up alias retains start's reuse and owned-lifecycle behavior."""
+    env, log = fixture(tmp_path)
+    assert run(tmp_path, env, "up", "telegram").returncode == 0
+    log.write_text("")
+    assert run(tmp_path, env, "up", "telegram").returncode == 0
+    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+
+
+def test_explicit_foreign_group_failure_preserves_unselected_preview(tmp_path: Path) -> None:
+    """Choosing a target cannot repair foreign resources or tear down another group."""
+    env, log = fixture(tmp_path)
+    assert run(tmp_path, env, "start", "onebot").returncode == 0
+    assert run(tmp_path, env, "start", "telegram").returncode == 0
+    value = state(tmp_path)
+    value["containers"]["telegram"]["labels"]["hako.repo"] = "/unrelated"
+    save_state(tmp_path, value)
+    log.write_text("")
+    result = run(tmp_path, env, "start", "telegram")
+    assert result.returncode == 2 and "not owned by preview" in result.stderr
+    assert state(tmp_path)["containers"] == value["containers"]
+    assert not any(any(operation in call for operation in ("build", "pull", "run", "up", "stop", "rm")) for call in calls(log))
+
+
+def wait_output(path: Path, expected: str, process: subprocess.Popen) -> str:
+    """Require prompt line delivery while the producer still owns its stream."""
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        output = path.read_text() if path.exists() else ""
+        if expected in output:
+            return output
+        assert process.poll() is None, output
+        time.sleep(0.02)
+    pytest.fail("Timed out waiting for sanitized output: " + expected)
+
+
+def reader_pids(tmp_path: Path) -> list[int]:
+    """Read only process identities explicitly recorded by this fixture."""
+    return [int(path.read_text()) for path in tmp_path.glob("*.reader.pid")]
+
+
+def assert_readers_reaped(tmp_path: Path) -> None:
+    """The reader must disappear, rather than survive or remain a zombie."""
+    assert reader_pids(tmp_path)
+    assert all(not Path("/proc", str(pid)).exists() for pid in reader_pids(tmp_path))
+
+
+def child_processes(pid: int) -> set[int]:
+    """Collect this invocation's descendants through kernel-owned child lists."""
+    path = Path("/proc", str(pid), "task", str(pid), "children")
+    children = {int(item) for item in path.read_text().split()} if path.exists() else set()
+    return children | {descendant for child in children for descendant in child_processes(child)}
+
+
+@pytest.mark.parametrize("target,expected", [
+    (None, ["kisara"]), ("onebot-dev", ["kisara-dev"]),
+    ("telegram", ["telegram"]), ("official", ["bot"]),
+    ("telegram,official", ["telegram", "official"]),
+])
+@pytest.mark.parametrize("termination,group", [(signal.SIGINT, False), (signal.SIGINT, True), (signal.SIGTERM, False)])
+def test_status_follows_selected_bot_logs_and_reaps_readers(
+    tmp_path: Path, target: Optional[str], expected: list[str], termination: int, group: bool
+) -> None:
+    """Initial/delayed output is sanitized before EOF, and signals preserve services."""
+    env, log = fixture(tmp_path)
+    local_api_environment(env)
+    args = [target] if target is not None else []
+    assert run(tmp_path, env, "start", *args).returncode == 0
+    sentinel = tmp_path / "retained.bin"
+    sentinel.write_bytes(b"retain")
+    original = state(tmp_path)
+    log.write_text("")
+    env["FOLLOW_CONTROLLED"] = "1"
+    stdout = tmp_path / "follow.stdout"
+    stderr = tmp_path / "follow.stderr"
+    with stdout.open("w") as out, stderr.open("w") as err:
+        process = subprocess.Popen(
+            [str(tmp_path / "kisara.sh"), "preview", "status", *args],
+            env=env, cwd="/tmp", stdout=out, stderr=err, start_new_session=True,
+        )
+    try:
+        for name in expected:
+            output = wait_output(stdout, "[" + name + "] history-end " + name, process)
+            assert "System is ready." in output
+        assert process.poll() is None
+        for name in expected:
+            (tmp_path / (name + ".release")).touch()
+        for name in expected:
+            wait_output(stdout, "[" + name + "] fresh " + name + " token=[redacted]", process)
+        for pid in reader_pids(tmp_path):
+            workspace = Path(os.readlink(Path("/proc", str(pid), "fd/1"))).parent
+            pipes = [path for suffix in ("raw", "replaced", "safe") for path in workspace.glob("*." + suffix)]
+            assert len(pipes) == len(expected) * 3
+            assert all(path.is_fifo() and path.stat().st_size == 0 for path in pipes)
+            assert not (workspace / "safe.log").exists() and not (workspace / "logs.log").exists()
+        descendants = child_processes(process.pid)
+        assert set(reader_pids(tmp_path)).issubset(descendants)
+        assert len(descendants) >= len(expected) * 4
+        if group:
+            os.killpg(process.pid, termination)
+        else:
+            process.send_signal(termination)
+        assert process.wait(timeout=5) == (130 if termination == signal.SIGINT else 143)
+        assert_readers_reaped(tmp_path)
+        assert all(not Path("/proc", str(pid)).exists() for pid in descendants)
+        assert state(tmp_path) == original and sentinel.read_bytes() == b"retain"
+        operations = calls(log)
+        follow = [call for call in operations if "logs" in call]
+        assert {call[-1] for call in follow} == set(expected)
+        assert all(call[-5:-1] == ["logs", "--follow", "--tail", "80"] for call in follow)
+        assert not any(any(op in call for op in ("build", "pull", "run", "up", "stop", "rm")) for call in operations)
+        combined = stdout.read_text() + stderr.read_text()
+        for private in ("fixture-token", "123456789", "name:pass", "private-credential", "unknown-token",
+                        "unknown-query", "private-display-name", "private-message", "QR █", "hidden-user",
+                        "hidden-chat", "hidden-app", "a" * 32, "12345"):
+            assert private not in combined
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            process.wait(timeout=5)
+
+
+def test_ready_auxiliary_status_does_not_request_bot_logs(tmp_path: Path) -> None:
+    """Auxiliary-only selection keeps finite readiness without an invented bot."""
+    env, log = fixture(tmp_path, "music")
+    assert run(tmp_path, env, "start").returncode == 0
+    log.write_text("")
+    result = run(tmp_path, env, "status")
+    assert result.returncode == 0 and "System is ready." in result.stdout
+    assert not any("logs" in call for call in calls(log))
+
+
+def test_status_rechecks_ownership_before_log_reader(tmp_path: Path) -> None:
+    """Readiness cannot authorize logs after the container's ownership changes."""
+    env, log = fixture(tmp_path, "telegram")
+    assert run(tmp_path, env, "start").returncode == 0
+    original = state(tmp_path)
+    env["FOLLOW_FOREIGN"] = "telegram"
+    log.write_text("")
+    result = run(tmp_path, env, "status")
+    assert result.returncode == 1 and "ownership mismatch/unavailable" in result.stderr
+    assert not any("logs" in call for call in calls(log))
+    assert state(tmp_path) == original
+
+
+@pytest.mark.parametrize("failure", ["reader", "sanitizer", "preflight"])
+def test_status_stream_failure_is_closed_and_reaps_other_bot(
+    tmp_path: Path, failure: str
+) -> None:
+    """A failed stream stage cannot leak raw output or leave another stream attached."""
+    env, log = fixture(tmp_path, "telegram,official")
+    assert run(tmp_path, env, "start").returncode == 0
+    original = state(tmp_path)
+    log.write_text("")
+    env["FOLLOW_CONTROLLED"] = "1"
+    if failure == "reader":
+        env["FOLLOW_ERROR"] = "telegram"
+    else:
+        binary = tmp_path / "bin/sed"
+        command = "exit 9" if failure == "preflight" else "IFS= read -r line && exit 9; exit 0"
+        binary.write_text('#!/bin/bash\nif [[ $1 != -u ]]; then exec /usr/bin/sed "$@"; fi\n' + command + "\n")
+        binary.chmod(0o755)
+    stdout = tmp_path / "follow.stdout"
+    stderr = tmp_path / "follow.stderr"
+    with stdout.open("w") as out, stderr.open("w") as err:
+        process = subprocess.Popen(
+            [str(tmp_path / "kisara.sh"), "preview", "status"], env=env,
+            stdout=out, stderr=err, start_new_session=True,
+        )
+    try:
+        if failure == "reader":
+            for name in ("telegram", "official"):
+                wait_output(stdout, "history-end " + name, process)
+            (tmp_path / "telegram.release").touch()
+        assert process.wait(timeout=10) == 1
+        if failure != "preflight":
+            assert_readers_reaped(tmp_path)
+        else:
+            assert not any("logs" in call for call in calls(log))
+        combined = stdout.read_text() + stderr.read_text()
+        assert "fixture-token" not in combined and "private-credential" not in combined
+        assert "redaction" in stderr.read_text()
+        assert state(tmp_path) == original
+        assert not any(any(op in call for op in ("build", "pull", "run", "up", "stop", "rm")) for call in calls(log))
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            process.wait(timeout=5)

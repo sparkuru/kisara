@@ -35,12 +35,12 @@
 | 应用服务 | 功能行为与编排 | `src/kisara/application/services/` |
 | 通用工具 | 跨功能复用的文本处理和文件发布等小型纯工具 | `src/kisara/utils/` |
 | 外部依赖 | HTTP 请求、SQLite 状态、文件保存 | `src/kisara/infrastructure/integrations/`、`persistence/` |
-| 配置 | 全局和功能配置的加载、校验、默认值 | `src/kisara/config/`、`config/features/` |
+| 配置 | 全局和功能配置的加载、校验、默认值 | `src/kisara/config/`、`config/<engine>/features/` |
 | 静态资源 | 随 Python 包发布的食物、聊天、塔罗数据 | `src/kisara/resources/`、`pyproject.toml` |
 
 普通消息的主链路：平台事件 → 适配器转为 `MessageEvent` → `Dispatcher.dispatch_result()` 检查授权与去重 → `FeatureRouter` 按静态注册的别名匹配功能，检查开关和平台，再调用 handler/service → `DispatchResult` / `OutgoingMessage` → 适配器发送。离线控制台也使用同一个 `Dispatcher`，但只构造聊天和塔罗等本地服务，不代表所有线上能力都能在控制台运行。
 
-OneBot 在进入普通分发前，还会处理已授权用户的引用图片导出，以及启用后的私聊 setu 合并转发归档；相关逻辑分别在 `application/services/export_img.py`、`setu.py`。这类功能依赖引用消息、转发节点或文件发送能力，不能只在 `Dispatcher` 中加一个文本命令。官方适配器目前发送文本；图片 URL 会转成文本链接，OneBot 可发送原生图片和音乐段。Telegram 当前只注册在线检查、帮助、新闻、定时新闻推送、音乐；新闻使用带日期/来源/延期警告的 PNG 文档，音乐使用文字和链接。
+OneBot 在进入普通分发前，还会处理已授权用户的引用图片导出，以及启用后的私聊 setu 合并转发归档；相关逻辑分别在 `application/services/export_img.py`、`setu.py`。这类功能依赖引用消息、转发节点或文件发送能力，不能只在 `Dispatcher` 中加一个文本命令。官方适配器目前发送文本；图片 URL 会转成文本链接，OneBot 可发送原生图片和音乐段。Telegram 注册在线检查、帮助、新闻、定时新闻推送、音乐，以及可选的原生 `/tgsetu` 私聊归档；新闻发送 PNG 文档，音乐发送文字链接，归档经原生授权后进入 `application/services/tgsetu.py`。
 
 新功能在 `bot/features.py` 显式声明别名、帮助、引擎和触发类型，并在 Dispatcher 绑定 handler。有效注册表同时控制路由与帮助；TOML `enabled` 优先于环境变量，新闻的 `enabled` 与 `push_enabled` 独立。原生 Telegram 工作流在 SDK 操作前使用 `Dispatcher.authorize_native()` 检查用户/群、功能能力和消息去重，共享服务不得导入 SDK。Compose 通过 `COMPOSE_PROFILES` 选择独立引擎，Telegram 的配置挂载和状态卷独立；见操作文档。
 
@@ -88,6 +88,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 | `/recall` | `bot/dispatcher.py` 与 OneBot 适配器 | 仅 OneBot；引用机器人消息，群内需管理员、群主或配置的管理员用户 |
 | `/export-img`、`导出`、`转图片` 等 | `application/services/export_img.py`；OneBot 适配器 | 仅 OneBot；将被引用的图片作为文件附件发送，无持久化 |
 | `保存`、`setu`、`/setu`、`直接保存` | `application/services/setu.py`；`infrastructure/persistence/setu.py`、`setu_files.py` | 仅 OneBot 私聊；引用合并转发 → 引用 bot 提示回复“保存”（默认 60s 超时自动取消）→ 下载保存；“直接保存”跳过询问并返回保存结果；SQLite 记录批次，文件另存 |
+| `/tgsetu [on\|off\|status\|retry <source-message-id>]` | `application/services/tgsetu.py`；`infrastructure/persistence/tgsetu.py`、`tgsetu_files.py` | Telegram 授权私聊；开启后发送或转发图片、视频、附件自动逐文件归档；本地 Bot API 提供大文件缓存；部分失败保留成功项，重试只处理失败项；不开启批次确认流程 |
 
 旧中文和 `#` 命令别名由 `bot/dispatcher.py` 中的 `_normalize_legacy_command()` 处理；支持范围以该函数和 `docs/legacy-migration.md` 为准。外部 API 的真实可用性仍取决于服务方、网络和运行配置，不能仅凭离线测试判断。
 
@@ -108,7 +109,8 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 
 在 A 的基础上，按需增加以下文件：
 
-- 配置：`config/features/<feature>/config.toml.example` 是可复制示例；实际 `config.toml` 被 Git 忽略。普通功能在 `config/feature_files.py` 注册允许的键，在 `config/settings.py` 加载、校验并传入组装。缺失文件通常回退到代码默认值或旧环境变量。setu 使用单独的 `config/setu.py`，因为它有较多专属校验。
+- 配置：`config/<engine>/features/<feature>/config.toml.example` 是可复制示例；实际 `config.toml` 被 Git 忽略。普通功能在 `config/feature_files.py` 注册允许的键，在 `config/settings.py` 加载、校验并传入组装。缺失文件通常回退到代码默认值或旧环境变量。setu 使用单独的 `config/setu.py`，因为它有较多专属校验。
+- Telegram archive: `config/tgsetu.py` validates dedicated feature settings once at startup. The host example is `config/telegram/features/tgsetu/config.toml.example`; missing config disables archiving. `TELEGRAM_API_BASE_URL` and `TELEGRAM_LOCAL_MODE` configure the selected engine's prebuilt SDK bot. Enabled TgSetu requires local mode, and both global/feature users must authorize metadata/SDK/file effects.
 - 打包资源：放在 `src/kisara/resources/`，并加入 `pyproject.toml` 的 package-data。运行时通过包资源读取；不要依赖当前工作目录中的开发文件。
 - HTTP：把请求约束放在 `infrastructure/integrations/http.py` 或同层适配器，应用服务返回协议无关结果；`PublicServices` 当前使用 `RemoteResult(text, image_urls, music_id)`。在分发器中转换为 `DispatchResult`，由适配器负责平台格式。
 - 密钥与错误：示例文件不得包含真实密钥；`RemoteServiceError` 可由分发器转换为用户可见错误。新增外部接口还需核对超时、返回类型、可接受的 URL 与失败输出。
@@ -141,6 +143,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 | --- | --- | --- |
 | 每日新闻 | `bot/adapters/onebot_v11.py` 的 `_run_daily_news()` | 群 `push_groups` 和个人 QQ 号 `push_users` 共用 UTC+8 时间，默认 10:30；到点后筛选未发送群与个人，在线程池获取一次新闻，再逐个发送；成功后分别写入 `NewsDeliveryStore` 的群表与个人表。有待发送目标的轮次结束后等待 15 分钟再检查；全部已记录完成后等待次日。个人目标须在 `KISARA_ALLOWED_USERS`，无需开启群功能。到点后启动会补发当天，不补发历史日期。 |
 | setu 确认维护 | `application/services/setu.py` 的 `Setu.run(gateway)` | 每轮结束后等待 1 秒；处理确认过期、未发出的首次提示和提示重试。失败提示间隔 30 秒重试，默认确认期限为 60 秒；重连时将中断的 `saving` 恢复为 `awaiting`，供用户重新确认，不自动保存。 |
+| TgSetu durable file queue | `application/services/tgsetu.py` through `TgSetu.run(gateway)` | Own bounded async transfer workers; short album metadata grouping does not close acceptance. Preserve activation and saved-file checkpoints across restart; cancel/join workers before SDK shutdown. |
 
 两类循环都在 OneBot 的 `_run_connection()` 建立 WebSocket 连接后通过 `asyncio.create_task()` 启动，在连接结束的 `finally` 中取消并等待退出，重连后重新启动。现有官方适配器没有接入这些任务。沿用这条路径的任务只在连接期间运行；若要求断线时仍继续执行，需要另行设计连接外的调度生命周期及平台不可用时的处理。
 
@@ -160,7 +163,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 普通功能若新增配置键，应核对以下链路，少一环都可能导致示例可写但运行时无效：
 
 ```text
-config/features/<feature>/config.toml.example
+config/<engine>/features/<feature>/config.toml.example
     → config/feature_files.py 的 FEATURE_KEYS 与类型校验
     → config/settings.py 的 Settings 字段、默认值和 from_environment()
     → bot/main.py 的依赖组装
@@ -168,7 +171,7 @@ config/features/<feature>/config.toml.example
     → tests/unit/test_settings.py 的加载、覆盖与错误输入验证
 ```
 
-当前普通功能的同名配置优先级是功能 TOML 中明确给出的值，高于旧环境变量，未给出时使用旧环境变量或代码默认值。`config/groups.json` 只提供 chat、tarot 的旧群组覆盖；对应的功能 TOML 群组表优先。群组 ID 仍须在 `KISARA_ALLOWED_GROUPS` 中；新增功能不会自动获得群组覆盖能力。`setu` 由 `config/setu.py` 独立加载，只有 OneBot 路径会启用。新增专属配置应写明缺失文件、非法值、关闭功能时各是什么行为。改动运行环境变量或挂载时，还要同步检查 `.env.example` 和 `deploy/compose.yaml`。
+当前普通功能的同名配置优先级是功能 TOML 中明确给出的值，高于旧环境变量，未给出时使用旧环境变量或代码默认值。`config/<engine>/groups.json` 只提供 chat、tarot 的旧群组覆盖；对应的功能 TOML 群组表优先。群组 ID 仍须在 `KISARA_ALLOWED_GROUPS` 中；新增功能不会自动获得群组覆盖能力。`setu` 由 `config/setu.py` 独立加载，只有 OneBot 路径会启用。新增专属配置应写明缺失文件、非法值、关闭功能时各是什么行为。改动运行环境变量或挂载时，还要同步检查 `.env.example` 和 `deploy/compose.yaml`。
 
 ### 状态与数据库选择
 
@@ -191,17 +194,19 @@ config/features/<feature>/config.toml.example
 | 用途 | 仓库或宿主机路径 | Compose 容器路径 / 说明 |
 | --- | --- | --- |
 | 全局运行变量、引擎和授权 | `.env.example` → 私有 `.env` | Compose 注入环境变量；`.env` 被忽略 |
-| 功能配置 | `config/features/{chat,tarot,news,source,music,love,setu}/config.toml.example` → 各自 `config.toml` | `config/` 只读挂载到 `/app/config`；修改后重启 |
-| 旧群组覆盖配置 | `config/groups.example.json` → `config/groups.json` | 可由 `KISARA_GROUP_CONFIG_PATH` 改路径；功能 TOML 中对应群组值优先 |
+| 功能配置 | `config/<engine>/features/<feature>/config.toml.example` → 各自 `config.toml` | 对应引擎目录只读挂载到 `/app/config/<engine>`；Compose、hako、直接运行使用同一根目录，修改后重启 |
+| 旧群组覆盖配置 | OneBot `config/onebot/groups.example.json` → `config/onebot/groups.json`；默认读取所选引擎根目录下的 groups.json | 可由 `KISARA_GROUP_CONFIG_PATH` 改路径；功能 TOML 中对应群组值优先 |
 | 应用持久状态 | 默认 `data/kisara` 或 `KISARA_STATE_DIR` | Compose 中为 `/app/state`，使用 `kisara_state` 命名卷；当前含 `news_delivery.sqlite3`、`setu.sqlite3` |
 | 每日新闻图片缓存 | 默认 `data/daily-news` 或 news 功能的 `cache_dir` | Compose 中为 `/app/state/daily-news`，使用 `kisara_state` 命名卷 |
 | 可重取的临时外部数据 | 运行环境的 `/tmp/kisara/<feature>/` | 容器内临时路径；跨重建复用需另设持久挂载 |
 | 需跨重建复用的功能缓存 | `data/kisara/<feature>/cache/` | 在 `deploy/compose.yaml` 显式绑定到对应服务的可写容器路径 |
 | setu 已确认的媒体文件 | `data/kisara/setu` | Compose 中为 `/app/setu`；`save_root` 需指向实际可写挂载路径 |
+| Telegram archive config/state/files | `config/telegram/features/tgsetu`; separate Telegram SQLite and `data/kisara/tgsetu` | Runtime `/app/config/telegram/features/tgsetu`, `/app/state/tgsetu.sqlite3`, flat `/app/tgsetu`; preserve successful files and private metadata |
+| Local Bot API cache/state | `telegram_bot_api_cache` named volume | `/var/lib/telegram-bot-api` writable by server UID 10001, read-only for the bot at the same path/UID; internal server endpoint only, not an archive backup |
 | 塔罗图片素材 | `data/kisara/tarotCards` | Compose 中为 `/app/tarot-cards`，Kisara 与 NapCat 只读共享；缺失时文字照常工作 |
 | NapCat 登录与配置 | `data/napcat/QQ`、`data/napcat/config` | 分别挂载到 `/app/.config/QQ`、`/app/napcat/config`；QQ 缓存只读挂入 Kisara 供受限媒体读取 |
 
-`data/`、`.env`、各功能的 `config.toml`、`config/groups.json` 均被 Git 忽略。不要把本地数据库、QQ 登录数据、媒体归档、实际密钥或运行配置放进模版。`tarot.json`、短语库、食物列表是版本化包资源，与运行状态不同。
+`data/`、`.env`、各功能的 `config.toml`、`config/<engine>/groups.json` 均被 Git 忽略。不要把本地数据库、QQ 登录数据、媒体归档、实际密钥或运行配置放进模版。`tarot.json`、短语库、食物列表是版本化包资源，与运行状态不同。
 
 ## 功能规格填写模版
 
@@ -227,4 +232,4 @@ config/features/<feature>/config.toml.example
 
 交付时用同样字段回填“实际实现”和证据位置。至少核对：命令是否真正接入路由、定时循环是否按条件启动并在生命周期结束时取消、服务是否在启动时组装、配置示例是否能被加载、外部数据是否按约定复用缓存、持久状态是否使用正确挂载、帮助与功能模块开头 docstring 是否同步、失败与重试是否有测试。若新功能不需要数据库，不为满足模版而建表。
 
-开发时先用现有 `./dev.sh --test` 或针对性 `./hako python -m pytest tests/unit/<test_file>.py` 验证普通功能；涉及适配器的变更，再跑相关协议测试与 `./dev.sh --all`。离线测试无法证明真实 QQ 账号收发、外部 API 在线可用或连续运行稳定，线上验收应单独记录。
+开发时先用现有 `./kisara.sh test tests/unit/test_offline_commands.py` 或针对性 `./hako python -m pytest tests/unit/<test_file>.py` 验证普通功能；涉及适配器的变更，再跑相关协议测试与 `./kisara.sh test`。离线测试无法证明真实 QQ 账号收发、外部 API 在线可用或连续运行稳定，线上验收应单独记录。

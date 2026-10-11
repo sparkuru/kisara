@@ -5,16 +5,16 @@
 Common development and runtime commands are:
 
 ```bash
-./dev.sh              # Interactive offline bot console; no QQ connection or .env needed
-./dev.sh --test       # Automated offline functional tests
-./dev.sh --all        # Full test suite
-./preview.sh          # Prepare missing preview resources, start detached, wait for readiness
-./preview.sh status   # Inspect preview state/readiness; no preparation or startup
-./preview.sh build    # Explicit preview rebuild; stop an existing preview group first
-./preview.sh stop     # Remove only preview-owned containers, preserving storage
-./deploy.sh           # Build/start .env-selected engines in the background
-./deploy.sh logs      # Follow deployment logs
-./deploy.sh down      # Stop the deployment, preserving QQ login data
+./kisara.sh console         # Interactive offline bot console; no .env needed
+./kisara.sh test            # Full test suite
+./kisara.sh test tests/unit/test_offline_commands.py  # Focused offline tests
+./kisara.sh preview         # Prepare/start preview and wait for readiness
+./kisara.sh preview status  # Inspect readiness, then follow current bot logs
+./kisara.sh preview build   # Explicit rebuild; stop the preview group first
+./kisara.sh preview stop    # Remove owned preview containers, preserving storage
+./kisara.sh up              # Build/start selected engines in the background
+./kisara.sh logs            # Follow deployment logs
+./kisara.sh down            # Stop selected engines, preserving login/state data
 ```
 
 The offline console accepts messages such as `/help`, `/chat hello`, `/eat`, and `/roll 20`
@@ -41,16 +41,46 @@ dependencies installed below. Preview and deployment require a configured
 See the Compose/Telegram section below for multiple engines and targeted operations.
 
 The project runs its Python toolchain in Docker. Preview requires Bash 4.4+,
-Docker/Compose and standard lifecycle tools listed by `./preview.sh --help`;
+Docker/Compose and standard lifecycle tools listed by `./kisara.sh preview --help`;
 `ip` is additionally required for local wildcard publishing. Python, pip and
 bot SDKs stay inside the existing images/ephemeral containers managed by `hako`.
 
+Configuration is selected once at startup from `config/<engine>`. Ordinary
+features, dedicated Setu/TgSetu and default group JSON use this same root in
+Compose, hako and direct runs. No other engine or old root is searched as a
+fallback. Shared fonts stay under `config/fonts`.
+
+When upgrading the old OneBot layout, copy private
+`config/features/<feature>/config.toml` to
+`config/onebot/features/<feature>/config.toml`, and old `config/groups.json` to
+`config/onebot/groups.json`. Preserve original bytes/permissions and retain the
+old files as ignored backups. Compare existing targets first: equal files need
+no copy; differing files require resolving the conflict before migration, never
+overwrite them silently. The tracked examples already use the new layout.
+This checkout's existing private chat/news/setu files have been copied and
+verified without changing their values.
+
+This layout changes Compose mounts, so activate updated code with targeted
+recreation (`./kisara.sh up <engine>`). A restart alone retains the previous
+container's mounts. After recreation, TOML-only changes use ordinary restart.
+
+Preview reuse detection remains conservative: its existing fingerprint includes
+all config TOML/JSON files, including other-engine settings and retained legacy
+backups. Editing those can require rebuilding a preview, even though the
+application loads only the selected engine's configuration.
+
+The canonical user entrypoint is `./kisara.sh`. It delegates offline console/tests
+to `hako` and online operations to `deploy/engines.sh`. The previous `dev.sh`,
+`deploy.sh`, `preview.sh` and `start.sh` have been removed. Select the preview
+target with command arguments or configuration. No command alone changes engine
+permissions.
+
 The existing QQ runtime paths are:
 
-- `onebot`: `start.sh` starts the Kisara + NapCat Compose stack.
-- `onebot-dev`: `start.sh` starts the OneBot stack with source hot reload
+- `onebot`: `./kisara.sh preview start onebot` starts Kisara + NapCat preview.
+- `onebot-dev`: `./kisara.sh preview start onebot-dev` starts the OneBot preview with source hot reload
   for Kisara development.
-- `official`: `start.sh` keeps the existing Tencent official bot path.
+- `official`: `./kisara.sh preview start official` uses the owned hako preview.
 
 1. Only if `.env` is absent, copy `.env.example` to `.env`, then configure the selected engine. For
    OneBot, set `ONEBOT_WS_URL`, `ONEBOT_ACCESS_TOKEN`, and at least one ID in
@@ -58,10 +88,11 @@ The existing QQ runtime paths are:
    `OFFICIAL_APP_SECRET`, and `OFFICIAL_ALLOWED_USERS`. Telegram needs
    `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. Copy desired feature
    examples to `config.toml` beside each example: OneBot uses
-   `config/features/<feature>/`, Official Compose uses
+   `config/onebot/features/<feature>/`, Official uses
    `config/official/features/<feature>/`, and Telegram uses
-   `config/telegram/features/<feature>/`. Direct Official hako preview retains
-   its existing root `config/features/<feature>/` path.
+   `config/telegram/features/<feature>/`. Compose, hako and direct runs select
+   the same `config/<engine>` root. Legacy OneBot files under `config/features`
+   are migration backups, not shared fallback configuration.
 2. For local tests, install the project and development dependencies:
 
    ```bash
@@ -83,26 +114,23 @@ The existing QQ runtime paths are:
 3. Start the configured preview:
 
    ```bash
-   ./preview.sh
+   ./kisara.sh preview
    ```
 
-   Alternatively `./start.sh` retains engine selection. With no profile selection,
-   its interactive menu selects `onebot`, `onebot-dev`,
-   `official`, or `telegram`. It
-   can also be chosen directly with `./start.sh onebot`,
-   `./start.sh onebot-dev`, `./start.sh official`, or
-   `KISARA_ENGINE=onebot ./start.sh`. In non-interactive environments the
-   default is `onebot` when profiles are absent. `.env` `COMPOSE_PROFILES`
-   selects concurrent Compose engines automatically.
+   Choose an explicit target with `./kisara.sh preview start telegram`,
+   `onebot`, `onebot-dev` or `official`; explicit target arguments win over
+   inherited environment and .env selection. With no target, existing
+   KISARA_ENGINE/COMPOSE_PROFILES selection remains, defaulting to OneBot.
+   Comma-separated profile targets select a Compose group.
 
 4. Stop the bot and remove its development container:
 
    ```bash
-   ./preview.sh down
+   ./kisara.sh preview down
    ```
 
 The Kisara bot process does not expose a public application HTTP port.
-Preview returns after bounded readiness and prints one summary using actual
+Preview start returns after bounded readiness and prints one summary using actual
 service listeners/published mappings. Outbound-only engines have no browser URL.
 Loopback NapCat access and SSH tunneling remain the default; wildcard addresses
 are candidates, not proof of access from another device. Initial NapCat login
@@ -112,15 +140,40 @@ reports diagnostics and never prints a ready banner.
 Healthy, identically configured preview instances are reused. Existing deployment
 containers, incomplete/unhealthy groups and changed preview configuration require
 explicit recovery; preview does not silently replace them. Stop with
-`./preview.sh stop`, then use `build` and `start` when configuration/dependencies
+`./kisara.sh preview stop`, then use `build` and `start` when configuration/dependencies
 require recreation. Never remove login directories or state volumes as recovery.
+
+Stopped deployment containers also count as existing containers. A
+`not owned by preview` error means the selected service belongs to a deployment
+group. `./kisara.sh down onebot` stops QQ containers but leaves them present.
+Keep deployment mode with `./kisara.sh up onebot`, or explicitly verify and
+remove the stopped QQ deployment containers before starting OneBot preview.
+Retain their mounted login/config directories and state volumes; remove only
+the selected container objects, without volume-removal flags. Preview stop
+manages containers with the existing preview ownership labels.
+
 Stopping preview does not depend on host-address discovery. OneBot preview
 rejects empty/example access tokens before preparation. Telegram preview becomes
 ready only after a successful poll while its application is running.
 
 Preview help/status/stop/down do not build, install or start services; verbose
-details are captured then redacted, not raw streaming. For deployment logs use
-`./deploy.sh logs`; for one-off commands use `./hako`.
+preparation details are captured then redacted. After successful readiness,
+`./kisara.sh preview status` shows the selected bot's last 80 log lines and
+continuously follows new lines, with secrets and private identifiers redacted
+before display. Use `./kisara.sh preview status telegram` for an explicit engine;
+mixed selections label each bot's output. Auxiliary services such as NapCat,
+Music and the local Bot API are omitted from successful status log following.
+Press Ctrl+C to stop viewing; the bot keeps running. Unready status retains
+bounded failure diagnostics and exits with failure. Log-following errors also
+exit with an error; status does not monitor or restart the bot.
+For deployment logs use `./kisara.sh logs`; for one-off commands use `./hako`.
+
+NapCat readiness and socket inspection use the existing container Python3
+standard library, requiring WebUI HTTP success and the OneBot TCP listener.
+The probe uses `/webui/` directly; the root browser URL redirects there.
+The default NapCat image provides Python3; a custom image must provide it too.
+Local probes bypass ambient HTTP proxies. Kisara's current authenticated
+WebSocket readiness marker is checked separately.
 
 For the OneBot runtime, use `./deploy/onebot.sh` instead of a standalone
 `hako` bot container so Kisara and NapCat share the same Compose network.
@@ -179,8 +232,8 @@ Explicit feature TOML keys take precedence over both new and legacy environment
 values, including `false`, empty lists and an empty music URL. To use `.env`
 for a setting, omit that key from the engine's TOML; copying an example with
 `push_users = []` makes the environment recipient list ineffective. Apply
-`.env` changes by targeted recreation (`./deploy.sh up telegram` or
-`./deploy.sh up onebot`); `restart` keeps the previous container environment.
+`.env` changes by targeted recreation (`./kisara.sh up telegram` or
+`./kisara.sh up onebot`); `restart` keeps the previous container environment.
 
 ## OneBot deployment
 
@@ -197,7 +250,7 @@ Prepare the configuration and start it:
 cp .env.example .env
 # Edit at least ONEBOT_ALLOWED_USERS and ONEBOT_ACCESS_TOKEN.
 # A URL-safe token can be generated with: openssl rand -hex 32
-./start.sh onebot
+./kisara.sh preview start onebot
 ```
 
 The deployment entrypoint writes NapCat's `onebot11.json` from the same
@@ -210,7 +263,7 @@ Preview and deployment use the same Compose project (`kisara` by default),
 NapCat service, and login directories. NapCat's hostname and MAC address are
 fixed by `NAPCAT_HOSTNAME` (default `kisara-qq`) and `NAPCAT_MAC_ADDRESS`
 (default `02:42:0a:a0:d0:02`). Keep these values and `COMPOSE_PROJECT_NAME`
-consistent when switching between `./preview.sh` and `./deploy.sh`.
+consistent when switching between `./kisara.sh preview` and `./kisara.sh up`.
 Do not run separate NapCat instances against the same QQ data directory.
 
 These settings take effect when Compose next recreates NapCat; adopting a new
@@ -232,7 +285,7 @@ Useful operations:
 ```bash
 ./deploy/onebot.sh logs
 ./deploy/onebot.sh ps
-./deploy.sh down
+./kisara.sh down
 ```
 
 The WebUI binding can be changed with `NAPCAT_WEBUI_BIND` and
@@ -243,7 +296,7 @@ not published to the host.
 For active Kisara development, use the `onebot-dev` path:
 
 ~~~bash
-./start.sh onebot-dev
+./kisara.sh preview start onebot-dev
 ~~~
 
 This mode mounts the local `src/` directory into a separate `kisara-dev`
@@ -257,8 +310,8 @@ polling interval.
 Switch back to the normal image-based runtime with:
 
 ~~~bash
-./preview.sh down
-./start.sh onebot
+./kisara.sh preview down
+./kisara.sh preview start onebot
 ~~~
 
 ## Feature operations
@@ -267,7 +320,7 @@ Daily news reads the dated HTML from `https://60s.lylme.com/` on a cache miss.
 The validated source page is temporarily kept in `/tmp/kisara-daily-news-<uid>/`;
 the generated PNG is retained under the news `cache_dir` setting. In Compose,
 that image directory is `/app/state/daily-news` in the persistent `kisara_state`
-volume. `cache_days` in `config/features/news/config.toml` controls PNG retention.
+volume. `cache_days` in `config/onebot/features/news/config.toml` controls PNG retention.
 Older temporary HTML is pruned on the next HTML fetch or cleared by `/tmp`.
 When today's page says `今天的简讯未更新，下面是昨天的简讯！` above 15 valid
 headlines, `/news` sends that yesterday brief with the original warning in its
@@ -299,8 +352,8 @@ does not cause completed scheduled pushes to resend. Unsafe temporary cache
 directories and filesystem failures return an error; retry after correcting
 the underlying permissions or storage problem.
 
-For scheduled OneBot news, copy `config/features/news/config.toml.example` to
-`config/features/news/config.toml` if needed and configure personal QQ numbers
+For scheduled OneBot news, copy `config/onebot/features/news/config.toml.example` to
+`config/onebot/features/news/config.toml` if needed and configure personal QQ numbers
 as strings:
 
 ```toml
@@ -425,7 +478,7 @@ resource. HTTPS/cache protections remain effective; raw HTTP links and arbitrary
 NapCat temporary paths are not accepted as an automatic workaround.
 
 The optional music API runs only on the Compose network. Set
-`api_url = "http://music:3000"` in `config/features/music/config.toml` and start
+`api_url = "http://music:3000"` in `config/onebot/features/music/config.toml` and start
 its profile with:
 
 ```bash
@@ -462,19 +515,19 @@ profiles determine which containers start. Changing the profile list does not
 stop an already running engine.
 
 ```bash
-./start.sh                 # Select/start preview; explicit argument/env overrides
-./deploy.sh                # Build/start the selected engines in the background
-./deploy.sh up telegram    # Build/recreate Telegram only
-./deploy.sh down telegram  # Stop Telegram only; keep QQ and all volumes
-./deploy.sh restart telegram
-./deploy.sh logs telegram
-./deploy.sh ps
-./deploy.sh down-all       # Explicit whole-project shutdown; retains volumes
+./kisara.sh preview start telegram  # Explicit preview target overrides env
+./kisara.sh up                      # Build/start selected engines in the background
+./kisara.sh up telegram             # Build/recreate Telegram only
+./kisara.sh down telegram           # Stop Telegram only; keep QQ and all volumes
+./kisara.sh restart telegram
+./kisara.sh logs telegram
+./kisara.sh ps
+./kisara.sh down-all                # Explicit whole-project shutdown; retains volumes
 ```
 
-`./preview.sh` follows profile selection unless `KISARA_ENGINE` explicitly
-overrides it. `./start.sh onebot` and `./start.sh onebot-dev` retain QQ selection
-through the existing engine lifecycle; `./start.sh official` retains the hako
+`./kisara.sh preview` follows profile selection unless `KISARA_ENGINE` explicitly
+overrides it. `./kisara.sh preview start onebot` and `./kisara.sh preview start onebot-dev` retain QQ selection
+through the existing engine lifecycle; `./kisara.sh preview start official` retains the hako
 configuration path with detached preview ownership. Compose
 `official` is an additional independent deployment path.
 `./deploy/onebot.sh down` now stops only QQ services. Logs/status operations in
@@ -492,8 +545,10 @@ docker compose --env-file .env --project-name kisara -f deploy/compose.yaml stop
 The existing `kisara`/`kisara-dev`/`napcat` service names, project default
 `kisara`, `kisara_state` volume, QQ login/config/art/archive mounts, network and
 loopback NapCat WebUI binding retain their identities. Telegram has
-`telegram_state:/app/state` and `config/telegram:/app/config:ro`; official
-Compose uses `official_state` and `config/official`. Service-specific build
+`telegram_state:/app/state` and `config/telegram:/app/config/telegram:ro`;
+OneBot uses `config/onebot:/app/config/onebot:ro`, and official uses
+`official_state` plus `config/official:/app/config/official:ro`. Shared fonts
+remain at `config/fonts:/app/config/fonts:ro`. Service-specific build
 outputs install only the selected SDK extra. Each container receives explicit
 engine-specific credentials/settings; `.env` is for interpolation, not an
 all-secrets container env file. Keep these volumes private and back them up
@@ -512,8 +567,9 @@ poller may own a token. Telegram network reachability still needs a real
 account/environment check.
 
 Copy desired examples from `config/telegram/features/<name>/config.toml.example`
-to `config.toml` beside them. That directory becomes `/app/config/features` in
-the Telegram container; editing QQ `config/features` does not configure Telegram.
+to `config.toml` beside them. The same directory is
+`/app/config/telegram/features` in the Telegram container; editing
+`config/onebot/features` does not configure Telegram.
 Optional flags for `ping`, `help`, `news`, and `music` default enabled. News has
 independent `enabled` (manual requests/cache clearing) and `push_enabled`
 (scheduled work). TOML explicit values, including `false` and empty lists,
@@ -522,7 +578,7 @@ override environment fallbacks. Environment-only flags are
 `TELEGRAM_NEWS_PUSH_ENABLED`, and `TELEGRAM_MUSIC_ENABLED`. Existing QQ uses the
 corresponding `ONEBOT_*` names (legacy `KISARA_*` remain fallbacks). Apply TOML
 changes with a targeted restart.
-For `.env` or code/image changes use `./deploy.sh up telegram` to rebuild/recreate
+For `.env` or code/image changes use `./kisara.sh up telegram` to rebuild/recreate
 only Telegram; restarting an existing container does not reload its environment.
 
 Telegram receive/send summaries are an explicit opt-in:
@@ -535,6 +591,12 @@ unsupported update types disclose no content or IDs. These logs contain private
 conversation details: keep deployment logs private. SDK HTTP/error logs remain
 suppressed regardless of this switch.
 
+The native TgSetu path does not use these conversation previews. It logs safe
+failure categories; captions/filenames remain in authorized result messages and
+archive metadata. Its bounded notification queue is in memory and does not
+replay on restart. A missing notification does not undo saved bytes or durable
+jobs; inspect the archive and use the source message ID for eligible retries.
+
 Successful text chunks and documents are logged only after confirmed SDK
 success, including scheduled news through the shared sending path. Chunk logs
 use a sanitized preview of the complete message and part index/count so a token
@@ -542,7 +604,7 @@ crossing a chunk boundary cannot expose fragments. Documents
 log bounded caption/filename/type metadata and byte count, never media bytes.
 Allowed messages without a reply show a no-reply processing line. A bounded
 `Telegram polling ready` line follows completed polling/application startup.
-Changing this switch requires targeted recreation (`./deploy.sh up telegram`).
+Changing this switch requires targeted recreation (`./kisara.sh up telegram`).
 
 Authorized private/group commands:
 
@@ -553,6 +615,9 @@ Authorized private/group commands:
 | `/news` (alias `/brief`) | Readable PNG document with date/source and any publication-delay warning |
 | `/news_clear` | Clear only today's engine-local news cache; scheduled receipts remain |
 | `/music <query>` (alias `/song`) | Title/artist/public music link |
+| `/tgsetu`, `/tgsetu status` | Private archive status and usage, when configured |
+| `/tgsetu on`, `/tgsetu off` | Enable/disable automatic saving of newly received private media |
+| `/tgsetu retry <source-message-id>` | Retry failed files of that user's source message/album; retain successful files |
 
 Group privacy mode supports explicit `/ping@YourBot` and other addressed
 commands. Commands addressed to other bots are ignored. Ordinary text stays
@@ -566,6 +631,119 @@ internal infrastructure uses `COMPOSE_PROFILES=telegram,music` and
 `http://music:3000`; it publishes no host port and does not start inactive bots.
 An empty TOML URL overrides an environment URL, so either configure the file
 or leave `api_url` absent when using the environment fallback.
+
+### Telegram media archive and local Bot API
+
+TgSetu is an opt-in private-chat feature, separate from OneBot `/setu`.
+Copy `config/telegram/features/tgsetu/config.toml.example` to `config.toml`
+beside it, enable it and add feature user IDs that are also in
+`TELEGRAM_ALLOWED_USERS`. Missing configuration disables this feature. Telegram
+`/setu` is unavailable. TgSetu requires an explicit local API endpoint/mode;
+existing Telegram text/news/music can keep the default cloud endpoint.
+
+`/tgsetu on` authorizes automatic archiving of supported photos, videos and
+documents sent or forwarded into that private chat. Activation persists through
+restart. `/tgsetu off` stops new acceptance; accepted work finishes and retains
+its result. No per-forward finish/confirmation is required. Ordinary text,
+groups, edited/channel/topic messages and unsupported paid/live media are not
+archive inputs. Access and feature policy are checked before metadata/transfer
+effects, including resumed jobs. Multi-selection has no original batch/count
+field: results describe received work, never the number selected in the client.
+
+Image/video filenames use the caption title followed by `-@tag` suffixes;
+documents prepend their original filename stem. For example `pack.tar.gz` with
+caption `Resource pack #tag1 #tag2` becomes
+`pack-Resource pack-@tag1-@tag2.tar.gz`. A photo contributes its largest available
+Telegram resolution; send it as a document if preserving the uploaded original
+bytes matters. The actual file extension is independent of dots in the caption.
+An album shares its initial caption and uses stable `-001` member ordinals
+before tags. A bounded metadata window chooses initial naming, not album
+completeness. Late members are accepted while on; an already frozen fallback
+caption/name is retained rather than renaming earlier published files.
+
+Complete files are published directly under configured `save_root`, normally
+host `data/kisara/tgsetu` mounted at `/app/tgsetu`. There is no message subfolder.
+Conflicting different-content names are disambiguated without overwriting;
+partial message failure preserves successful siblings. The durable
+`/app/state/tgsetu.sqlite3` queue/activation/checkpoints are private metadata,
+separate from files and the Bot API cache. Notices distinguish acceptance from
+saved completion and give actual paths and explicit failed-file retry commands.
+Restart reconciles publication-before-checkpoint interruptions. Size, pending
+queue and worker limits are configured in the feature example; they are not
+removed by enabling the local API.
+
+The bundled local server is built from the official source at the pinned commit
+in `deploy/telegram-bot-api.Dockerfile`. It requires your own
+`TELEGRAM_API_ID` and `TELEGRAM_API_HASH` from `my.telegram.org`, distinct from
+the BotFather token. Configure `.env` for a planned local deployment:
+
+```dotenv
+TELEGRAM_LOCAL_MODE=true
+TELEGRAM_API_BASE_URL=http://telegram-bot-api:8081
+TELEGRAM_API_ID=<your-api-id>
+TELEGRAM_API_HASH=<your-api-hash>
+```
+
+The server uses its own internal Compose profile and no host port. Deployment
+and preview helpers select it only for local-mode Telegram, start/check it
+before Telegram, stage local-server restarts before restarting Telegram, and
+stop only the selected group. Its persistent cache/state
+is mounted at the identical `/var/lib/telegram-bot-api` path in both containers,
+writable for the server and read-only for Kisara. Both use UID 10001 so
+owner-only downloaded cache files remain readable; archive ownership uses the
+existing host-group convention. SDK `get_file()` yields a confined cache path;
+Kisara copies it in bounded chunks rather than buffering an entire large file.
+
+For a first cloud-to-local switch, stop the existing Telegram token owner first
+and explicitly call cloud `logOut` once before starting the local owner, as
+required by [Telegram's migration procedure](https://github.com/tdlib/telegram-bot-api#moving-a-bot-to-a-local-server).
+This is a planned account operation, never an automatic startup action. A
+trusted one-shot SDK call can keep the token in environment configuration:
+
+```bash
+./kisara.sh down telegram
+HAKO_SERVICE=bot KISARA_ENGINE=telegram ./hako python - <<'PY'
+import asyncio
+import os
+from telegram import Bot
+from telegram.error import TelegramError
+from kisara.bot.adapters.telegram import quiet_sdk_logging
+
+async def logout() -> None:
+    quiet_sdk_logging()
+    try:
+        async with Bot(os.environ["TELEGRAM_BOT_TOKEN"]) as bot:
+            if not await bot.log_out():
+                raise RuntimeError("Cloud logout was not confirmed")
+    except TelegramError as error:
+        raise RuntimeError("Cloud logout failed: " + type(error).__name__) from None
+
+asyncio.run(logout())
+PY
+./kisara.sh up telegram
+```
+
+Do not run this during offline checks or while another process owns the token.
+Endpoint/environment edits need recreation; TOML edits need restart. Cloud
+rollback preserves archive/state/cache volumes, requires a controlled local
+owner logout/stop, and respects Telegram's documented 10-minute cloud re-login
+restriction after cloud logout. Never use a project-wide volume reset to switch
+endpoints. `--local` mode is not a host/LAN exposure request.
+
+The upstream server enables TDLib's storage optimizer. Cache is disposable
+transfer state; it is not an archive backup and GC is not a hard disk quota.
+Reserve space for concurrent full cache downloads plus archive temporary and
+final copies, monitor the cache volume and archive filesystem, and stop new
+archiving with `/tgsetu off` before maintenance. Kisara does not delete the
+read-only server cache. Keep archive/state backups separate and do not remove
+active downloads or server session/database files as a cleanup shortcut.
+
+Before real use, verify one captioned image, a mixed-media forwarded album,
+a named compound-extension document and a file larger than 20 MB. Then check
+off/denied media produces no files, partial failure retries only failed members,
+and restart preserves activation/success checkpoints. Offline fixtures prove
+these code boundaries; actual client delivery, cache permissions, Telegram
+network retrieval and endpoint migration require account/environment acceptance.
 
 ### Telegram scheduled news and recovery
 
@@ -606,7 +784,7 @@ base/QQ installation does not require/import this extra.
 ```bash
 ./hako python -m pip install --user -e ".[dev,telegram]"
 ./hako python -m pytest tests/unit/test_telegram_adapter.py tests/unit/test_telegram_news.py tests/unit/test_telegram_settings.py tests/integration/test_telegram_protocol.py tests/unit/test_engine_deployment.py
-./dev.sh --all
+./kisara.sh test
 ```
 
 Offline tests simulate SDK/protocol/provider/storage failures and selected

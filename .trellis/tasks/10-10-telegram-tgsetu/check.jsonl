@@ -1,0 +1,20 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Backend quality and documentation conventions"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"SQLite claims and recovery"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Configuration and media failures"}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Native routing, SDK boundaries and authorization"}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Config, filesystem and deployment contracts"}
+{"file":".trellis/spec/trellis-plus/setu-storage.md","reason":"Reference atomic individual-file publication"}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Docker and human acceptance"}
+{"file":".trellis/spec/trellis-plus/development-principles.md","reason":"Scope and data preservation"}
+{"file":".trellis/tasks/10-10-telegram-tgsetu/research/sdk-and-repository.md","reason":"Pinned SDK/API and local-server evidence"}
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared project policy"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Context loading and delivery"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Telegram credential-safe diagnostics"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Feature ownership and assembly"}
+{"file": ".trellis/spec/trellis-plus/tgsetu.md", "reason": "Implemented Telegram archive contract"}
+{"file": ".trellis/tasks/10-10-telegram-tgsetu/research/implementation-boundary.md", "reason": "Approved integration ownership and gateway contract"}
+{"file": ".trellis/tasks/10-10-telegram-tgsetu/research/config-root-unification.md", "reason": "User-approved engine config root follow-up"}
+{"file": ".trellis/spec/trellis-plus/engine-config.md", "reason": "Canonical roots and safe migration"}
+{"file": ".trellis/tasks/10-10-telegram-tgsetu/research/unified-entrypoint.md", "reason": "Approved canonical shell entrypoint"}
+{"file": ".trellis/spec/trellis-plus/cli-entrypoints.md", "reason": "Canonical CLI dispatch and stable preview lifecycle"}
+{"file": ".trellis/tasks/10-10-telegram-tgsetu/research/preview-napcat-readiness.md", "reason": "Actual no-node NapCat probe failure and bounded stdlib correction"}

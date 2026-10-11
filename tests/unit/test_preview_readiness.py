@@ -1,14 +1,20 @@
 """Opt-in readiness evidence cannot survive disconnect, fatal errors or dead PIDs."""
 
 import asyncio
+import contextlib
+import http.client
+import http.server
 import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Iterator, Tuple
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +24,97 @@ from kisara.config import Settings
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@contextlib.contextmanager
+def napcat_endpoints(status: int = 200, http_port: int = 0,
+                     websocket_port: int = 0) -> Iterator[Tuple[int, int]]:
+    """Serve local endpoint evidence without Docker, external hosts or access logs."""
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            """Expose status separately from an intentionally private response body."""
+            if self.path == "/":
+                self.send_response(301)
+                self.send_header("Location", "/webui/")
+            else:
+                self.send_response(status if self.path == "/webui/" else 404)
+            self.end_headers()
+            self.wfile.write(b"fixture-private-body-token")
+
+        def log_message(self, message: str, *args: object) -> None:
+            """Keep local fixture requests out of captured operational output."""
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", http_port), Handler)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", websocket_port))
+    listener.listen()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_port, listener.getsockname()[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+        listener.close()
+        thread.join(timeout=3)
+
+
+@pytest.mark.parametrize("http_status,tcp_available,expected", [
+    (200, True, True), (503, True, False), (200, False, False),
+])
+def test_napcat_real_http_tcp_predicate_and_proxy_isolation(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+    http_status: int, tcp_available: bool, expected: bool
+) -> None:
+    """Both endpoints are required; ambient proxies and response bodies stay out."""
+    spec = importlib.util.spec_from_file_location("napcat_probe", ROOT / "deploy/preview-probe.py")
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    for key in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.setenv(key, "http://127.0.0.1:1")
+    monkeypatch.setenv("NO_PROXY", "")
+    monkeypatch.setenv("no_proxy", "")
+    with napcat_endpoints(http_status) as (http_port, tcp_port):
+        if not tcp_available:
+            with socket.socket() as unavailable:
+                unavailable.bind(("127.0.0.1", 0))
+                tcp_port = unavailable.getsockname()[1]
+                assert probe.napcat_ready(http_port=http_port, websocket_port=tcp_port,
+                                          timeout=0.2) is expected
+        else:
+            assert probe.napcat_ready(http_port=http_port, websocket_port=tcp_port,
+                                      timeout=0.2) is expected
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
+def test_napcat_probe_source_cli_reports_only_exit_status() -> None:
+    """The exact source-as-python3-c route works without Node or response output."""
+    source = (ROOT / "deploy/preview-probe.py").read_text()
+    with napcat_endpoints(http_port=6099, websocket_port=3001):
+        result = subprocess.run([sys.executable, "-c", source, "napcat"],
+                                capture_output=True, text=True, timeout=6)
+    assert result.returncode == 0
+    assert result.stdout == result.stderr == ""
+
+
+def test_napcat_probe_accepts_webui_when_root_requires_redirect() -> None:
+    """Probe the observed successful route directly rather than following root redirects."""
+    spec = importlib.util.spec_from_file_location("napcat_route_probe", ROOT / "deploy/preview-probe.py")
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    with napcat_endpoints() as (http_port, tcp_port):
+        connection = http.client.HTTPConnection("127.0.0.1", http_port, timeout=0.2)
+        try:
+            connection.request("GET", "/")
+            response = connection.getresponse()
+            assert response.status == 301
+            assert response.getheader("Location") == "/webui/"
+        finally:
+            connection.close()
+        assert probe.napcat_ready(http_port=http_port, websocket_port=tcp_port,
+                                  timeout=0.2) is True
 
 
 def test_publisher_disabled_and_atomic_private_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -86,7 +183,13 @@ def test_telegram_startup_does_not_overwrite_early_poll_failure(monkeypatch: pyt
     from kisara.bot.adapters import telegram
     seen = []
     monkeypatch.setattr(telegram, "publish_readiness", lambda engine, ready: seen.append(ready))
-    monkeypatch.setattr(telegram, "ManagedPollingBot", lambda *args: SimpleNamespace())
+
+    def polling_bot(*args: object, **kwargs: object) -> object:
+        """Accept the actual constructor wiring without changing poll ordering."""
+        assert kwargs == {"api_base_url": "https://api.telegram.org", "local_mode": False}
+        return SimpleNamespace()
+
+    monkeypatch.setattr(telegram, "ManagedPollingBot", polling_bot)
 
     async def run() -> None:
         started = asyncio.Event()

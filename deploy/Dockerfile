@@ -20,9 +20,10 @@ RUN python /opt/kisara/preview-deps.py install-system "${KISARA_EXTRA}" \
     && python /opt/kisara/preview-deps.py check "${KISARA_EXTRA}"
 
 RUN chmod 755 /opt/kisara/kisara-dev-watch.sh \
-    && useradd --create-home --uid 10001 kisara \
-    && mkdir -p /app/state /app/setu \
-    && chown -R kisara:kisara /app /opt/kisara
+    && groupadd --gid 10001 kisara \
+    && useradd --create-home --uid 10001 --gid 10001 kisara \
+    && mkdir -p /app/state /app/setu /app/tgsetu /var/lib/telegram-bot-api \
+    && chown -R kisara:kisara /app /opt/kisara /var/lib/telegram-bot-api
 USER kisara
 
 CMD ["python", "-m", "kisara"]

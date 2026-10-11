@@ -13,4 +13,6 @@ botpy.log
 # Keep any reintroduced historical snapshot out of Git
 /config/groups.json
 /config/features/*/config.toml
+/config/*/groups.json
+/config/*/features/*/config.toml
 /config/fonts/

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 pytest.importorskip("telegram")
+from telegram import MessageEntity
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter
 
 from kisara.application.services.daily_news import DailyNewsResult
@@ -17,6 +18,8 @@ from kisara.bot.adapters.telegram import TelegramAdapter, normalize_update, quie
 from kisara.bot.contracts import Attachment, MessageEvent, MessageSegment, OutgoingMessage
 from kisara.bot.dispatcher import Dispatcher
 from kisara.config.settings import Settings
+from kisara.config.tgsetu import TgSetuConfig
+from kisara.infrastructure.persistence.tgsetu_files import TgSetuFileSaver
 
 
 def update(text: str = "/ping", chat_id: int = 123, kind: str = "private",
@@ -358,3 +361,219 @@ def test_partial_chunk_failure_logs_only_confirmed_parts(caplog: object) -> None
     messages = [record.getMessage() for record in caplog.records]
     assert len(messages) == 1 and "part=1/2" in messages[0]
     assert "part=2/2" not in caplog.text and "123:test" not in caplog.text
+
+
+def test_media_normalization_largest_photo_and_utf16_hashtags() -> None:
+    """Photo variants represent one item; entities after emoji use UTF-16 offsets."""
+    caption = "😀 [资源] a.b-c_d #tag1 #tag1 #中文"
+    entities = []
+    position = 0
+    for tag in ("#tag1", "#tag1", "#中文"):
+        start = caption.index(tag, position)
+        offset = len(caption[:start].encode("utf-16-le")) // 2
+        entities.append(MessageEntity("hashtag", offset, len(tag.encode("utf-16-le")) // 2))
+        position = start + len(tag)
+    small = SimpleNamespace(file_id="small", file_unique_id="s", width=100, height=100, file_size=200)
+    large = SimpleNamespace(file_id="large", file_unique_id="l", width=1000, height=1000, file_size=2000)
+    event = normalize_update(update(text=None, caption=caption, caption_entities=entities,
+                                    photo=(large, small), media_group_id="album",
+                                    reply_to_message=SimpleNamespace(message_id=8)), "x", "bot")
+    assert len(event.segments) == 1 and event.segments[0].kind == "image"
+    data = event.segments[0].data
+    assert data["file_id"] == "large" and data["size"] == 2000
+    assert data["title"] == "😀 [资源] a.b-c_d"
+    assert data["caption"] == caption and data["tags"] == ("tag1", "中文")
+    assert data["media_group_id"] == "album" and data["mime_type"] == "image/jpeg"
+    assert event.reply_context["reply_to_message_id"] == "8"
+
+
+@pytest.mark.parametrize("kind", ["video", "document"])
+def test_media_keeps_original_filename_and_literal_hash(kind: str) -> None:
+    item = SimpleNamespace(file_id="f", file_unique_id="u", file_name="pack.tar.gz",
+                           mime_type="application/gzip", file_size=42)
+    event = normalize_update(update(text=None, caption="title #literal", **{kind: item}), "x", "bot")
+    data = event.segments[0].data
+    assert event.segments[0].kind == ("video" if kind == "video" else "file")
+    assert data["title"] == "title #literal" and data["tags"] == ()
+    assert data["name"] == "pack.tar.gz" and data["mime_type"] == "application/gzip"
+
+
+@pytest.mark.parametrize("fields", [
+    {"animation": object(), "document": object()}, {"sticker": object()},
+    {"video_note": object()}, {"paid_media": object()}, {"live_photo": object()},
+    {"voice": object()}, {"audio": object()},
+])
+def test_unsupported_media_ignored(fields: dict) -> None:
+    assert normalize_update(update(text=None, **fields), "x", "bot") is None
+
+
+def test_other_bot_addressed_caption_has_no_native_entry() -> None:
+    item = SimpleNamespace(file_id="f", file_unique_id="u")
+    assert normalize_update(update(text=None, caption="/tgsetu@other", document=item), "x", "bot") is None
+
+
+def test_native_archive_gate_no_dispatch_fallthrough_or_double_dedup() -> None:
+    async def run() -> None:
+        handled = []
+        router = dispatcher(feature_switches={"tgsetu": True})
+        service = SimpleNamespace(handle=AsyncMock(return_value=True))
+        adapter = TelegramAdapter(settings(), lambda event: handled.append(event), tgsetu=service,
+                                  native_authorizer=router.authorize_native)
+        context = SimpleNamespace(bot=SimpleNamespace(username="TestBot"))
+        item = SimpleNamespace(file_id="f", file_unique_id="u")
+        incoming = update(text=None, document=item)
+        await adapter._on_update(incoming, context)
+        await adapter._on_update(incoming, context)
+        await adapter._on_update(update("/tgsetu@TestBot on", message_id=2), context)
+        await adapter._on_update(update("/tgsetu@other on", message_id=3), context)
+        await adapter._on_update(update("/tgsetu on", user=999, message_id=4), context)
+        await adapter._on_update(update(text=None, document=item, kind="group", chat_id=-456, message_id=5), context)
+        assert service.handle.await_count == 2 and handled == []
+        assert service.handle.await_args_list[1].args[0].text == "/tgsetu on"
+        assert not router.authorize_native(normalize_update(incoming, "test", "TestBot"), "tgsetu")
+    asyncio.run(run())
+
+
+def test_archive_disabled_command_guidance_and_silent_media() -> None:
+    async def run() -> None:
+        router = dispatcher()
+        adapter = TelegramAdapter(settings(), router.dispatch_payload)
+        adapter.send_reply = AsyncMock()
+        context = SimpleNamespace(bot=SimpleNamespace(username="TestBot"))
+        await adapter._on_update(update("/tgsetu on"), context)
+        item = SimpleNamespace(file_id="f", file_unique_id="u")
+        await adapter._on_update(update(text=None, document=item, message_id=2), context)
+        assert adapter.send_reply.await_count == 1
+        assert "unavailable" in adapter.send_reply.await_args.args[1]
+        assert not router.router.eligible("tgsetu", "telegram")
+        enabled = dispatcher(feature_switches={"tgsetu": True})
+        assert "/tgsetu" in enabled.router.help("telegram")
+        assert "/tgsetu" not in enabled.router.help("onebot")
+        assert "/setu" not in enabled.router.help("telegram")
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("source_kind", ["valid", "remote", "relative", "outside", "symlink", "directory", "missing"])
+def test_sdk_cache_path_validation(tmp_path: object, source_kind: str) -> None:
+    async def run() -> None:
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        saved = cache / "file.mp4"
+        saved.write_bytes(b"bytes")
+        outside = tmp_path / "outside.mp4"
+        outside.write_bytes(b"private")
+        link = cache / "link.mp4"
+        link.symlink_to(outside)
+        paths = {"valid": str(saved), "remote": "https://api.telegram.org/file/botSECRET/a.mp4",
+                 "relative": "file.mp4", "outside": str(outside), "symlink": str(link),
+                 "directory": str(cache), "missing": str(cache / "missing")}
+        retrieve = AsyncMock(return_value=SimpleNamespace(file_path=paths[source_kind]))
+        service = SimpleNamespace(config=SimpleNamespace(cache_root=cache))
+        adapter = TelegramAdapter(settings(telegram_local_mode=True), lambda event: None, tgsetu=service)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(get_file=retrieve))
+        if source_kind == "valid":
+            assert await adapter.media_path({"file_id": "retrieve"}) == saved
+        else:
+            with pytest.raises((ValueError, OSError)):
+                await adapter.media_path({"file_id": "retrieve"})
+        assert retrieve.await_args.args == ("retrieve",)
+        assert retrieve.await_args.kwargs["read_timeout"] == 300
+    asyncio.run(run())
+
+
+def test_media_gateway_requires_explicit_local_mode_before_sdk() -> None:
+    async def run() -> None:
+        retrieve = AsyncMock()
+        adapter = TelegramAdapter(settings(), lambda event: None, tgsetu=SimpleNamespace())
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(get_file=retrieve))
+        with pytest.raises(ValueError):
+            await adapter.media_path({"file_id": "f"})
+        retrieve.assert_not_awaited()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("directory_link", [False, True])
+def test_sdk_cache_alias_preserves_symlink_rejection(tmp_path: object, directory_link: bool) -> None:
+    """An in-cache link must not disappear before the bounded source opener."""
+    async def run() -> None:
+        cache = tmp_path / "cache"
+        real = cache / "real"
+        real.mkdir(parents=True)
+        saved = real / "file.mp4"
+        saved.write_bytes(b"bytes")
+        alias = cache / "alias"
+        alias.symlink_to(real if directory_link else saved, target_is_directory=directory_link)
+        source = alias / "file.mp4" if directory_link else alias
+        config = TgSetuConfig(cache_root=cache, save_root=tmp_path / "archive")
+        service = SimpleNamespace(config=config)
+        adapter = TelegramAdapter(settings(telegram_local_mode=True), lambda event: None, tgsetu=service)
+        retrieve = AsyncMock(return_value=SimpleNamespace(file_path=str(source)))
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(get_file=retrieve))
+        location = await adapter.media_path({"file_id": "retrieve"})
+        assert location == source
+        with pytest.raises(OSError):
+            TgSetuFileSaver(config).prepare(location, 100)
+        assert not config.save_root.exists()
+    asyncio.run(run())
+
+
+def test_archive_notice_quotes_source_and_returns_receipt() -> None:
+    async def run() -> None:
+        send = AsyncMock(return_value=SimpleNamespace(message_id=17))
+        adapter = TelegramAdapter(settings(), lambda event: None)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send))
+        assert await adapter.send_notice("123", "saved", "6") == "17"
+        assert send.await_args.kwargs["reply_parameters"].message_id == 6
+        assert send.await_args.kwargs["parse_mode"] is None
+    asyncio.run(run())
+
+
+def test_archive_notice_queue_coalesces_and_bounds_without_claiming_receipts(caplog: object) -> None:
+    async def run() -> None:
+        adapter = TelegramAdapter(settings(), lambda event: None)
+        adapter._notice_pending = {}
+        adapter._notice_event = asyncio.Event()
+        assert await adapter.send_notice("123", "accepted", "1") == ""
+        assert await adapter.send_notice("123", "saved", "1") == ""
+        assert list(adapter._notice_pending.values()) == ["saved"]
+        for number in range(2, 257):
+            await adapter.send_notice("123", "pending", str(number))
+        with pytest.raises(ValueError):
+            await adapter.send_notice("123", "secret-body", "257")
+        assert len(adapter._notice_pending) == 256
+        assert await adapter.send_notice("123", "final", "1") == ""
+    with caplog.at_level(logging.WARNING, logger="kisara.telegram"):
+        asyncio.run(run())
+    assert "queue is full" in caplog.text and "secret-body" not in caplog.text
+
+
+def test_archive_notice_retries_only_known_short_rejection(monkeypatch: object) -> None:
+    monkeypatch.setenv("PTB_TIMEDELTA", "true")
+    async def run() -> None:
+        adapter = TelegramAdapter(settings(), lambda event: None)
+        send = AsyncMock(side_effect=[RetryAfter(2), SimpleNamespace(message_id=9)])
+        sleep = AsyncMock()
+        monkeypatch.setattr("kisara.bot.adapters.telegram.asyncio.sleep", sleep)
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send))
+        assert await adapter.send_notice("123", "saved", "6") == "9"
+        assert send.await_count == 2 and sleep.await_args.args == (2.0,)
+        for error, expected in ((RetryAfter(60), 1), (RetryAfter(1), 3), (NetworkError("secret"), 1)):
+            send.side_effect = error
+            send.reset_mock()
+            with pytest.raises(type(error)):
+                await adapter.send_notice("123", "saved", "6")
+            assert send.await_count == expected
+    asyncio.run(run())
+
+
+def test_archive_notice_chunk_retry_keeps_confirmed_prefix(monkeypatch: object) -> None:
+    monkeypatch.setenv("PTB_TIMEDELTA", "true")
+    async def run() -> None:
+        adapter = TelegramAdapter(settings(), lambda event: None)
+        send = AsyncMock(side_effect=[SimpleNamespace(message_id=10), RetryAfter(1),
+                                     SimpleNamespace(message_id=11)])
+        monkeypatch.setattr("kisara.bot.adapters.telegram.asyncio.sleep", AsyncMock())
+        adapter._application = SimpleNamespace(bot=SimpleNamespace(send_message=send))
+        assert await adapter.send_notice("123", "a" * 4096 + "tail", "6") == "11"
+        assert [call.kwargs["text"] for call in send.await_args_list] == ["a" * 4096, "tail", "tail"]
+    asyncio.run(run())

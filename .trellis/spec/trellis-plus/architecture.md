@@ -91,6 +91,13 @@ Plain images and unsolicited forwards do not trigger archive replies.
 Image export has a separate authorization gate, precedes archive handling, and
 returns original bytes as file attachments without archive persistence.
 
+Telegram has a separate opt-in `/tgsetu on` automatic private media flow, with
+global and feature allowlists, durable activation/jobs and individual-file
+atomic publication. Native authorization precedes normalized media acceptance;
+owned background workers use a narrow local-cache gateway. `/tgsetu off` stops
+new acceptance and preserves accepted work. See [TgSetu contracts](tgsetu.md)
+for album naming, retry and the local Bot API boundary.
+
 ## Utilities and documentation
 
 Import utilities from their concrete modules. `pangu(text)` operates on plain
@@ -158,7 +165,8 @@ needed, and its configured enablement; an explicit true cannot invoke a missing
 service. It owns help and invocation eligibility. Aliases share their
 feature's switch. Register explicitly in code; configuration supplies values,
 never import paths or executable plugins. Telegram's inventory is ping, help,
-news, news_push, and music. `/start` is Telegram onboarding through help, without
+news, news_push, music, and optionally tgsetu when its dedicated service is
+configured. `/setu` stays OneBot-only. `/start` is Telegram onboarding through help, without
 access grants or scheduled subscriptions. Manual news and news_push are separate
 features. News maintenance is part of manual news.
 Telegram advertises `/news_clear`, normalized by its adapter to the registered

@@ -63,6 +63,7 @@ class Dispatcher:
         self._admin_users = admin_users
         self._tarot_group_rates = tarot_group_rates or {}
         switches = {
+            "tgsetu": False,
             "chat": chat_responder is not None, "tarot": tarot_reader is not None,
             "news": daily_news is not None,
             "news_push": daily_news is not None,
@@ -71,9 +72,10 @@ class Dispatcher:
         self._disabled_features = frozenset(name for name, enabled in (feature_switches or {}).items()
                                             if not enabled)
         for name, enabled in (feature_switches or {}).items():
-            switches[name] = switches.get(name, True) and enabled
+            switches[name] = enabled if name == "tgsetu" else switches.get(name, True) and enabled
         self.router = FeatureRouter(tuple(
-            RegisteredFeature(definition, self._shared_feature if definition.name in
+            RegisteredFeature(definition, self._native_feature if definition.trigger == "native"
+                              else self._shared_feature if definition.name in
                               {"ping", "help", "news", "music"} else self._qq_feature)
             for definition in FEATURES
         ), switches)
@@ -84,6 +86,8 @@ class Dispatcher:
             event.conversation_kind == "private" or event.conversation_kind == "group"
             and self._groups_enabled and event.conversation_id in self._allowed_groups
         )
+        if feature == "tgsetu" and event.conversation_kind != "private":
+            return False
         return allowed and self.router.eligible(feature, event.engine) and not self._is_duplicate(event)
 
     def dispatch(self, event: MessageEvent) -> Optional[str]:
@@ -174,6 +178,10 @@ class Dispatcher:
             attachments=(Attachment("daily-news-{}.png".format(result.day.isoformat()), result.png_bytes()),)
             if event.engine == "telegram" else (),
         )
+
+    def _native_feature(self, event: MessageEvent, command: str, arguments: str) -> DispatchResult:
+        """Leave native workflows to the authorized adapter and its async gateway."""
+        return DispatchResult("unhandled", "This feature is unavailable. Try /help.")
 
     def _qq_feature(self, event: MessageEvent, command: str, arguments: str) -> DispatchResult:
         """Keep QQ-only workflow handlers and fallback semantics in their owner."""

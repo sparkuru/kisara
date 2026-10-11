@@ -1,0 +1,28 @@
+{
+  "id": "telegram-tgsetu",
+  "name": "telegram-tgsetu",
+  "title": "Telegram /tgsetu 自动媒体归档",
+  "description": "实现已批准的 Telegram /tgsetu 自动归档、配置根目录统一及安全 OneBot 迁移、kisara.sh 入口收敛与旧脚本删除；按后续明确授权将已停止的 QQ 部署容器转为保留数据的 OneBot 预览，并修复实际 NapCat 就绪探针。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "kisara",
+  "assignee": "kisara",
+  "createdAt": "2026-10-10",
+  "completedAt": null,
+  "branch": "feat/telegram-tgsetu",
+  "base_branch": "keiyaku-no-kisu",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "2026-10-11 latest full canonical Docker gate893 passed, 1 Git-dependent skip previously verified on host, 3 existing PTB warnings. Old four root scripts removed; bounded no-Node Python NapCat HTTP /webui/ plus TCP/listener correction independently reviewed and tested. User separately authorized removal of exactly two stopped QQ deployment objects and OneBot preview startup, keeping mounts/state and Telegram unchanged; actual preview start/status both ready and QQ preview stays running. Earlier official API image/RO-cache smoke and config migration evidence retained. Controlled feature/account and Telegram activation still pending; commit/archive unperformed. See validation.md.",
+  "meta": {
+    "delivery_authorization": "User approved the combined 105-path work commit with preview-status-logs, excluding workspace journals. Telegram account/deployment acceptance remains pending; no push/archive authorization."
+  }
+}

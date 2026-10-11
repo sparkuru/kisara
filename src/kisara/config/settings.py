@@ -5,9 +5,10 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, FrozenSet, Mapping, Optional, Tuple
+from urllib.parse import urlsplit
 
 from .feature_files import (
-    ConfigurationError, boolean, groups, load_feature,
+    ConfigurationError, boolean, engine_config_root, groups, load_feature,
     percent, string, words,
 )
 
@@ -15,6 +16,7 @@ from .feature_files import (
 DEFAULT_ENGINE = "onebot"
 DEFAULT_ONEBOT_WS_URL = "ws://napcat:3001"
 SUPPORTED_ENGINES = ("onebot", "official", "telegram")
+DEFAULT_TELEGRAM_API_BASE_URL = "https://api.telegram.org"
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,13 @@ class Settings:
     news_enabled: bool = True
     news_push_enabled: bool = True
     telegram_message_log_enabled: bool = False
+    telegram_api_base_url: str = DEFAULT_TELEGRAM_API_BASE_URL
+    telegram_local_mode: bool = False
+
+    @property
+    def config_root(self) -> Path:
+        """Use the selected engine's root for every configuration entrypoint."""
+        return engine_config_root(self.engine)
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -86,6 +95,7 @@ class Settings:
                 )
             )
 
+        config_root = engine_config_root(engine)
         environment = _engine_environment(os.environ, engine)
         instance_id = environment.get("KISARA_INSTANCE_ID", "personal").strip()
         if not instance_id:
@@ -100,15 +110,15 @@ class Settings:
         )
         allowed_groups = _read_csv("KISARA_ALLOWED_GROUPS", environment=environment)
         group_overrides = (
-            _read_group_overrides(allowed_groups, environment=environment)
+            _read_group_overrides(allowed_groups, config_root, environment=environment)
             if engine != "telegram" else {}
         )
-        chat_file = load_feature("chat") if engine != "telegram" else {}
-        tarot_file = load_feature("tarot") if engine != "telegram" else {}
-        news_file = load_feature("news")
-        source_file = load_feature("source") if engine != "telegram" else {}
-        music_file = load_feature("music")
-        love_file = load_feature("love") if engine != "telegram" else {}
+        chat_file = load_feature("chat", config_root) if engine != "telegram" else {}
+        tarot_file = load_feature("tarot", config_root) if engine != "telegram" else {}
+        news_file = load_feature("news", config_root)
+        source_file = load_feature("source", config_root) if engine != "telegram" else {}
+        music_file = load_feature("music", config_root)
+        love_file = load_feature("love", config_root) if engine != "telegram" else {}
         if engine != "telegram":
             chat_options = {
                 "chat_enabled": boolean(chat_file, "enabled",
@@ -167,12 +177,12 @@ class Settings:
             raise ConfigurationError("KISARA_MUSIC_API_URL must be an HTTP URL.")
         feature_options = {
             "ping_enabled": boolean(
-                load_feature("ping"), "enabled",
+                load_feature("ping", config_root), "enabled",
                 lambda: _read_bool("KISARA_PING_ENABLED", True, environment=environment),
                 "ping",
             ),
             "help_enabled": boolean(
-                load_feature("help"), "enabled",
+                load_feature("help", config_root), "enabled",
                 lambda: _read_bool("KISARA_HELP_ENABLED", True, environment=environment),
                 "help",
             ),
@@ -275,9 +285,32 @@ class Settings:
             )
 
         if engine == "telegram":
+            api_base_url = environment.get(
+                "TELEGRAM_API_BASE_URL", DEFAULT_TELEGRAM_API_BASE_URL,
+            ).strip().rstrip("/")
+            try:
+                endpoint = urlsplit(api_base_url)
+                valid_endpoint = (
+                    endpoint.scheme in {"http", "https"} and endpoint.hostname
+                    and not any(character.isspace() or ord(character) < 32 for character in api_base_url)
+                    and "@" not in endpoint.netloc
+                    and not endpoint.username and not endpoint.password
+                    and not endpoint.query and not endpoint.fragment
+                    and endpoint.port != 0
+                )
+            except ValueError:
+                valid_endpoint = False
+            if not valid_endpoint:
+                raise ConfigurationError(
+                    "TELEGRAM_API_BASE_URL must be an HTTP(S) server URL without credentials, query or fragment."
+                )
+            local_mode = _read_bool("TELEGRAM_LOCAL_MODE", False, environment)
+            if local_mode and endpoint.hostname.lower() == "api.telegram.org":
+                raise ConfigurationError("TELEGRAM_LOCAL_MODE requires a local Bot API server endpoint.")
             return cls(
                 engine=engine, instance_id=instance_id, allowed_users=allowed_users,
                 groups_enabled=groups_enabled, allowed_groups=allowed_groups,
+                telegram_api_base_url=api_base_url, telegram_local_mode=local_mode,
                 telegram_message_log_enabled=_read_bool(
                     "TELEGRAM_MESSAGE_LOG_ENABLED", default=False, environment=environment,
                 ),
@@ -403,12 +436,12 @@ def _parse_clock_time(value: str, name: str) -> Tuple[int, int]:
 
 
 def _read_group_overrides(
-    allowed_groups: FrozenSet[str], environment: Mapping[str, str],
+    allowed_groups: FrozenSet[str], config_root: Path, environment: Mapping[str, str],
 ) -> Mapping[str, GroupOverride]:
     """Load optional group settings without accepting unknown or disallowed keys."""
 
     configured_path = environment.get("KISARA_GROUP_CONFIG_PATH", "").strip()
-    path = Path(configured_path or "config/groups.json")
+    path = Path(configured_path) if configured_path else config_root / "groups.json"
     if not path.exists():
         if configured_path:
             raise ConfigurationError("Group config file does not exist: {}.".format(path))

@@ -1,6 +1,6 @@
 """Archive confirmed media from a quoted private OneBot forward or file message.
 
-Copy config/features/setu/config.toml.example to config.toml, enable it, and
+Copy config/onebot/features/setu/config.toml.example to config.toml, enable it, and
 list allowed_users already present in KISARA_ALLOWED_USERS. A missing file
 disables the feature. Ordinary media and unquoted forwards get no automatic
 archive reply. Quote a merged forward or file message with 保存, setu, or /setu to create one

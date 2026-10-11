@@ -6,9 +6,9 @@
 # Usage:
 #   ./hako python -m pip install --user -e ".[dev]"
 #   ./hako python --version
-#   ./hako python -m pytest
+#   ./kisara.sh test
 #   KISARA_ENGINE=onebot HAKO_SERVICE=bot ./hako python -m kisara
-#   ./dev.sh
+#   ./kisara.sh console
 #
 # The selected engine connects outbound to QQ, so PORT_FLAGS stays empty and no
 # host port is published. HAKO_BIND_HOST, BOT_HOST_PORT, and
@@ -90,6 +90,7 @@ main() {
 		local key
 		while IFS= read -r key; do
 			case $key in
+			TELEGRAM_API_ID | TELEGRAM_API_HASH) continue ;;
 			KISARA_* | ONEBOT_* | OFFICIAL_* | TELEGRAM_* | NAPCAT_* | AppID | AppSecret | SAUCENAO_API_KEY | TIANAPI_KEY)
 				env_file_flags+=(-e "$key") ;;
 			esac

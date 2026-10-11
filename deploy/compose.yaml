@@ -78,7 +78,8 @@ services:
     depends_on:
       - napcat
     volumes:
-      - ../config:/app/config:ro
+      - ../config/onebot:/app/config/onebot:ro
+      - ../config/fonts:/app/config/fonts:ro
       - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - ../data/napcat/QQ:/app/.config/QQ:ro
       - kisara_state:/app/state
@@ -135,13 +136,34 @@ services:
       KISARA_WATCH_INTERVAL: ${ONEBOT_WATCH_INTERVAL-${KISARA_WATCH_INTERVAL:-0.5}}
     volumes:
       - ../src:/app/src:ro
-      - ../config:/app/config:ro
+      - ../config/onebot:/app/config/onebot:ro
+      - ../config/fonts:/app/config/fonts:ro
       - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - ../data/napcat/QQ:/app/.config/QQ:ro
       - kisara_state:/app/state
       - ../data/kisara/setu:/app/setu
     depends_on:
       - napcat
+    networks:
+      - kisara_network
+
+  telegram-bot-api:
+    profiles: [telegram-local]
+    build:
+      context: ..
+      dockerfile: deploy/telegram-bot-api.Dockerfile
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH-}
+    healthcheck:
+      test: ["CMD", "/opt/kisara/telegram-bot-api-probe.sh", "ready"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 5s
+    volumes:
+      - telegram_bot_api_cache:/var/lib/telegram-bot-api
     networks:
       - kisara_network
 
@@ -153,10 +175,14 @@ services:
       args:
         KISARA_EXTRA: telegram
     restart: unless-stopped
+    group_add:
+      - "${TELEGRAM_TGSETU_GID-${KISARA_HOST_GID:-1000}}"
     environment:
       KISARA_ENGINE: telegram
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN-}
       TELEGRAM_MESSAGE_LOG_ENABLED: ${TELEGRAM_MESSAGE_LOG_ENABLED-false}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL-https://api.telegram.org}
+      TELEGRAM_LOCAL_MODE: ${TELEGRAM_LOCAL_MODE-false}
       KISARA_INSTANCE_ID: ${TELEGRAM_INSTANCE_ID-telegram}
       KISARA_ALLOWED_USERS: ${TELEGRAM_ALLOWED_USERS-}
       KISARA_ADMIN_USERS: ${TELEGRAM_ADMIN_USERS-}
@@ -174,8 +200,11 @@ services:
       KISARA_NEWS_CACHE_DIR: /app/state/daily-news
       KISARA_STATE_DIR: /app/state
     volumes:
-      - ../config/telegram:/app/config:ro
+      - ../config/telegram:/app/config/telegram:ro
+      - ../config/fonts:/app/config/fonts:ro
       - telegram_state:/app/state
+      - telegram_bot_api_cache:/var/lib/telegram-bot-api:ro
+      - ../data/kisara/tgsetu:/app/tgsetu
     networks:
       - kisara_network
 
@@ -204,7 +233,8 @@ services:
       KISARA_NEWS_CACHE_DIR: /app/state/daily-news
       KISARA_STATE_DIR: /app/state
     volumes:
-      - ../config/official:/app/config:ro
+      - ../config/official:/app/config/official:ro
+      - ../config/fonts:/app/config/fonts:ro
       - official_state:/app/state
     networks:
       - kisara_network
@@ -216,4 +246,5 @@ networks:
 volumes:
   kisara_state:
   telegram_state:
+  telegram_bot_api_cache:
   official_state:

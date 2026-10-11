@@ -12,10 +12,12 @@ from kisara.application.services.daily_news import DailyNews
 from kisara.application.services.public import PublicServices
 from kisara.application.services.setu import Setu
 from kisara.application.services.tarot import TarotReader
-from kisara.bot.contracts import Attachment, MessageAdapter, MessageHandler, OutgoingMessage
+from kisara.application.services.tgsetu import TgSetu
+from kisara.bot.contracts import Attachment, MessageAdapter, MessageEvent, MessageHandler, OutgoingMessage
 from kisara.bot.dispatcher import Dispatcher
 from kisara.config import ConfigurationError, Settings
 from kisara.config.setu import SetuConfig
+from kisara.config.tgsetu import TgSetuConfig
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
 
 
@@ -27,6 +29,8 @@ def create_adapter(
     handler: MessageHandler,
     daily_news_factory: Optional[Callable[[], OutgoingMessage]] = None,
     setu: Optional[Setu] = None,
+    tgsetu: Optional[TgSetu] = None,
+    native_authorizer: Optional[Callable[[MessageEvent, str], bool]] = None,
 ) -> MessageAdapter:
     """Load only the selected adapter and assemble it with the shared handler."""
 
@@ -43,7 +47,8 @@ def create_adapter(
         module = importlib.import_module("kisara.bot.adapters.telegram")
         store_module = importlib.import_module("kisara.infrastructure.persistence.telegram_news")
         store = store_module.TelegramNewsStore(settings.state_dir) if daily_news_factory else None
-        return module.TelegramAdapter(settings, handler, daily_news_factory, store)
+        return module.TelegramAdapter(settings, handler, daily_news_factory, store,
+                                      tgsetu=tgsetu, native_authorizer=native_authorizer)
     elif settings.engine == "official":
         module = importlib.import_module("kisara.bot.adapters.official")
         adapter_class = getattr(module, "OfficialAdapter")
@@ -63,8 +68,16 @@ def main() -> int:
     try:
         settings = Settings.from_environment()
         setu_config = SetuConfig.load(
-            Path("config/features/setu/config.toml")
+            settings.config_root / "features/setu/config.toml"
         ) if settings.engine == "onebot" else SetuConfig.disabled()
+        tgsetu_config = TgSetuConfig.load(
+            settings.config_root / "features/tgsetu/config.toml"
+        ) if settings.engine == "telegram" else TgSetuConfig.disabled()
+        if tgsetu_config.enabled:
+            if not tgsetu_config.allowed_users.issubset(settings.allowed_users):
+                raise ConfigurationError("TgSetu users must be in KISARA_ALLOWED_USERS.")
+            if not settings.telegram_local_mode:
+                raise ConfigurationError("TgSetu requires TELEGRAM_LOCAL_MODE and a local Bot API endpoint.")
         if setu_config.enabled and not setu_config.allowed_users.issubset(settings.allowed_users):
             raise ConfigurationError("Setu users must be in KISARA_ALLOWED_USERS.")
     except ConfigurationError as error:
@@ -126,6 +139,7 @@ def main() -> int:
         daily_news=daily_news,
         admin_users=settings.admin_users,
         feature_switches={
+            "tgsetu": tgsetu_config.enabled,
             "ping": settings.ping_enabled, "help": settings.help_enabled,
             "music": settings.music_enabled, "news": settings.news_enabled,
             "news_push": settings.news_push_enabled and settings.engine in {"onebot", "telegram"},
@@ -147,11 +161,17 @@ def main() -> int:
             Setu(setu_config, settings.state_dir)
             if setu_config.enabled else None
         )
+        native_options = {}
+        if tgsetu_config.enabled:
+            native_options = {
+                "tgsetu": TgSetu(tgsetu_config, settings.state_dir, settings.instance_id, settings.allowed_users),
+                "native_authorizer": dispatcher.authorize_native,
+            }
         adapter = create_adapter(
             settings, dispatcher.dispatch_payload,
             daily_news_factory if dispatcher.router.eligible("news_push", settings.engine)
             and (settings.news_push_groups or settings.news_push_users) else None,
-            setu,
+            setu, **native_options,
         )
     except ImportError as error:
         if settings.engine == "official":
@@ -163,6 +183,9 @@ def main() -> int:
             _log.error("Telegram dependencies are missing; install .[telegram] on Python 3.10+")
         else:
             _log.error("OneBot engine dependencies are missing: %s", error)
+        return 2
+    except ConfigurationError as error:
+        _log.error("%s", error)
         return 2
     except (OSError, sqlite3.Error) as error:
         _log.error("Cannot initialize bot state: %s", error)

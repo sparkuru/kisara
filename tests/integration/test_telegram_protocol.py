@@ -264,3 +264,158 @@ def test_application_start_failure_emits_no_polling_ready(monkeypatch: object, c
     with caplog.at_level(logging.INFO, logger="kisara.telegram"):
         asyncio.run(run())
     assert "Telegram polling ready" not in caplog.text and "SECRET" not in caplog.text
+
+
+def test_real_sdk_local_endpoint_getfile_and_media_gate(monkeypatch: object, tmp_path: object) -> None:
+    """Native media uses the configured SDK endpoint and local paths without downloads."""
+    async def run() -> None:
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        source = cache / "movie.mp4"
+        source.write_bytes(b"complete-media")
+        class MediaPeer(BotPeer):
+            async def do_request(self, url: str, method: str, request_data: object = None,
+                                 **kwargs: object) -> tuple:
+                assert url.startswith("http://telegram-bot-api:8081/bot123:synthetic/")
+                if url.endswith("getFile"):
+                    self.calls.append(("getFile", request_data.parameters, request_data))
+                    result = dict(file_id="file", file_unique_id="unique", file_size=14,
+                                  file_path=str(source))
+                    return 200, json.dumps(dict(ok=True, result=result)).encode()
+                return await super().do_request(url, method, request_data, **kwargs)
+        request = MediaPeer()
+        media = packet(2, "unused")
+        media["message"].pop("text")
+        media["message"].update(message_id=2, caption="😀 Movie #tag", caption_entities=[
+            dict(type="hashtag", offset=9, length=4)], video=dict(
+                file_id="file", file_unique_id="unique", width=1920, height=1080,
+                duration=10, file_size=14, file_name="movie.mp4", mime_type="video/mp4"))
+        denied = json.loads(json.dumps(media))
+        denied["update_id"] = 3
+        denied["message"]["message_id"] = 3
+        denied["message"]["from"]["id"] = 999
+        addressed = packet(4, "/tgsetu@other on")
+        addressed["message"]["message_id"] = 4
+        updates = BotPeer([packet(1, "/tgsetu@TestBot on"), media, denied, addressed])
+        monkeypatch.setattr(transport, "HTTPXRequest",
+                            lambda **kwargs: updates if kwargs.get("read_timeout") == 35 else request)
+        accepted = []
+        class Archive:
+            config = SimpleNamespace(cache_root=cache)
+            async def handle(self, event: object, gateway: object) -> bool:
+                accepted.append(event)
+                if event.segments[0].kind == "video":
+                    assert await gateway.media_path(event.segments[0].data) == source
+                    await gateway.send_notice(event.conversation_id, "Saved", event.message_id)
+                return True
+            async def run(self, gateway: object) -> None:
+                await asyncio.Event().wait()
+        router = Dispatcher(frozenset({"123"}), False, frozenset(), feature_switches={"tgsetu": True})
+        settings = Settings("telegram", "test", frozenset({"123"}), False, frozenset(),
+                            telegram_token="123:synthetic", telegram_local_mode=True,
+                            telegram_api_base_url="http://telegram-bot-api:8081")
+        adapter = transport.TelegramAdapter(settings, router.dispatch_payload, tgsetu=Archive(),
+                                            native_authorizer=router.authorize_native)
+        task = asyncio.create_task(adapter._run())
+        try:
+            for _ in range(200):
+                if any(call[0] == "sendMessage" for call in request.calls):
+                    break
+                await asyncio.sleep(0.01)
+            assert [event.text for event in accepted] == ["/tgsetu on", ""]
+            data = accepted[1].segments[0].data
+            assert data["title"] == "😀 Movie" and data["tags"] == ("tag",)
+            assert [call[1]["file_id"] for call in request.calls if call[0] == "getFile"] == ["file"]
+            assert adapter._application.bot.local_mode
+        finally:
+            adapter.close()
+            await asyncio.wait_for(task, 3)
+        assert request.closed and updates.closed and adapter._tgsetu_task is None
+    asyncio.run(run())
+
+
+def test_archive_worker_cancelled_and_awaited_before_sdk_shutdown(monkeypatch: object) -> None:
+    async def run() -> None:
+        request, updates = BotPeer(), BotPeer()
+        monkeypatch.setattr(transport, "HTTPXRequest",
+                            lambda **kwargs: updates if kwargs.get("read_timeout") == 35 else request)
+        entered = asyncio.Event()
+        released = []
+        class Archive:
+            async def run(self, gateway: object) -> None:
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    await asyncio.sleep(0.01)
+                    assert not request.closed and not updates.closed
+                    released.append(True)
+        settings = Settings("telegram", "test", frozenset({"123"}), False, frozenset(),
+                            telegram_token="123:synthetic")
+        adapter = transport.TelegramAdapter(settings, lambda event: None, tgsetu=Archive())
+        task = asyncio.create_task(adapter._run())
+        await asyncio.wait_for(entered.wait(), 1)
+        adapter.close()
+        await asyncio.wait_for(task, 3)
+        assert released == [True] and request.closed and updates.closed
+    asyncio.run(run())
+
+
+def test_archive_notice_stall_does_not_block_serial_media_acceptance(monkeypatch: object) -> None:
+    async def run() -> None:
+        send_entered, second_accepted = asyncio.Event(), asyncio.Event()
+        class StalledPeer(BotPeer):
+            async def do_request(self, url: str, method: str, request_data: object = None,
+                                 **kwargs: object) -> tuple:
+                if url.endswith("sendMessage"):
+                    send_entered.set()
+                    await asyncio.Event().wait()
+                return await super().do_request(url, method, request_data, **kwargs)
+        request = StalledPeer()
+        messages = [packet(1, "/tgsetu on"), packet(2, "/tgsetu status")]
+        messages[1]["message"]["message_id"] = 2
+        updates = BotPeer(messages)
+        monkeypatch.setattr(transport, "HTTPXRequest",
+                            lambda **kwargs: updates if kwargs.get("read_timeout") == 35 else request)
+        class Archive:
+            async def handle(self, event: object, gateway: object) -> bool:
+                assert await gateway.send_notice(event.conversation_id, "status", event.message_id) == ""
+                if event.message_id == "2":
+                    second_accepted.set()
+                return True
+            async def run(self, gateway: object) -> None:
+                await asyncio.Event().wait()
+        router = Dispatcher(frozenset({"123"}), False, frozenset(), feature_switches={"tgsetu": True})
+        settings = Settings("telegram", "test", frozenset({"123"}), False, frozenset(),
+                            telegram_token="123:synthetic")
+        adapter = transport.TelegramAdapter(settings, router.dispatch_payload, tgsetu=Archive(),
+                                            native_authorizer=router.authorize_native)
+        task = asyncio.create_task(adapter._run())
+        try:
+            await asyncio.wait_for(send_entered.wait(), 1)
+            await asyncio.wait_for(second_accepted.wait(), 1)
+        finally:
+            adapter.close()
+            await asyncio.wait_for(task, 3)
+        assert request.closed and updates.closed
+        assert adapter._notice_task is None and adapter._notice_pending is None
+    asyncio.run(run())
+
+
+def test_archive_worker_failure_stops_and_closes_sdk_safely(monkeypatch: object, caplog: object) -> None:
+    async def run() -> None:
+        request, updates = BotPeer(), BotPeer()
+        monkeypatch.setattr(transport, "HTTPXRequest",
+                            lambda **kwargs: updates if kwargs.get("read_timeout") == 35 else request)
+        class Archive:
+            async def run(self, gateway: object) -> None:
+                raise RuntimeError("https://api.telegram.org/botSECRET/getFile")
+        settings = Settings("telegram", "test", frozenset({"123"}), False, frozenset(),
+                            telegram_token="123:synthetic")
+        adapter = transport.TelegramAdapter(settings, lambda event: None, tgsetu=Archive())
+        with pytest.raises(RuntimeError, match="media worker stopped"):
+            await asyncio.wait_for(adapter._run(), 3)
+        assert request.closed and updates.closed and adapter.status == "stopped"
+        assert adapter._notice_task is None and adapter._tgsetu_task is None
+    asyncio.run(run())
+    assert "SECRET" not in caplog.text

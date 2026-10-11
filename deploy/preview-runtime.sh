@@ -13,40 +13,113 @@ preview_capture() {
 	return "$status"
 }
 
-preview_redact() {
-	local file=$1 line key secret part
-	local -a values=() pieces=()
+preview_redact_values() {
+	local key secret part
+	local -a pieces=()
 	while IFS= read -r key; do
 		case $key in
 		KISARA_* | ONEBOT_* | TELEGRAM_* | OFFICIAL_* | NAPCAT_* | AppID | AppSecret | SAUCENAO_API_KEY | TIANAPI_KEY)
 			secret=${!key}
 			[[ -n $secret ]] || continue
 			case $key in
-			*TOKEN* | *SECRET* | *KEY* | *PASSWORD* | *ACCOUNT* | *APP_ID* | *USERS* | *GROUPS* | *URL* | AppID | AppSecret)
-				values+=("$secret")
+			*TOKEN* | *SECRET* | *HASH* | *API_ID* | *KEY* | *PASSWORD* | *ACCOUNT* | *APP_ID* | *USERS* | *GROUPS* | *URL* | AppID | AppSecret)
+				preview_secrets+=("$secret")
 				IFS=, read -r -a pieces <<<"$secret"
-				for part in "${pieces[@]}"; do [[ -z $part ]] || values+=("$part"); done
+				for part in "${pieces[@]}"; do [[ -z $part ]] || preview_secrets+=("$part"); done
 				;;
 			esac
 			;;
 		esac
 	done < <(compgen -e)
-	: >"${preview_tmp}/safe.log"
+	preview_filters=(
+		-e 's#(https?|wss?)://[^ /]+@[^ ]+#\1://[redacted]#g'
+		-e 's#[Bb]earer[[:space:]]+[^[:space:]"\x27,;]+#Bearer [redacted]#g'
+		-e 's#(https?://api.telegram.org/bot)[^/[:space:]]+#\1[redacted]#g'
+		-e 's#([?&](token|access_token|secret|password|key|code)=)[^&[:space:]]+#\1[redacted]#Ig'
+		-e 's#((user|chat|account|app|guild|channel)([_ ]?id)?[=: ]+)[^[:space:],;]+#\1[private-id]#Ig'
+		-e 's#(Official bot is ready:).*#\1 [private-name]#g'
+		-e '/(Received|Replying|No reply).*message user=/d'
+		-e 's/[0-9]{5,}/[private-id]/g'
+		-e '/[▀▄█]/d'
+		-e 's/[[:cntrl:]]//g'
+	)
+}
+
+preview_replace_secrets() {
+	local line secret
 	while IFS= read -r line || [[ -n $line ]]; do
-		for secret in "${values[@]}"; do line=${line//"$secret"/[redacted]}; done
+		for secret in "${preview_secrets[@]}"; do line=${line//"$secret"/[redacted]}; done
 		printf '%s\n' "$line"
-	done <"$file" | sed -E \
-		-e 's#(https?|wss?)://[^ /]+@[^ ]+#\1://[redacted]#g' \
-		-e 's#[Bb]earer[[:space:]]+[^[:space:]"\x27,;]+#Bearer [redacted]#g' \
-		-e 's#(https?://api.telegram.org/bot)[^/[:space:]]+#\1[redacted]#g' \
-		-e 's#([?&](token|access_token|secret|password|key|code)=)[^&[:space:]]+#\1[redacted]#Ig' \
-		-e 's#((user|chat|account|app|guild|channel)([_ ]?id)?[=: ]+)[^[:space:],;]+#\1[private-id]#Ig' \
-		-e 's#(Official bot is ready:).*#\1 [private-name]#g' \
-		-e '/(Received|Replying|No reply).*message user=/d' \
-		-e 's/[0-9]{5,}/[private-id]/g' \
-		-e '/[▀▄█]/d' \
-		-e 's/[[:cntrl:]]//g' >"${preview_tmp}/safe.log" || return 1
+	done
+}
+
+preview_redact() {
+	local file=$1
+	local -a preview_secrets=() preview_filters=()
+	preview_redact_values
+	preview_replace_secrets <"$file" | sed -E "${preview_filters[@]}" >"${preview_tmp}/safe.log" || return 1
 	cat -- "${preview_tmp}/safe.log" >&2
+}
+
+preview_log_lines() {
+	local service=$1 line
+	while IFS= read -r line || [[ -n $line ]]; do
+		printf '[%s] %s\n' "$service" "$line"
+	done
+}
+
+preview_stop_readers() {
+	local pid
+	for pid in "${preview_log_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || :; done
+	# Readers hold no state. Force termination also bounds cleanup of a stuck CLI.
+	for pid in "${preview_log_pids[@]}"; do kill -KILL "$pid" 2>/dev/null || :; done
+	for pid in "${preview_log_pids[@]}"; do wait "$pid" 2>/dev/null || :; done
+	preview_log_pids=()
+}
+
+preview_follow_logs() {
+	local service id pid status remaining
+	local -a targets=("${services[@]}") pending=() preview_secrets=() preview_filters=()
+	[[ $preview_official != true ]] || targets+=(bot)
+	preview_redact_values
+	for service in "${targets[@]}"; do
+		case $service in kisara | kisara-dev | telegram | official | bot) ;; *) continue ;; esac
+		id=${preview_ids[$service]}
+		preview_owned "$id" "$service" || { preview_error "Cannot follow $service logs: ownership mismatch/unavailable."; return 1; }
+		sed -u -E "${preview_filters[@]}" </dev/null >/dev/null 2>/dev/null || {
+			preview_error 'Bot logs suppressed: streaming redaction unavailable; check sed support.'; return 1;
+		}
+		mkfifo -- "${preview_tmp}/$service.raw" "${preview_tmp}/$service.replaced" "${preview_tmp}/$service.safe" || {
+			preview_error "Cannot create private log pipes for $service."; return 1;
+		}
+		preview_log "Following $service bot logs (last 80 lines; Ctrl+C stops viewing only)."
+		"${preview_docker_command[@]}" logs --follow --tail 80 "$id" >"${preview_tmp}/$service.raw" 2>&1 &
+		preview_log_pids+=("$!")
+		preview_replace_secrets <"${preview_tmp}/$service.raw" >"${preview_tmp}/$service.replaced" 2>/dev/null &
+		preview_log_pids+=("$!")
+		sed -u -E "${preview_filters[@]}" <"${preview_tmp}/$service.replaced" >"${preview_tmp}/$service.safe" 2>/dev/null &
+		preview_log_pids+=("$!")
+		preview_log_lines "$service" <"${preview_tmp}/$service.safe" 2>/dev/null &
+		preview_log_pids+=("$!")
+	done
+	while [[ ${#preview_log_pids[@]} -gt 0 ]]; do
+		status=0
+		wait -n || status=$?
+		remaining=0 pending=()
+		for pid in "${preview_log_pids[@]}"; do
+			if kill -0 "$pid" 2>/dev/null; then
+				pending+=("$pid")
+			else
+				wait "$pid" || remaining=$?
+			fi
+		done
+		preview_log_pids=("${pending[@]}")
+		# wait -n can report no jobs when a finite stream finished before the wait.
+		if [[ $remaining -ne 0 || ( $status -ne 0 && $status -ne 127 ) ]]; then
+			preview_error 'Bot log stream/redaction failed; check Docker logs access and sed support. Viewing stopped; containers unchanged.'
+			return 1
+		fi
+	done
 }
 
 preview_docker() { "${preview_docker_command[@]}" "$@"; }
@@ -184,6 +257,11 @@ preview_fingerprint() {
 				preview_error "Required fingerprint input ${key##*/} is missing/unreadable; restore it before preview preparation."; return 1;
 			}
 		done
+		if [[ " ${services[*]} " == *' telegram-bot-api '* ]]; then
+			for key in telegram-bot-api.Dockerfile telegram-bot-api-entrypoint.sh telegram-bot-api-probe.sh; do
+				cat -- "$REPO_ROOT/deploy/$key" || return 1
+			done
+		fi
 		while IFS= read -r -d '' key; do sha256sum -- "$key"; done < <(find "${REPO_ROOT}/config" -type f \( -name '*.toml' -o -name '*.json' \) -print0 2>/dev/null | sort -z)
 	} | sha256sum | awk '{print $1}'
 }
@@ -203,11 +281,15 @@ preview_override() {
 		printf '  %s:\n    labels:\n      hako.repo: %s\n      hako.scope: preview.sh\n      hako.service: %s\n      hako.config: %s\n      hako.attempt: %s\n' \
 			"$service" "\"${REPO_ROOT//\"/\\\"}\"" "$service" "$preview_config" "${preview_tmp##*/}" >>"${preview_tmp}/override.yaml"
 		case $service in
-		kisara | kisara-dev | telegram | official)
+		kisara | kisara-dev | telegram | official | telegram-bot-api)
 			image="${KISARA_PREVIEW_IMAGE_PREFIX:-${COMPOSE_PROJECT_NAME:-kisara}-preview}-${service}:latest"
 			[[ $image =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:-]+$ ]] || { preview_error 'Invalid KISARA_PREVIEW_IMAGE_PREFIX.'; return 2; }
 			preview_images[$service]=$image
-			printf '    image: %s\n    environment:\n      KISARA_PREVIEW_READINESS: /tmp/kisara-preview-ready.json\n' "$image" >>"${preview_tmp}/override.yaml"
+			if [[ $service == telegram-bot-api ]]; then
+				printf '    image: %s\n' "$image" >>"${preview_tmp}/override.yaml"
+			else
+				printf '    image: %s\n    environment:\n      KISARA_PREVIEW_READINESS: /tmp/kisara-preview-ready.json\n' "$image" >>"${preview_tmp}/override.yaml"
+			fi
 			;;
 		esac
 	done
@@ -253,7 +335,7 @@ preview_existing() {
 			preview_owned "$id" "$service" || { preview_error "Selected $service container is not owned by preview; use its existing deployment lifecycle explicitly."; return 2; }
 			fingerprint=$(preview_docker inspect --format '{{index .Config.Labels "hako.config"}}' "$id" 2>"${preview_tmp}/inspect.log") || return 1
 			if [[ $fingerprint != "$preview_config" && $preview_action != stop ]]; then
-				preview_error "Configuration changed for $service. Run ./preview.sh stop, then ./preview.sh start (build first for source/dependency changes)."; return 2
+				preview_error "Configuration changed for $service. Run ./kisara.sh preview stop $preview_target, then ./kisara.sh preview start $preview_target (build first for source/dependency changes)."; return 2
 			fi
 			preview_ids[$service]=$id
 		done <<<"$text"
@@ -261,7 +343,7 @@ preview_existing() {
 		[[ $count -eq 0 ]] || found=$((found + 1))
 	done
 	if [[ $preview_action != stop && $found -gt 0 && $found -ne ${#targets[@]} ]]; then
-		preview_error 'Incomplete preview group; run ./preview.sh stop then start. No automatic repair was performed.'; return 2
+		preview_error "Incomplete preview group; run ./kisara.sh preview stop $preview_target then ./kisara.sh preview start $preview_target. No automatic repair was performed."; return 2
 	fi
 	preview_reuse=false
 	[[ $found -eq 0 ]] || preview_reuse=true
@@ -271,15 +353,23 @@ preview_prepare_image() {
 	local service=$1 image=$2 extra=''
 	case $service in telegram | official) extra=$service ;; esac
 	if ! preview_docker image inspect "$image" >"${preview_tmp}/inspect.log" 2>&1; then
-		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error "Missing image for $service; disable offline mode and run build/pull explicitly."; return 1; }
+		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error "Missing image for $service; disable offline mode and run ./kisara.sh preview build $preview_target explicitly."; return 1; }
 		case $service in
 		napcat | music) preview_capture "Pull missing $service image" preview_docker pull "$image" || return $? ;;
 		*) preview_capture "Build missing $service image" preview_compose build "$service" || return $? ;;
 		esac
 	fi
-	case $service in napcat | music) return 0 ;; esac
+	case $service in
+	napcat | music) return 0 ;;
+	telegram-bot-api)
+		preview_docker run --rm --network none "$image" --version >"${preview_tmp}/inspect.log" 2>&1 || {
+			preview_error "Local Bot API binary unavailable; run ./kisara.sh preview build $preview_target explicitly before starting."; return 1;
+		}
+		return 0
+		;;
+	esac
 	if ! preview_docker run --rm --network none --entrypoint python "$image" /opt/kisara/preview-deps.py check "$extra" >"${preview_tmp}/inspect.log" 2>&1; then
-		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error "Missing/incompatible pinned dependencies for $service; rebuild explicitly while online."; return 1; }
+		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error "Missing/incompatible pinned dependencies for $service; run ./kisara.sh preview build $preview_target explicitly while online."; return 1; }
 		preview_capture "Prepare pinned $service dependencies through its image build" preview_compose build "$service" || return $?
 		preview_docker run --rm --network none --entrypoint python "$image" /opt/kisara/preview-deps.py check "$extra" >"${preview_tmp}/inspect.log" 2>&1 || {
 			preview_error "Dependencies still unavailable for $service after preparation; no services started."; return 1;
@@ -300,6 +390,14 @@ preview_validate_credentials() {
 		kisara | kisara-dev)
 			[[ -n ${ONEBOT_ACCESS_TOKEN:-} && ${ONEBOT_ACCESS_TOKEN:-} != replace-with-a-secret && ${ONEBOT_ACCESS_TOKEN:-} =~ ^[A-Za-z0-9._~-]+$ ]] || {
 				preview_error 'Set ONEBOT_ACCESS_TOKEN to a non-placeholder token using letters, digits, dot, underscore, tilde or hyphen before starting OneBot.'; return 2;
+			}
+			;;
+		telegram-bot-api)
+			[[ ${TELEGRAM_API_ID:-} =~ ^[1-9][0-9]*$ && ${TELEGRAM_API_HASH:-} =~ ^[[:xdigit:]]{32}$ ]] || {
+				preview_error 'Set TELEGRAM_API_ID and TELEGRAM_API_HASH for the local Bot API server.'; return 2;
+			}
+			[[ ${TELEGRAM_API_BASE_URL:-https://api.telegram.org} == http://telegram-bot-api:8081 ]] || {
+				preview_error 'Local deployment requires TELEGRAM_API_BASE_URL=http://telegram-bot-api:8081.'; return 2;
 			}
 			;;
 		telegram)
@@ -334,7 +432,7 @@ preview_prepare() {
 		preview_capture 'Pull missing hako runtime image' preview_docker pull "$image" || return $?
 	fi
 	if ! HAKO_SERVICE= HAKO_DETACH=false preview_hako python /app/deploy/preview-deps.py check official >"${preview_tmp}/inspect.log" 2>&1; then
-		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error 'Missing pinned Official dependencies in offline mode; run build while online.'; return 1; }
+		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error "Missing pinned Official dependencies in offline mode; run ./kisara.sh preview build $preview_target while online."; return 1; }
 		preview_capture 'Install missing pinned Official runtime dependencies' env HAKO_SERVICE= HAKO_DETACH=false "$REPO_ROOT/hako" python /app/deploy/preview-deps.py install official || return $?
 		HAKO_SERVICE= HAKO_DETACH=false preview_hako python /app/deploy/preview-deps.py check official >"${preview_tmp}/inspect.log" 2>&1 || {
 			preview_error 'Official dependencies remain unavailable after installation; no service started.'; return 1;
@@ -347,9 +445,12 @@ preview_ready_one() {
 	state=$(timeout 5 "${preview_docker_command[@]}" inspect --format '{{.State.Running}}' "$id" 2>"${preview_tmp}/inspect.log") || return 1
 	[[ $state == true ]] || return 1
 	case $service in
+	telegram-bot-api)
+		timeout 6 "${preview_docker_command[@]}" exec "$id" /opt/kisara/telegram-bot-api-probe.sh ready >"${preview_tmp}/probe.log" 2>&1
+		;;
 	napcat)
-		timeout 6 "${preview_docker_command[@]}" exec "$id" node -e \
-			'Promise.all([fetch("http://127.0.0.1:6099").then(r=>{if(!r.ok)throw Error("UI unavailable")}),new Promise((resolve,reject)=>{let s=require("net").connect(3001,"127.0.0.1",()=>{s.end();resolve()});s.on("error",reject)})]).then(()=>process.exit(0),()=>process.exit(1))' >"${preview_tmp}/probe.log" 2>&1
+		timeout 6 "${preview_docker_command[@]}" exec "$id" python3 -c \
+			"$(cat "$REPO_ROOT/deploy/preview-probe.py")" napcat >"${preview_tmp}/probe.log" 2>&1
 		;;
 	music)
 		timeout 6 "${preview_docker_command[@]}" exec "$id" node -e 'fetch("http://127.0.0.1:3000/").then(r=>process.exit(r.ok?0:1),()=>process.exit(1))' >"${preview_tmp}/probe.log" 2>&1
@@ -378,9 +479,9 @@ preview_wait() {
 		done
 		[[ $ready != true ]] || return 0
 		if [[ $preview_action == status || $SECONDS -ge $deadline || $preview_reuse == true ]]; then
-			preview_error "Service $preview_failed_service is not ready; inspect credentials/login/network/application errors. Run stop then start for explicit recovery."
+			preview_error "Service $preview_failed_service is not ready; inspect credentials/login/network/application errors. Run ./kisara.sh preview stop $preview_target then ./kisara.sh preview start $preview_target for explicit recovery."
 			if [[ " ${services[*]} " == *' napcat '* ]]; then
-				preview_error 'NapCat login must be prepared via its WebUI/SSH tunnel within the configured timeout. Stored login data is retained; retry after preparation or increase KISARA_PREVIEW_TIMEOUT.'
+				preview_error 'NapCat readiness requires an available WebUI and OneBot socket. Login may need its WebUI/SSH tunnel. Stored login data is retained; resolve the unavailable endpoint before retrying.'
 			fi
 			return 1
 		fi
@@ -407,6 +508,7 @@ preview_cleanup() {
 	local -a targets=("${services[@]}")
 	[[ ${preview_official:-false} != true ]] || targets+=(bot)
 	trap - EXIT INT TERM
+	preview_stop_readers
 	if [[ $original_status -ne 0 && ${preview_started:-false} == true ]]; then
 		# Capture IDs even when Compose failed after creating a partial group.
 		for service in "${targets[@]}"; do
@@ -433,6 +535,17 @@ preview_start_group() {
 			mkdir -p -- "$REPO_ROOT/data/napcat/config" "$REPO_ROOT/data/napcat/QQ" "$REPO_ROOT/data/kisara/setu"
 			chmod 2770 -- "$REPO_ROOT/data/kisara/setu"
 		fi
+		if [[ " ${services[*]} " == *' telegram '* ]]; then
+			mkdir -p -- "$REPO_ROOT/data/kisara/tgsetu"
+			chmod 2770 -- "$REPO_ROOT/data/kisara/tgsetu"
+		fi
+		if [[ " ${services[*]} " == *' telegram-bot-api '* ]]; then
+			preview_capture 'Start local Bot API before Telegram' preview_compose up --detach --no-build --no-recreate telegram-bot-api || return $?
+			id=$(preview_find telegram-bot-api) || return 1
+			[[ -n $id && $id != *$'\n'* ]] && preview_owned "$id" telegram-bot-api || { preview_error 'Unexpected local Bot API ownership.'; return 1; }
+			preview_ids[telegram-bot-api]=$id
+			preview_wait || return $?
+		fi
 		preview_capture 'Start selected services in background' preview_compose up --detach --no-build --no-recreate "${services[@]}" || return $?
 		for service in "${services[@]}"; do
 			id=$(preview_find "$service" 2>"${preview_tmp}/inspect.log") || return 1
@@ -454,7 +567,12 @@ preview_start_group() {
 preview_listener_info() {
 	local id=$1 service=$2
 	case $service in
-	napcat | music)
+	telegram-bot-api) timeout 5 "${preview_docker_command[@]}" exec "$id" /opt/kisara/telegram-bot-api-probe.sh listeners 2>"${preview_tmp}/inspect.log" ;;
+	napcat)
+		timeout 5 "${preview_docker_command[@]}" exec "$id" python3 -c \
+			"$(cat "$REPO_ROOT/deploy/preview-probe.py")" listeners 2>"${preview_tmp}/inspect.log"
+		;;
+	music)
 		timeout 5 "${preview_docker_command[@]}" exec "$id" node -e "$(cat "$REPO_ROOT/deploy/preview-listeners.js")" 0 2>"${preview_tmp}/inspect.log"
 		;;
 	bot) timeout 5 "${preview_docker_command[@]}" exec "$id" python /app/deploy/preview-probe.py listeners 2>"${preview_tmp}/inspect.log" ;;
@@ -479,7 +597,7 @@ preview_summary() {
 			case "$service:$listener_port" in
 			napcat:6099) protocol='WebUI HTTP'; required_ui=true ;;
 			napcat:3001) protocol='OneBot WebSocket'; required_ws=true ;;
-			music:3000) protocol=HTTP ;;
+			music:3000 | telegram-bot-api:8081) protocol=HTTP ;;
 			esac
 			scope=container
 			case $listener_host in
@@ -490,7 +608,8 @@ preview_summary() {
 			127.* | '[::1]' | '[0:0:0:0:0:0:0:1]') continue ;;
 			esac
 			case "$service:$listener_port:$listener_host" in
-			napcat:3001:0.0.0.0 | 'napcat:3001:[0:0:0:0:0:0:0:0]') internal+=('napcat: ws://napcat:3001 (selected Docker network only; authenticated)') ;;
+			napcat:3001:0.0.0.0 | 'napcat:3001:[::]' | 'napcat:3001:[0:0:0:0:0:0:0:0]') internal+=('napcat: ws://napcat:3001 (selected Docker network only; authenticated)') ;;
+			telegram-bot-api:8081:0.0.0.0) internal+=('telegram-bot-api: http://telegram-bot-api:8081/ (selected Docker network only; token required)') ;;
 			music:3000:0.0.0.0 | 'music:3000:[0:0:0:0:0:0:0:0]') internal+=('music: http://music:3000/ (selected Docker network only)') ;;
 			*) internal+=("$service: $listener_host:$listener_port (container namespace TCP; route/protocol not verified)") ;;
 			esac
@@ -547,17 +666,43 @@ preview_summary() {
 	preview_section 'Internal only' "${internal[@]}"
 	preview_section Notes "${notes[@]}"
 }
+preview_valid_selection() {
+	local selection=$1 profile seen=','
+	local -a chosen=()
+	[[ -n $selection && $selection != ,* && $selection != *, && $selection != *,,* ]] || {
+		preview_error 'Specify a nonempty engine/profile list without empty members.'; return 2;
+	}
+	IFS=, read -r -a chosen <<<"$selection"
+	for profile in "${chosen[@]}"; do
+		case $profile in
+		onebot | onebot-dev | telegram | official | music) ;;
+		*) preview_error "Unknown preview engine/profile: $profile"; return 2 ;;
+		esac
+		[[ $seen != *",$profile,"* ]] || { preview_error "Duplicate preview engine/profile: $profile"; return 2; }
+		seen+="$profile,"
+	done
+	[[ $seen != *,onebot,* || $seen != *,onebot-dev,* ]] || {
+		preview_error 'onebot and onebot-dev cannot own the same QQ state concurrently.'; return 2;
+	}
+}
+
 preview_run() {
 	preview_action=start preview_verbose=false
-	local arg action_seen=false service id engine selection
+	local arg action_seen=false target_seen=false service id engine selection explicit_target=''
 	for arg in "$@"; do
 		case $arg in
 		--help | -h) preview_usage; return 0 ;;
-		--verbose) preview_verbose=true ;;
+		--verbose)
+			[[ $preview_verbose == false ]] || { preview_error 'Specify --verbose once.'; return 2; }
+			preview_verbose=true ;;
 		start | up | status | build | stop | down)
-			[[ $action_seen == false ]] || { preview_error 'Specify one command.'; return 2; }
+			[[ $action_seen == false && $target_seen == false ]] || { preview_error 'Specify one command before the engine/profile list.'; return 2; }
 			preview_action=$arg action_seen=true ;;
-		*) preview_error 'Unknown preview argument.'; preview_usage; return 2 ;;
+		-*) preview_error 'Unknown preview option.'; preview_usage; return 2 ;;
+		*)
+			[[ $target_seen == false ]] || { preview_error 'Specify one engine/profile list.'; return 2; }
+			preview_valid_selection "$arg" || return $?
+			explicit_target=$arg target_seen=true ;;
 		esac
 	done
 	case $preview_action in up) preview_action=start ;; down) preview_action=stop ;; esac
@@ -567,6 +712,10 @@ preview_run() {
 	preview_official=false
 	engine=${KISARA_ENGINE-selected}
 	selection=${COMPOSE_PROFILES-onebot}
+	if [[ $target_seen == true ]]; then
+		engine=selected selection=$explicit_target
+		[[ $explicit_target != official ]] || engine=official
+	fi
 	case $engine in
 	onebot | onebot-dev | telegram) selection=$engine ;;
 	official) preview_official=true; selection='' ;;
@@ -574,14 +723,20 @@ preview_run() {
 	*) preview_error 'Invalid/empty KISARA_ENGINE selection.'; return 2 ;;
 	esac
 	services=() profiles=()
-	[[ -z $selection && $preview_official == true ]] || select_services "$selection"
+	preview_target=official
+	if [[ $preview_official != true ]]; then
+		preview_valid_selection "$selection" || return $?
+		preview_target=$selection
+		select_services "$selection"
+	fi
 	[[ $preview_action != start ]] || preview_validate_credentials || return $?
 	[[ ${KISARA_PREVIEW_TIMEOUT:-90} =~ ^[1-9][0-9]*$ ]] || { preview_error 'KISARA_PREVIEW_TIMEOUT must be a positive integer.'; return 2; }
-	for arg in docker timeout sha256sum sed awk sort find mktemp cat id; do
+	for arg in docker timeout sha256sum sed awk sort find mktemp mkfifo cat id; do
 		command -v "$arg" >/dev/null 2>&1 || { preview_error "Required host command: $arg"; return 127; }
 	done
 	preview_tmp=$(mktemp -d /tmp/kisara-preview.XXXXXXXXXX)
 	preview_started=false
+	preview_log_pids=()
 	declare -gA preview_ids=() preview_images=()
 	trap preview_cleanup EXIT
 	trap 'exit 130' INT
@@ -608,10 +763,11 @@ preview_run() {
 	status)
 		[[ $preview_reuse == true ]] || { preview_error 'Selected preview group is absent; no resources were prepared.'; return 1; }
 		preview_wait || { preview_diagnostics; return 1; }
-		preview_summary
+		preview_summary || return $?
+		preview_follow_logs
 		;;
 	build)
-		[[ $preview_reuse == false ]] || { preview_error 'Stop the selected preview before rebuilding; no running resources changed.'; return 2; }
+		[[ $preview_reuse == false ]] || { preview_error "Run ./kisara.sh preview stop $preview_target before rebuilding; no running resources changed."; return 2; }
 		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error 'Explicit build is disabled by offline mode; disable it only when downloads are permitted.'; return 2; }
 		preview_prepare
 		;;

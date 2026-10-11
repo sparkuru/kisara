@@ -2,7 +2,7 @@
 
 - ownership: project-shared
 - source: project-authored
-- evidence: `pyproject.toml`, `hako`, `dev.sh`, `tests/`, `docs/operations.md`
+- evidence: `pyproject.toml`, `hako`, `kisara.sh`, `tests/`, `docs/operations.md`
 
 ## Before development
 
@@ -14,12 +14,12 @@ offline checks. One-off commands publish no host ports.
 
 If the wrapper is missing or unusable for a changed toolchain, apply
 `dev-it-in-docker` at the bootstrap/before-dev checkpoint. Preserve this
-project's existing service separation: `dev.sh` is the offline console/test
-entrypoint; `preview.sh` and `deploy.sh` manage online services. `dev.sh` has no
-`down` subcommand. Do not replace the established entrypoints with a generic
-service template.
+project's service separation: kisara.sh console/test are offline; preview and
+up/down manage online services through the existing engines backend. Hako stays
+the development executor, not another lifecycle. Old root scripts are removed.
+See [CLI contracts](cli-entrypoints.md).
 
-Codex adaptation uses the current session's narrow `./hako` prefix approval
+Codex adaptation uses narrow `./hako` or `./kisara.sh test` prefix approval
 when supported. It does not grant raw Docker access or replace managed
 permissions. No `.codex/rules/default.rules`, hook, sandbox relaxation, or
 second policy copy is installed by this setup. If the surface cannot approve
@@ -42,15 +42,17 @@ Python 3.10+ while the existing wrapper runs 3.12.
 | Change | Automated checks |
 | --- | --- |
 | Documentation/spec only | Relative links and source claims; `git diff --check`; check new untracked files explicitly |
-| Local commands/console | `./dev.sh --test` or focused `./hako python -m pytest tests/unit/test_offline_commands.py` |
+| Local commands/console | `./kisara.sh test tests/unit/test_offline_commands.py` or focused `./hako python -m pytest tests/unit/test_offline_commands.py` |
 | Configuration | `./hako python -m pytest tests/unit/test_settings.py` |
+| Canonical CLI and engine/preview routes | `./kisara.sh test tests/unit/test_kisara_cli.py tests/unit/test_engine_deployment.py tests/unit/test_preview_lifecycle.py` |
 | Routing | `./hako python -m pytest tests/unit/test_dispatcher.py` |
 | Setu state/media behavior | `./hako python -m pytest tests/unit/test_setu.py` |
 | News/cache/delivery | `./hako python -m pytest tests/unit/test_daily_news.py tests/unit/test_news_delivery.py` |
 | Utility contracts | `./hako python -m pytest tests/unit/test_utils.py` plus consuming feature tests |
 | OneBot adapter/protocol | `./hako python -m pytest tests/unit/test_onebot_adapter.py tests/integration/test_onebot_protocol.py` |
 | Telegram adapter/scheduler/protocol | `./hako python -m pytest tests/unit/test_telegram_adapter.py tests/unit/test_telegram_news.py tests/integration/test_telegram_protocol.py` |
-| Cross-layer, adapter, schema, or deployment changes | Relevant focused checks followed by `./dev.sh --all` |
+| TgSetu archive/config/local server | `./hako python -m pytest tests/unit/test_tgsetu.py tests/unit/test_tgsetu_config.py tests/unit/test_tgsetu_files.py tests/unit/test_telegram_settings.py tests/unit/test_telegram_bot_api_deployment.py` plus Telegram adapter/protocol and deployment/preview suites |
+| Cross-layer, adapter, schema, or deployment changes | Relevant focused checks followed by `./kisara.sh test` |
 
 Additional feature suites live in `tests/unit/`; choose the matching existing
 suite. Mock external providers and simulate OneBot protocol interactions for
@@ -104,16 +106,19 @@ when deterministic state/protocol tests establish the recovery contract.
 
 ## Preview lifecycle profile
 
-The user-approved 2026-10-09 remediation keeps `preview.sh` thin, dispatching
-preview operations through `deploy/engines.sh` and project-owned sourced helpers
+The 2026-10-11 user-approved interface routes kisara.sh preview through
+`deploy/engines.sh` and project-owned sourced helpers
 `deploy/dotenv.sh`, `deploy/preview-console.sh`, `deploy/preview-runtime.sh`.
 Ordinary deployment operations retain their explicit targeted service APIs;
-`dev.sh` remains the offline console/test entry, not another online runtime.
+kisara.sh console/test remain offline. Preserve existing preview ownership
+labels (`hako.scope=preview.sh`) for already owned resources. This persisted
+identifier remains after deleting the preview.sh file; it is independent of
+the public executable name.
 
 ### First setup and commands
 
 Host requirements: Bash 4.4+, Docker with a reachable daemon, Compose plugin or
-legacy docker-compose, timeout, sha256sum, sed, awk, sort, find, mktemp, cat and id.
+legacy docker-compose, timeout, sha256sum, sed, awk, sort, find, mktemp, mkfifo, cat and id.
 Local wildcard publishing additionally requires ip. No host application Python
 or global SDK/browser installation is required. Python probes/install helpers
 run in the existing Python 3.12 images/wrapper.
@@ -127,13 +132,13 @@ list. Feature TOML retains its established engine-specific path and precedence.
 Never copy the example over an existing private file.
 
 ```bash
-./preview.sh                 # same as start; prepare missing resources only
-./preview.sh start --verbose # captured redacted details after each step
-./preview.sh status          # state/readiness only; no preparation/start
-./preview.sh build           # explicit preparation/rebuild; stop an existing group first
-./preview.sh stop            # preview-owned containers only, storage retained
-./preview.sh down            # data-preserving stop alias
-./preview.sh --help          # no dotenv loading or Docker operations
+./kisara.sh preview                 # same as start; prepare missing resources only
+./kisara.sh preview start --verbose # captured redacted details after each step
+./kisara.sh preview status          # readiness, then continuous redacted bot logs
+./kisara.sh preview build           # explicit preparation/rebuild; stop an existing group first
+./kisara.sh preview stop            # preview-owned containers only, storage retained
+./kisara.sh preview down            # data-preserving stop alias
+./kisara.sh preview --help          # no dotenv loading or Docker operations
 ```
 
 First preparation may download images and pinned packages and take several
@@ -197,6 +202,19 @@ state or change application/auth/protocol behavior.
 Telegram readiness starts only after a successful poll while the application is
 running; application startup cannot overwrite an earlier polling failure.
 
+NapCat readiness and listener inspection execute the dependency-free
+`deploy/preview-probe.py` source through container `python3 -c`. The actual
+NapCat image has python3 but no node; Music retains its Node probe. NapCat
+requires HTTP 2xx at `/webui/` on container loopback6099 and a successful TCP3001 connect,
+each bounded inside the existing Docker-exec timeout. Use direct HTTPConnection
+so inherited proxies cannot redirect local probes, and emit no response body.
+Reuse the existing /proc decoder for IPv4/IPv6 sockets and exclude Docker DNS;
+compressed wildcard/loopback IPv6 must keep correct mapping/scope classification.
+Real local HTTP/TCP tests and a fake NapCat that rejects Node cover this runtime
+capability assumption, including root301 with canonical WebUI200. Do not infer
+ready solely from a running container or
+transport socket, reset login data, or add another image/toolchain.
+
 After all required service readiness checks, one stdout summary begins
 `System is ready.` and emits nonempty sections in this order: Open, Local only
 (preview host), Listeners, Published, Internal only, Notes. Group browser entries
@@ -209,10 +227,24 @@ Official/Telegram have no inbound listeners: omit empty endpoint sections, confi
 their actual readiness and state that absence in Notes; never invent a listener
 to satisfy the reference renderer's generic minimum-listener guard.
 
-Progress/help/errors go to stderr; details appear only on terminal failure or
-explicit verbose, after redaction. Semantic colors use the destination TTY and
+Progress/help/errors go to stderr; captured preparation details appear only on
+terminal failure or explicit verbose, after redaction. Ready status also follows
+bot logs without verbose. Semantic colors use the destination TTY and
 respect NO_COLOR/TERM=dumb; URL text stays plain. Ready status uses the same
 summary; an unready status returns actual failure/state with no ready banner.
+
+After ready status's summary, follow the last 80 lines and subsequent new lines
+from selected owned application bots (`kisara`, `kisara-dev`, `telegram`,
+`official`, standalone `bot`). Verify ownership before reading, label mixed bot
+output, and omit auxiliary NapCat/Music/local Bot API streams. Auxiliary-only
+selection returns after the summary. Redact each line before display, flush
+promptly, and keep memory/scratch bounded independently of log history. Never
+wait for the stream to end to release safe output or emit raw fallback errors.
+INT/TERM stops and reaps only this invocation's readers/helpers, returns 130/143
+and leaves containers/data intact. Reader or sanitizer failures must be explicit,
+nonzero and reap other owned readers. Following has no total runtime timeout;
+it does not continuously check readiness or restart services/readers. Absent or
+unready status retains the existing bounded diagnostics and nonzero exit.
 
 Resolve effective Docker endpoint first: explicit DOCKER_CONTEXT precedes
 DOCKER_HOST, host-only uses that endpoint, otherwise inspect current context with
@@ -247,7 +279,10 @@ For lifecycle changes run focused deployment/preview fixtures and project checks
 covering missing/prepared resources, reuse/abnormal existing group, failed build/
 install/recheck, invalid config, endpoint precedence/capabilities/remote, watcher
 failure, safe-log timeout/failure/ownership, output/address scopes and stop/data
-preservation. Record actual commands/results in the task; stub evidence is not
+preservation. Status streaming fixtures must prove delayed lines arrive before
+EOF, target/ownership isolation, concurrent labeled bots, sanitization before
+emission, bounded scratch, reader/sanitizer failures and cleanup on parent-only
+INT/TERM without container mutations. Record actual commands/results in the task; stub evidence is not
 real Docker or cold-start evidence. Real isolated first-use/build/install/start,
 HTTP/protocol readiness, reuse/stop, default empty persistent-storage creation and
 retention, ignored/untracked data, uncached/network and real-device checks need

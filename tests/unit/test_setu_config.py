@@ -59,7 +59,7 @@ def test_batch_limit_must_cover_file_limit(tmp_path: Path) -> None:
 
 def test_example_and_omitted_limits_keep_original_byte_values(tmp_path: Path) -> None:
     """The published example and defaults retain the old effective caps."""
-    example = Path(__file__).resolve().parents[2] / "config/features/setu/config.toml.example"
+    example = Path(__file__).resolve().parents[2] / "config/onebot/features/setu/config.toml.example"
     missing_limits = tmp_path / "config.toml"
     missing_limits.write_text("enabled = false\n", encoding="utf-8")
 

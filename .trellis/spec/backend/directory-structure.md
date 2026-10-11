@@ -50,13 +50,13 @@ optional `botpy` or `telegram` SDKs; only the selected adapter is loaded at star
 
 ## Supporting files
 
-Feature examples live in `config/features/<feature>/config.toml.example`;
+Feature examples live in `config/<engine>/features/<feature>/config.toml.example`;
 private `config.toml` files and `.env` stay ignored. New package data must be
 included in `pyproject.toml` and carry provenance where applicable. Unit tests
 live in `tests/unit/`, platform protocol simulations in `tests/integration/`.
-Compose mounts engine-specific Telegram and official examples from
-`config/telegram/features/` and `config/official/features/` at their runtime
-`/app/config`; feature loaders continue using `config/features/` in each process.
+Compose mounts only the selected engine's directory at `/app/config/<engine>`.
+Settings selects `config/<engine>` for Compose, hako and direct runs; loaders
+receive this explicit root. See [engine configuration](../trellis-plus/engine-config.md).
 
 Feature contracts belong in the implementation module's opening docstring and
 `application/services/__init__.py`. Update explicit aliases and

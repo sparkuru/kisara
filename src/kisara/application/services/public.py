@@ -2,15 +2,15 @@
 
 /wallpaper fetches a non-adult Pixiv illustration. /ba <name> finds a Blue
 Archive guide. /source [similarity] needs an image attachment, or on OneBot a
-reply to an image, and config/features/source/config.toml api_key for SauceNAO.
-/music <song> needs config/features/music/config.toml api_url for a compatible
+reply to an image, and config/<engine>/features/source/config.toml api_key for SauceNAO.
+/music <song> needs config/<engine>/features/music/config.toml api_url for a compatible
 search API; the optional Compose music profile serves http://music:3000 within
-its network. /love needs config/features/love/config.toml api_key for TianAPI.
+its network. /love needs config/<engine>/features/love/config.toml api_key for TianAPI.
 
 Responses carry text and optional image URLs or a music ID. OneBot sends native
 image/music segments; official and Telegram render music title/artist/links as
 text. Telegram registers only music from this module; enabled in its independent
-config/features/music/config.toml gates the handler, with api_url or the runtime
+config/<engine>/features/music/config.toml gates the handler, with api_url or the runtime
 KISARA_MUSIC_API_URL fallback. Other providers remain QQ capabilities. HTTP
 reads have a ten-second timeout and unavailable providers produce an error
 reply. These queries do not create application database records. Daily /news

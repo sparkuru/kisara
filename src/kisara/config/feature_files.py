@@ -33,10 +33,17 @@ class FeatureFileError(ConfigurationError):
     """A feature TOML file is malformed or contains unsupported options."""
 
 
-def load_feature(name: str) -> Mapping[str, Any]:
+def engine_config_root(engine: str) -> Path:
+    """Select the canonical repository-relative root for one runtime engine."""
+    if engine not in {"onebot", "telegram", "official"}:
+        raise ConfigurationError("Unsupported config engine: {}.".format(engine))
+    return Path("config") / engine
+
+
+def load_feature(name: str, config_root: Path) -> Mapping[str, Any]:
     """Load one optional, explicitly named feature configuration file."""
     allowed = FEATURE_KEYS[name]
-    path = Path("config/features") / name / "config.toml"
+    path = config_root / "features" / name / "config.toml"
     if not path.exists():
         return {}
     try:

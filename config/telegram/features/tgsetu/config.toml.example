@@ -1,0 +1,17 @@
+# Copy to config.toml and enable only after preparing local Bot API access.
+enabled = false
+# Positive Telegram user IDs; must also be globally authorized.
+allowed_users = ["123456789"]
+save_root = "/app/tgsetu"
+cache_root = "/var/lib/telegram-bot-api"
+
+# Binary units. Archives are flat; cache is a separate, read-only mount.
+max_file_bytes = "2G"
+max_unit_bytes = "8G"
+max_unit_files = 30
+max_pending_files = 200
+workers = 2
+
+# Caption grouping only; this does not close albums or define selected batches.
+album_quiet_seconds = 1.0
+album_max_wait_seconds = 5.0

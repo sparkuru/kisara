@@ -27,7 +27,10 @@ Pulse; policy discovery does not authorize task creation or implementation.
 | --- | --- |
 | [Architecture and feature contracts](architecture.md) | Changing routing, services, adapters, utilities, or documentation |
 | [Configuration and storage](configuration-storage.md) | Changing configuration, HTTP, cache, SQLite, files, or deployment paths |
+| [Engine configuration roots](engine-config.md) | Changing config directories, entrypoint selection, mounts or private-file migration |
+| [Canonical command entry](cli-entrypoints.md) | Changing kisara.sh, offline routes, preview target arguments or retirement of old root scripts |
 | [Setu archive storage](setu-storage.md) | Changing archive filenames, collisions, publication, or media naming compatibility |
+| [Telegram automatic archive](tgsetu.md) | Changing Telegram media acceptance, filenames, local Bot API, queue/retry, or lifecycle |
 | [Validation and development](validation.md) | Before development, checking a change, or requesting manual verification |
 | [Workflow and delivery](workflow.md) | Delegating, proposing a commit, continuing work, or updating Trellis |
 | [Development principles](development-principles.md) | Task start, scope changes, diagnosis, implementation, and final review |

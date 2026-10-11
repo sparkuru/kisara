@@ -100,9 +100,9 @@ def test_settings_reject_invalid_group_flag(monkeypatch: pytest.MonkeyPatch) -> 
         Settings.from_environment()
 
 
-def _feature_file(root: Path, name: str, content: str) -> None:
+def _feature_file(root: Path, name: str, content: str, engine: str = "onebot") -> None:
     """Write one independent feature file in a temporary project root."""
-    path = root / "config" / "features" / name / "config.toml"
+    path = root / "config" / engine / "features" / name / "config.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
@@ -282,7 +282,7 @@ def test_private_news_requires_onebot_engine(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("KISARA_ENGINE", "official")
     monkeypatch.setenv("KISARA_ALLOWED_USERS", "123")
-    _feature_file(tmp_path, "news", 'push_users = ["123"]\n')
+    _feature_file(tmp_path, "news", 'push_users = ["123"]\n', engine="official")
 
     with pytest.raises(ConfigurationError, match="OneBot engine"):
         Settings.from_environment()

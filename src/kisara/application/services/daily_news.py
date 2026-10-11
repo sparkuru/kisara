@@ -8,7 +8,7 @@ later requests reuse a valid image for the China Standard Time day. OneBot
 sends the image, which credits https://60s.lylme.com/ at its top. The official
 adapter replies with its date and source URL. Telegram uploads a captioned PNG
 document from DailyNewsResult.png_bytes(), preserving date/source/fallback warning.
-config/features/news/config.toml
+config/<engine>/features/news/config.toml
 controls independent enabled/push_enabled switches (both default true),
 cache_days (default 7), optional cache_dir, and ordered font_paths
 (the first CJK-capable file is selected, with bundled fonts as fallback).

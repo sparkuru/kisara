@@ -6,10 +6,10 @@ result throughout a China Standard Time day, including after restart, because
 the draw is derived from a stable seed rather than a database lock. The
 packaged tarot.json contains 78 card descriptions and spread definitions.
 
-config/features/tarot/config.toml controls enabled, spread_rate, and image_dir.
+config/<engine>/features/tarot/config.toml controls enabled, spread_rate, and image_dir.
 An optional [groups."GROUP_ID"] spread_rate overrides an allowed group's rate;
 all rates are 0-100. TOML overrides matching legacy environment and
-config/groups.json settings. Restart after changing the file.
+config/<engine>/groups.json settings. Restart after changing the file.
 
 Optional art is installed at data/kisara/tarotCards outside Docker, mounted
 read-only at /app/tarot-cards for Kisara and NapCat in Compose. The package

@@ -50,13 +50,13 @@ assert not restarted.was_sent("2026-09-23", "group-2")
 | Changed surface | Check |
 | --- | --- |
 | Documentation/specs | Resolve relative links/source paths; inspect new file contents; `git diff --check` |
-| Offline commands | `./dev.sh --test` |
+| Offline commands | `./kisara.sh test tests/unit/test_offline_commands.py` |
 | Routing | `./hako python -m pytest tests/unit/test_dispatcher.py` |
 | Configuration | `./hako python -m pytest tests/unit/test_settings.py` |
 | Durable media workflow | `./hako python -m pytest tests/unit/test_setu.py` |
 | SQLite news state | `./hako python -m pytest tests/unit/test_news_delivery.py` |
 | Utilities | `./hako python -m pytest tests/unit/test_utils.py` plus consuming feature tests |
-| Adapter/cross-layer/schema/deployment | Relevant focused suites, then `./dev.sh --all` |
+| Adapter/cross-layer/schema/deployment | Relevant focused suites, then `./kisara.sh test` |
 
 The shared [validation profile](../trellis-plus/validation.md) lists additional
 feature checks. Regression tests should fail when the changed behavior is

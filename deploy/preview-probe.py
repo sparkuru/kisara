@@ -1,9 +1,29 @@
-"""Validate the current preview child's marker, PID, and process identity."""
+"""Inspect preview listeners, NapCat endpoints and application process identity."""
 
+from __future__ import annotations
+
+import http.client
 import json
 import pathlib
 import socket
 import sys
+
+
+def napcat_ready(host: str = "127.0.0.1", http_port: int = 6099,
+                 websocket_port: int = 3001, timeout: float = 2.0) -> bool:
+    """Require local HTTP success and OneBot TCP, without proxies or body output."""
+    connection = http.client.HTTPConnection(host, http_port, timeout=timeout)
+    try:
+        connection.request("GET", "/webui/")
+        response = connection.getresponse()
+        if not 200 <= response.status < 300:
+            return False
+        with socket.create_connection((host, websocket_port), timeout=timeout):
+            return True
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        connection.close()
 
 
 def ready(engine: str, path: pathlib.Path = pathlib.Path("/tmp/kisara-preview-ready.json")) -> bool:
@@ -46,6 +66,8 @@ def listeners() -> list[str]:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] == "napcat":
+        sys.exit(0 if napcat_ready() else 1)
     if len(sys.argv) == 2 and sys.argv[1] == "listeners":
         try:
             sys.stdout.write("\n".join(listeners()))
