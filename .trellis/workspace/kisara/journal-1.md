@@ -505,3 +505,39 @@ Implemented continuous selected-bot preview logs with per-line redaction and int
 ### Next Steps
 
 - Retain requested running QQ preview. Telegram controlled account/deployment acceptance and task archival require their own scope; no push performed.
+
+
+## Session 16: Review existing tasks and consolidate local branches
+<!-- trellis-session: v=2 fp=d4a396212bedc0f5 -->
+
+**Date**: 2026-10-11
+**Task**: Review existing tasks and consolidate local branches
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+Reviewed all three active tasks without creating a task. Archived completed preview-status-logs as 47ea1cc; kept Setu and Telegram in progress for missing account acceptance. Fast-forwarded all local work into keiyaku-no-kisu and deleted both fully merged source branches.
+
+### Main Changes
+
+- Updated mainline archive links, task work-commit provenance and pending acceptance notes; only keiyaku-no-kisu remains locally.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e333af8` | chore: record task review and local branch integration |
+| `2782454` | feat: add Telegram archive tooling and continuous preview logs |
+
+### Testing
+
+- [OK] Fresh Docker preview streaming gate: 20 passed, 89 deselected, 78.03 seconds; Bash syntax and merge-range whitespace passed.
+- [OK] Mainline links, all 10 completed archive records, 2 pending active records, single archive attribution and retention of both deleted branch tips verified.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Complete the separately prepared Setu and Telegram account acceptance before archiving those tasks; no live account/service operation or push performed in this cleanup.
