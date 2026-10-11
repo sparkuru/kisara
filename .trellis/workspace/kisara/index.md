@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-10-09
+- **Total Sessions**: 15
+- **Last Active**: 2026-10-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~334 | Active |
+| `journal-1.md` | ~507 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,11 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-10-11 | Continuous preview bot logs and combined work commit | `2782454` | `feat/telegram-tgsetu` |
+| 14 | 2026-10-11 | 删除旧脚本并完成 OneBot 预览转换 | - | `feat/telegram-tgsetu` |
+| 13 | 2026-10-11 | 统一 kisara.sh 命令入口 | - | `feat/telegram-tgsetu` |
+| 12 | 2026-10-11 | Unify selected-engine configuration roots | - | `feat/telegram-tgsetu` |
+| 11 | 2026-10-11 | Telegram tgsetu implementation and offline verification | - | `feat/telegram-tgsetu` |
 | 10 | 2026-10-09 | Complete and archive Trellis Plus gap remediation | `6f8f043910e444cf1f2e18a0d5c26ef0668044f7` | `chore/trellis-plus-gaps` |
 | 9 | 2026-10-09 | Setu archive saving and progress notices | `c3e2f324e3a4a780702cc5c84b3deb670f48d807` | `feat/setu-archive-files` |
 | 8 | 2026-10-04 | Engine configuration and Telegram message summaries | `d89fdbe` | `feat/telegram-bot` |

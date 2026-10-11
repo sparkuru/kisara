@@ -332,3 +332,176 @@ Repaired 22 prospective GAPs; user approved archival after review. Archive fc0d6
 ### Next Steps
 
 - Guided read-only Pulse; real preview cold-start/account/device and update/Setu-loading checks need separate authorization or evidence.
+
+
+## Session 11: Telegram tgsetu implementation and offline verification
+<!-- trellis-session: v=2 fp=685aed27b0697cce -->
+
+**Date**: 2026-10-11
+**Task**: Telegram tgsetu implementation and offline verification
+**Branch**: `feat/telegram-tgsetu`
+
+### Summary
+
+Implemented the approved feature on feat/telegram-tgsetu; work is uncommitted. Final offline suite and official server image checks passed; real account/deployment acceptance remains separate.
+
+### Main Changes
+
+- Native on/off activation, durable per-file archive/retry/recovery, caption/album naming and local Bot API deployment preparation.
+- Independent review fixed cache symlink aliasing, logical-count wording, readiness fixtures and saturated-worker album deadlines.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Final ./dev.sh --all -q: 786 passed, 3 existing PTB warnings; shell syntax, manifests, diff and documentation checks passed.
+- [OK] Official Bot API 10.3 image build and network-none version/library/license plus synthetic UID10001 read-only-cache smoke passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Review concrete task validation and prepared live acceptance; no live deployment, account switch, commit or archive was performed.
+
+
+## Session 12: Unify selected-engine configuration roots
+<!-- trellis-session: v=2 fp=989ac249df143ab7 -->
+
+**Date**: 2026-10-11
+**Task**: Unify selected-engine configuration roots
+**Branch**: `feat/telegram-tgsetu`
+
+### Summary
+
+Implemented user-approved config/<engine>/features follow-up, preserving prior TgSetu work. Canonical root is consistent across Compose/hako/direct execution; work remains uncommitted and undeployed.
+
+### Main Changes
+
+- Explicit root injection for ordinary/dedicated/group settings; same-path isolated Compose mounts, shared fonts and moved OneBot examples.
+- Copied existing private chat/news/setu bytes and modes without overwrite, retained old ignored backups, broadened all-engine private-file ignores.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Independent focused gate 202 passed/1 Git-dependent skip; host synthetic Git checks covered private/examples, sanitized real Compose checked all roots/fonts.
+- [OK] Final ./dev.sh --all -q: 825 passed, 1 separately verified Git-dependent skip, 3 existing PTB warnings; manifests/diff/local links clean.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Activate via targeted container recreation when authorized; existing broad preview fingerprint behavior documented; real account acceptance/commit/archive remain unperformed.
+
+
+## Session 13: 统一 kisara.sh 命令入口
+<!-- trellis-session: v=2 fp=c56dc0c98fbeaa28 -->
+
+**Date**: 2026-10-11
+**Task**: 统一 kisara.sh 命令入口
+**Branch**: `feat/telegram-tgsetu`
+
+### Summary
+
+完成用户批准的 CLI 入口收敛并独立复核；源代码仍未提交，任务因既有真实账号验收保持 in_progress。
+
+### Main Changes
+
+- 新增 kisara.sh，console/test 走 hako，preview/up/down 等走 deploy/engines.sh；旧四脚本保留临时转发及 start 选择菜单。
+- 预览显式目标优先于环境选择，保持旧归属标签、就绪、定向清理和本地 API 分阶段启动；更新操作文档、规格及任务主线记录。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] ./kisara.sh test -q: 907 passed, 1 Git-dependent skip previously verified on host, 3 existing PTB warnings; independent focused gate 191 passed/1 skip.
+- [OK] 新入口帮助及真实离线控制台 /quit 通过；Bash 语法、可执行权限、差异空白、新文件空白、22 份 Markdown 目标及 19-entry manifests 通过。ShellCheck/shfmt 未安装。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 实际服务部署和 Telegram 账号验收仍待单独操作范围；未执行服务/账号操作、提交或归档，保留 Setu 独立任务。
+
+
+## Session 14: 删除旧脚本并完成 OneBot 预览转换
+<!-- trellis-session: v=2 fp=e2dcec4b67aaaeb5 -->
+
+**Date**: 2026-10-11
+**Task**: 删除旧脚本并完成 OneBot 预览转换
+**Branch**: `feat/telegram-tgsetu`
+
+### Summary
+
+用户批准删除四个旧入口，并单独授权移除已停止的 QQ 部署容器后按 kisara.sh preview 启动；实际发现并修复 NapCat 缺少 Node 和 HTTP 根路径重定向的探针误判。源代码仍未提交，TgSetu/Setu 受控账号验收继续保持待验收。
+
+### Main Changes
+
+- 删除 deploy.sh/dev.sh/start.sh/preview.sh；迁移真实 canonical 测试和当前指导，保留历史验证及 preview.sh 存储归属标签。
+- NapCat 用既有 Python 标准库检查 /webui/ HTTP2xx 与 TCP3001并解析监听器；无代理/重定向/正文输出，保留其他引擎探针和所有权/回滚。
+- 按授权移除两停止 QQ 容器且无删除卷标志，启动 OneBot 预览，确认原登录/配置/state 存储保留且 config/onebot 挂载生效；原 Telegram 容器未动。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 最终 ./kisara.sh test -q:893 passed,1 Git-dependent skip previously host-verified,3 existing PTB warnings,176.59s；真实 HTTP/TCP/重定向/代理/隐私、无 Node 和远程 Docker 回归通过独立复核。
+- [OK] 真实 ./kisara.sh preview 与 preview status 均返回 System is ready；20-entry manifests/23 Markdown targets/Bash syntax/diff checks passed。ShellCheck/shfmt 未安装。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 保留用户要求运行的 QQ 预览；控制功能回执/Telegram TgSetu 账号检验、Telegram 激活及提交归档需其各自范围；保留 Setu 独立任务。
+
+
+## Session 15: Continuous preview bot logs and combined work commit
+<!-- trellis-session: v=2 fp=6ad226d33c0129a0 -->
+
+**Date**: 2026-10-11
+**Task**: Continuous preview bot logs and combined work commit
+**Branch**: `feat/telegram-tgsetu`
+
+### Summary
+
+Implemented continuous selected-bot preview logs with per-line redaction and interrupt cleanup; user approved combined Telegram/configuration/CLI work commit. Task archival and push remain unperformed.
+
+### Main Changes
+
+- Preview status follows the last 80 lines and new selected owned bot logs; Ctrl+C ends viewing only, with all invocation readers reaped.
+- Combined work commit includes Telegram archiving/local API preparation, engine roots, canonical kisara.sh and NapCat probe corrections; prior session journals are retained.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2782454` | feat: add Telegram archive tooling and continuous preview logs |
+
+### Testing
+
+- [OK] Full Docker suite: 913 passed, 1 skipped, 3 existing PTB warnings; independent 20-case streaming gate passed.
+- [OK] Real 12-second preview status/interrupt smoke passed; Kisara/NapCat identity, running state, start time and PID were unchanged.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Retain requested running QQ preview. Telegram controlled account/deployment acceptance and task archival require their own scope; no push performed.
