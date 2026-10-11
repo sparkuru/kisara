@@ -133,7 +133,7 @@ if "logs" in args:
     if "--follow" in args and os.environ.get("FOLLOW_CONTROLLED"):
         import time
         (root / (name + ".reader.pid")).write_text(str(os.getpid()))
-        print("recent " + name + " token=fixture-token account=123456789", flush=True)
+        print("recent " + name + " token=fixture-token account=" + os.environ.get("NAPCAT_ACCOUNT", "123456789"), flush=True)
         print("https://name:pass@example.invalid/resource Bearer private-credential", flush=True)
         print("https://api.telegram.org/botunknown-token/getMe?access_token=unknown-query", flush=True)
         print("Official bot is ready: private-display-name", flush=True)
@@ -143,6 +143,7 @@ if "logs" in args:
         print("Sent private text chat=222 message=333 part=1/1: pong", flush=True)
         print("QR █ secret", flush=True)
         print("user_id=hidden-user chat=hidden-chat app_id=hidden-app", flush=True)
+        print("group user=987654321 chat=-1009876543210 message=87654321: order 246810 at 2026-10-11", flush=True)
         print("api_hash=" + "a" * 32 + " api_id=12345", flush=True)
         print("history-end " + name, flush=True)
         while not (root / (name + ".release")).exists(): time.sleep(0.02)
@@ -821,9 +822,11 @@ def child_processes(pid: int) -> set[int]:
 def test_status_follows_selected_bot_logs_and_reaps_readers(
     tmp_path: Path, target: Optional[str], expected: list[str], termination: int, group: bool
 ) -> None:
-    """Initial/delayed output is sanitized before EOF, and signals preserve services."""
+    """Status preserves identities while protecting credentials and service lifecycle."""
     env, log = fixture(tmp_path)
     local_api_environment(env)
+    env.update(NAPCAT_ACCOUNT="246897531", ONEBOT_ALLOWED_USERS="111,987654321", TELEGRAM_ALLOWED_USERS="111,987654321",
+               TELEGRAM_ALLOWED_GROUPS="-1009876543210")
     args = [target] if target is not None else []
     assert run(tmp_path, env, "start", *args).returncode == 0
     sentinel = tmp_path / "retained.bin"
@@ -842,17 +845,23 @@ def test_status_follows_selected_bot_logs_and_reaps_readers(
         for name in expected:
             output = wait_output(stdout, name + " | history-end " + name, process)
             assert "System is ready." in output
-            assert name + " | Received private message user=[private-id] chat=[private-id] text=private-message" in output
-            assert name + " | Replying private message user=[private-id] chat=[private-id]: pong" in output
-            assert name + " | No reply for private message user=[private-id] chat=[private-id]" in output
-            assert name + " | Sent private text chat=[private-id] message=333 part=1/1: pong" in output
+            assert name + " | Received private message user=111 chat=222 text=private-message" in output
+            assert name + " | Replying private message user=111 chat=222: pong" in output
+            assert name + " | No reply for private message user=111 chat=222" in output
+            assert name + " | Sent private text chat=222 message=333 part=1/1: pong" in output
+            assert name + " | recent " + name + " token=[redacted] account=246897531" in output
+            assert name + " | Official bot is ready: private-display-name" in output
+            assert name + " | user_id=hidden-user chat=hidden-chat app_id=hidden-app" in output
+            assert name + " | group user=987654321 chat=-1009876543210 message=87654321: order 246810 at 2026-10-11" in output
+            assert name + " | api_hash=[redacted] api_id=[redacted]" in output
+            assert "[private-id]" not in output and "[private-name]" not in output
         assert process.poll() is None
         for name in expected:
             (tmp_path / (name + ".release")).touch()
         for name in expected:
             wait_output(stdout, name + " | fresh " + name + " token=[redacted]", process)
-            wait_output(stdout, name + " | Received private message user=[private-id] chat=[private-id]: /ping", process)
-            wait_output(stdout, name + " | Sent private text chat=[private-id] message=444 part=1/1: pong", process)
+            wait_output(stdout, name + " | Received private message user=111 chat=222: /ping", process)
+            wait_output(stdout, name + " | Sent private text chat=222 message=444 part=1/1: pong", process)
         for pid in reader_pids(tmp_path):
             workspace = Path(os.readlink(Path("/proc", str(pid), "fd/1"))).parent
             pipes = [path for suffix in ("raw", "replaced", "safe") for path in workspace.glob("*." + suffix)]
@@ -876,9 +885,8 @@ def test_status_follows_selected_bot_logs_and_reaps_readers(
         assert all(call[-5:-1] == ["logs", "--follow", "--tail", "80"] for call in follow)
         assert not any(any(op in call for op in ("build", "pull", "run", "up", "stop", "rm")) for call in operations)
         combined = stdout.read_text() + stderr.read_text()
-        for private in ("fixture-token", "123456789", "name:pass", "private-credential", "unknown-token",
-                        "unknown-query", "private-display-name", "QR █", "hidden-user",
-                        "hidden-chat", "hidden-app", "a" * 32, "12345"):
+        for private in ("fixture-token", "name:pass", "private-credential", "unknown-token",
+                        "unknown-query", "QR █", "a" * 32, "12345"):
             assert private not in combined
     finally:
         if process.poll() is None:

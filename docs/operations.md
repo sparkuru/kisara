@@ -159,8 +159,9 @@ ready only after a successful poll while its application is running.
 Preview help/status/stop/down do not build, install or start services; verbose
 preparation details are captured then redacted. After successful readiness,
 `./kisara.sh preview status` shows the selected bot's last 80 log lines and
-continuously follows new lines, with secrets and private identifiers redacted
-before display. Receive/reply/no-reply summaries retain their message previews;
+continuously follows new lines, with credentials redacted before display.
+User/chat/account IDs, bot names and ordinary numbers remain visible.
+Receive/reply/no-reply summaries retain their message previews;
 each line uses the Compose-style `service | log` prefix. Telegram message
 summaries still require `TELEGRAM_MESSAGE_LOG_ENABLED=true` in the bot's startup
 configuration. Use `./kisara.sh preview status telegram` for an explicit engine.

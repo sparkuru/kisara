@@ -14,9 +14,12 @@ preview_capture() {
 }
 
 preview_redact_values() {
-	local key secret part
+	local identifiers=${1:-redact} key secret part
 	local -a pieces=()
 	while IFS= read -r key; do
+		case $key in
+		*ACCOUNT | *USERS | *GROUPS) [[ $identifiers != show ]] || continue ;;
+		esac
 		case $key in
 		KISARA_* | ONEBOT_* | TELEGRAM_* | OFFICIAL_* | NAPCAT_* | AppID | AppSecret | SAUCENAO_API_KEY | TIANAPI_KEY)
 			secret=${!key}
@@ -36,12 +39,16 @@ preview_redact_values() {
 		-e 's#[Bb]earer[[:space:]]+[^[:space:]"\x27,;]+#Bearer [redacted]#g'
 		-e 's#(https?://api.telegram.org/bot)[^/[:space:]]+#\1[redacted]#g'
 		-e 's#([?&](token|access_token|secret|password|key|code)=)[^&[:space:]]+#\1[redacted]#Ig'
-		-e 's#((user|chat|account|app|guild|channel)([_ ]?id)?[=: ]+)[^[:space:],;:]+#\1[private-id]#Ig'
-		-e 's#(Official bot is ready:).*#\1 [private-name]#g'
-		-e 's/[0-9]{5,}/[private-id]/g'
 		-e '/[▀▄█]/d'
 		-e 's/[[:cntrl:]]//g'
 	)
+	if [[ $identifiers != show ]]; then
+		preview_filters+=(
+			-e 's#((user|chat|account|app|guild|channel)([_ ]?id)?[=: ]+)[^[:space:],;:]+#\1[private-id]#Ig'
+			-e 's#(Official bot is ready:).*#\1 [private-name]#g'
+			-e 's/[0-9]{5,}/[private-id]/g'
+		)
+	fi
 }
 
 preview_replace_secrets() {
@@ -82,7 +89,7 @@ preview_follow_logs() {
 	local service id pid status remaining
 	local -a targets=("${services[@]}") pending=() preview_secrets=() preview_filters=()
 	[[ $preview_official != true ]] || targets+=(bot)
-	preview_redact_values
+	preview_redact_values show
 	for service in "${targets[@]}"; do
 		case $service in napcat | kisara | kisara-dev | telegram | official | bot) ;; *) continue ;; esac
 		id=${preview_ids[$service]}

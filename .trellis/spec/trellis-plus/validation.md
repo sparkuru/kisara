@@ -239,8 +239,11 @@ from selected owned application bots (`kisara`, `kisara-dev`, `telegram`,
 which owns QQ receive/send logs. Verify ownership before reading, label mixed
 output using `service | log`, and omit Music/local Bot API streams.
 Status retains receive/reply/no-reply message previews already emitted by the bot,
-while still redacting credentials and private identifiers. The Telegram adapter's
-message-summary opt-in remains required; status never enables application logging.
+and shows user/chat/account IDs, bot names and ordinary numbers, while still
+redacting credentials. Account and access-list configuration values are not
+credentials in this status stream. Captured diagnostics retain identifier
+redaction. The Telegram adapter's message-summary opt-in remains required;
+status never enables application logging.
 Failure diagnostics continue suppressing incoming/reply/no-reply message lines.
 Auxiliary-only selection returns after the summary. Redact each line before
 display, flush promptly, and keep memory/scratch bounded independently of log history. Never

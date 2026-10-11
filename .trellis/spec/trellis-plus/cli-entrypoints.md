@@ -44,8 +44,10 @@ fingerprint behavior, credential checks and selected-container cleanup.
 
 Ready `preview status` shows the existing summary, then follows the last 80
 lines and new logs from selected owned application bots, without `--verbose`.
-Use service labels for mixed bots, redact each line before display and avoid
-unbounded raw log storage. Do not follow auxiliary services on successful status.
+Use service labels for mixed bots, redact credentials on each line before display
+and avoid unbounded raw log storage. Do not follow auxiliary services on successful status.
+Status preserves user/chat/account IDs, bot names and ordinary numbers; captured
+failure/verbose diagnostics retain identifier redaction.
 Ctrl+C/TERM exits 130/143 and reaps only this command's readers; containers and
 data remain intact. Reader/sanitizer failures are explicit nonzero errors with
 no raw fallback. Auxiliary-only status ends after its summary; absent/unready

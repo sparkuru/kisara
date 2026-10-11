@@ -35,7 +35,7 @@ preview_usage() {
 	preview_message section 2 'Commands:'
 	printf '%s\n' \
 		'  start    Prepare only missing resources, start detached, wait for readiness.' \
-		'  status   Show readiness, then follow bot IO as service | log (last 80 lines, redacted).' \
+		'  status   Show readiness, then follow bot IO as service | log (last 80 lines, credentials redacted).' \
 		'           Ctrl+C stops viewing only; bot containers keep running. Never build/install/start.' \
 		'  build    Explicit rebuild/preparation; never start the service group.' \
 		'  stop/down Stop and remove only owned preview containers; preserve volumes/data.' \
