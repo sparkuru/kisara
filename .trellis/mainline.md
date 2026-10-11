@@ -25,7 +25,9 @@
   now ready; this limited authorization supersedes the earlier no-service rule.
 - boundaries: preserve OneBot behavior/state, retain current requested QQ
   preview; Telegram deployment/endpoint switch and controlled feature/account
-  acceptance remain separate, with no commit/archive authorization.
+  acceptance remain separate. The combined work commit is complete; the later
+  cleanup request authorizes archival only for tasks with completed acceptance,
+  local branch integration and removal, without new task creation or push.
 
 ## Previous initiative
 
@@ -78,12 +80,26 @@ parent/child relationship or serial execution is inferred.
 | Order | Task | State | Readiness/dependency evidence |
 | --- | --- | --- | --- |
 | 1 | [Trellis Plus remediation](tasks/archive/2026-10/10-09-trellis-plus-gaps/task.json) | completed, archived | Work 6f8f043; archive fc0d64f; final full suite 643 passed; real preview acceptance remains unrun |
-| 2 | [Setu archive attachments](tasks/10-09-setu-archive-files/task.json) | in_progress, pending live acceptance | Work commit c3e2f32; automated/byte-transfer evidence below; updated-runtime command/receipts/checkpoints not yet verified; do not activate, deploy or archive as a side effect of remediation |
-| 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | in_progress, implemented/verified; scoped QQ preview ready | Branch feat/telegram-tgsetu; latest full Docker suite 893 passed/1 host-verified Git skip; official image/RO-cache smoke passed; separately authorized OneBot preview start/status ready, data retained; Telegram/controlled feature acceptance pending, commit/archive unapproved |
-| 4 | [Preview status bot logs](tasks/10-11-preview-status-logs/task.json) | in_progress, implemented/verified | User approved revised continuous-follow plan on 2026-10-11; selected-owned bot logs, per-line redaction and Ctrl+C reader cleanup; final913 passed/1 skipped; real read-only follow/interrupt smoke preserved bot/NapCat; no commit or archive |
+| 2 | [Setu archive attachments](tasks/10-09-setu-archive-files/task.json) | in_progress, pending live acceptance | Work c3e2f32 retained on keiyaku-no-kisu; automated/isolated byte-transfer evidence below; updated-runtime command/receipts/checkpoints still unverified, so not archived during cleanup |
+| 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | in_progress, implemented and merged; scoped QQ preview ready | Work 2782454 on keiyaku-no-kisu; final combined Docker suite 913 passed/1 host-verified Git skip; official image/RO-cache smoke passed; scoped OneBot preview ready with data retained; Telegram account/deployment acceptance pending, so not archived |
+| 4 | [Preview status bot logs](tasks/archive/2026-10/10-11-preview-status-logs/task.json) | completed, archived | Work 2782454; archive 47ea1cc on keiyaku-no-kisu; all acceptance met; fresh 20-case focused gate passed; existing full913 passed/1 skipped and real read-only follow/interrupt smoke preserved bot/NapCat |
 
 ## Evidence and decisions
 
+- Existing-task cleanup 2026-10-11: the user explicitly requested no new task,
+  review/completion/archival of existing tasks where ready, merge of all local
+  branches into the main branch and deletion of the remaining local branches.
+  All three active tasks were reviewed. Preview status logs met every criterion
+  and were archived as `47ea1cc`, with the required single Codex trailer and
+  corrected target branch metadata. Fresh focused gate: 20 passed, 89 deselected
+  in78.03s; Bash syntax and merge-range whitespace checks passed. Setu and
+  Telegram retain in-progress status for their recorded account acceptance.
+  `chore/trellis-plus-gaps` was already included; `feat/telegram-tgsetu` was
+  fast-forwarded into `keiyaku-no-kisu`. Both source branches were verified as
+  ancestors of main and deleted with non-forced `git branch -d`; their recorded
+  task branch fields remain historical provenance. No push, account message or
+  live service mutation occurred. This supersedes the earlier archive exclusion
+  for completed tasks only; historical decisions below describe their own stage.
 - Delivery decision: after reviewing the preview-status commit dependency scope,
   the user approved the combined 105-path work commit covering implemented Telegram
   archiving/configuration/canonical-command/probe work and continuous status logs.
@@ -97,7 +113,7 @@ parent/child relationship or serial execution is inferred.
   failures remain explicit with no raw fallback. Independent20-case review gate,
   real12-second status/interrupt smoke and final Docker regression913 passed,
   1 skipped, 3 existing PTB warnings passed. No service recreation, deployment,
-  commit or archive. [Evidence](tasks/10-11-preview-status-logs/validation.md).
+  commit or archive. [Evidence](tasks/archive/2026-10/10-11-preview-status-logs/validation.md).
 - Script retirement and scoped runtime follow-up 2026-10-11: user deleted the
   four old root scripts and approved replacing stopped QQ deployment containers
   with canonical OneBot preview, keeping mounted data and Telegram unchanged.
