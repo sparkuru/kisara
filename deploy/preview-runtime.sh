@@ -36,9 +36,8 @@ preview_redact_values() {
 		-e 's#[Bb]earer[[:space:]]+[^[:space:]"\x27,;]+#Bearer [redacted]#g'
 		-e 's#(https?://api.telegram.org/bot)[^/[:space:]]+#\1[redacted]#g'
 		-e 's#([?&](token|access_token|secret|password|key|code)=)[^&[:space:]]+#\1[redacted]#Ig'
-		-e 's#((user|chat|account|app|guild|channel)([_ ]?id)?[=: ]+)[^[:space:],;]+#\1[private-id]#Ig'
+		-e 's#((user|chat|account|app|guild|channel)([_ ]?id)?[=: ]+)[^[:space:],;:]+#\1[private-id]#Ig'
 		-e 's#(Official bot is ready:).*#\1 [private-name]#g'
-		-e '/(Received|Replying|No reply).*message user=/d'
 		-e 's/[0-9]{5,}/[private-id]/g'
 		-e '/[▀▄█]/d'
 		-e 's/[[:cntrl:]]//g'
@@ -57,6 +56,8 @@ preview_redact() {
 	local file=$1
 	local -a preview_secrets=() preview_filters=()
 	preview_redact_values
+	# Failure diagnostics stay quiet; status explicitly exposes bot IO summaries.
+	preview_filters+=(-e '/(Received|Replying|No reply).*message user=/d')
 	preview_replace_secrets <"$file" | sed -E "${preview_filters[@]}" >"${preview_tmp}/safe.log" || return 1
 	cat -- "${preview_tmp}/safe.log" >&2
 }
@@ -64,7 +65,7 @@ preview_redact() {
 preview_log_lines() {
 	local service=$1 line
 	while IFS= read -r line || [[ -n $line ]]; do
-		printf '[%s] %s\n' "$service" "$line"
+		printf '%s | %s\n' "$service" "$line"
 	done
 }
 
@@ -83,7 +84,7 @@ preview_follow_logs() {
 	[[ $preview_official != true ]] || targets+=(bot)
 	preview_redact_values
 	for service in "${targets[@]}"; do
-		case $service in kisara | kisara-dev | telegram | official | bot) ;; *) continue ;; esac
+		case $service in napcat | kisara | kisara-dev | telegram | official | bot) ;; *) continue ;; esac
 		id=${preview_ids[$service]}
 		preview_owned "$id" "$service" || { preview_error "Cannot follow $service logs: ownership mismatch/unavailable."; return 1; }
 		sed -u -E "${preview_filters[@]}" </dev/null >/dev/null 2>/dev/null || {
@@ -92,7 +93,7 @@ preview_follow_logs() {
 		mkfifo -- "${preview_tmp}/$service.raw" "${preview_tmp}/$service.replaced" "${preview_tmp}/$service.safe" || {
 			preview_error "Cannot create private log pipes for $service."; return 1;
 		}
-		preview_log "Following $service bot logs (last 80 lines; Ctrl+C stops viewing only)."
+		preview_log "Following $service logs (last 80 lines; Ctrl+C stops viewing only)."
 		"${preview_docker_command[@]}" logs --follow --tail 80 "$id" >"${preview_tmp}/$service.raw" 2>&1 &
 		preview_log_pids+=("$!")
 		preview_replace_secrets <"${preview_tmp}/$service.raw" >"${preview_tmp}/$service.replaced" 2>/dev/null &

@@ -160,9 +160,13 @@ Preview help/status/stop/down do not build, install or start services; verbose
 preparation details are captured then redacted. After successful readiness,
 `./kisara.sh preview status` shows the selected bot's last 80 log lines and
 continuously follows new lines, with secrets and private identifiers redacted
-before display. Use `./kisara.sh preview status telegram` for an explicit engine;
-mixed selections label each bot's output. Auxiliary services such as NapCat,
-Music and the local Bot API are omitted from successful status log following.
+before display. Receive/reply/no-reply summaries retain their message previews;
+each line uses the Compose-style `service | log` prefix. Telegram message
+summaries still require `TELEGRAM_MESSAGE_LOG_ENABLED=true` in the bot's startup
+configuration. Use `./kisara.sh preview status telegram` for an explicit engine.
+OneBot selections also follow their owned NapCat gateway, which emits QQ
+receive/send records. Music and the local Bot API are omitted from successful
+status log following.
 Press Ctrl+C to stop viewing; the bot keeps running. Unready status retains
 bounded failure diagnostics and exits with failure. Log-following errors also
 exit with an error; status does not monitor or restart the bot.

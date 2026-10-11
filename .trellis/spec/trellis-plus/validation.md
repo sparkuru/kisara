@@ -235,10 +235,15 @@ summary; an unready status returns actual failure/state with no ready banner.
 
 After ready status's summary, follow the last 80 lines and subsequent new lines
 from selected owned application bots (`kisara`, `kisara-dev`, `telegram`,
-`official`, standalone `bot`). Verify ownership before reading, label mixed bot
-output, and omit auxiliary NapCat/Music/local Bot API streams. Auxiliary-only
-selection returns after the summary. Redact each line before display, flush
-promptly, and keep memory/scratch bounded independently of log history. Never
+`official`, standalone `bot`) and the selected OneBot group's `napcat` gateway,
+which owns QQ receive/send logs. Verify ownership before reading, label mixed
+output using `service | log`, and omit Music/local Bot API streams.
+Status retains receive/reply/no-reply message previews already emitted by the bot,
+while still redacting credentials and private identifiers. The Telegram adapter's
+message-summary opt-in remains required; status never enables application logging.
+Failure diagnostics continue suppressing incoming/reply/no-reply message lines.
+Auxiliary-only selection returns after the summary. Redact each line before
+display, flush promptly, and keep memory/scratch bounded independently of log history. Never
 wait for the stream to end to release safe output or emit raw fallback errors.
 INT/TERM stops and reaps only this invocation's readers/helpers, returns 130/143
 and leaves containers/data intact. Reader or sanitizer failures must be explicit,

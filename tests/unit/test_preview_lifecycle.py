@@ -138,6 +138,9 @@ if "logs" in args:
         print("https://api.telegram.org/botunknown-token/getMe?access_token=unknown-query", flush=True)
         print("Official bot is ready: private-display-name", flush=True)
         print("Received private message user=111 chat=222 text=private-message", flush=True)
+        print("Replying private message user=111 chat=222: pong", flush=True)
+        print("No reply for private message user=111 chat=222", flush=True)
+        print("Sent private text chat=222 message=333 part=1/1: pong", flush=True)
         print("QR █ secret", flush=True)
         print("user_id=hidden-user chat=hidden-chat app_id=hidden-app", flush=True)
         print("api_hash=" + "a" * 32 + " api_id=12345", flush=True)
@@ -147,6 +150,8 @@ if "logs" in args:
             print("stream error fixture-token", file=sys.stderr, flush=True)
             sys.exit(6)
         print("fresh " + name + " token=fixture-token", flush=True)
+        print("Received private message user=111 chat=222: /ping", flush=True)
+        print("Sent private text chat=222 message=444 part=1/1: pong", flush=True)
         while True: time.sleep(0.02)
     if os.environ.get("LOG_FAIL"): print("raw must never be emitted"); sys.exit(4)
     if os.environ.get("LOG_TIMEOUT"): import time; time.sleep(10)
@@ -156,6 +161,9 @@ if "logs" in args:
     print("api_hash=" + "a" * 32)
     print("api_id=12345")
     print("https://name:pass@example.invalid/resource Bearer private-credential")
+    print("Received private message user=111 chat=222: diagnostic-message")
+    print("Replying private message user=111 chat=222: diagnostic-reply")
+    print("No reply for private message user=111 chat=222")
     sys.exit(0)
 if "stop" in args:
     name = args[-1]
@@ -310,7 +318,8 @@ def test_failed_start_diagnoses_before_owned_cleanup(tmp_path: Path, flag: str) 
     assert "System is ready." not in result.stdout and state(tmp_path)["containers"] == {}
     recorded = calls(log)
     assert max(i for i, call in enumerate(recorded) if "logs" in call) < min(i for i, call in enumerate(recorded) if "rm" in call)
-    assert not any(word in result.stderr for word in ("secret-fixture", "123456789", "name:pass", "private-credential", "raw must never"))
+    assert not any(word in result.stderr for word in ("secret-fixture", "123456789", "name:pass", "private-credential", "raw must never",
+                                                     "diagnostic-message", "diagnostic-reply", "No reply for"))
     if flag not in {"LOG_FAIL", "LOG_TIMEOUT"}: assert "application import failed" in result.stderr
     assert (tmp_path / "data/kisara/setu").exists()
 
@@ -804,7 +813,7 @@ def child_processes(pid: int) -> set[int]:
 
 
 @pytest.mark.parametrize("target,expected", [
-    (None, ["kisara"]), ("onebot-dev", ["kisara-dev"]),
+    (None, ["napcat", "kisara"]), ("onebot-dev", ["napcat", "kisara-dev"]),
     ("telegram", ["telegram"]), ("official", ["bot"]),
     ("telegram,official", ["telegram", "official"]),
 ])
@@ -831,13 +840,19 @@ def test_status_follows_selected_bot_logs_and_reaps_readers(
         )
     try:
         for name in expected:
-            output = wait_output(stdout, "[" + name + "] history-end " + name, process)
+            output = wait_output(stdout, name + " | history-end " + name, process)
             assert "System is ready." in output
+            assert name + " | Received private message user=[private-id] chat=[private-id] text=private-message" in output
+            assert name + " | Replying private message user=[private-id] chat=[private-id]: pong" in output
+            assert name + " | No reply for private message user=[private-id] chat=[private-id]" in output
+            assert name + " | Sent private text chat=[private-id] message=333 part=1/1: pong" in output
         assert process.poll() is None
         for name in expected:
             (tmp_path / (name + ".release")).touch()
         for name in expected:
-            wait_output(stdout, "[" + name + "] fresh " + name + " token=[redacted]", process)
+            wait_output(stdout, name + " | fresh " + name + " token=[redacted]", process)
+            wait_output(stdout, name + " | Received private message user=[private-id] chat=[private-id]: /ping", process)
+            wait_output(stdout, name + " | Sent private text chat=[private-id] message=444 part=1/1: pong", process)
         for pid in reader_pids(tmp_path):
             workspace = Path(os.readlink(Path("/proc", str(pid), "fd/1"))).parent
             pipes = [path for suffix in ("raw", "replaced", "safe") for path in workspace.glob("*." + suffix)]
@@ -862,7 +877,7 @@ def test_status_follows_selected_bot_logs_and_reaps_readers(
         assert not any(any(op in call for op in ("build", "pull", "run", "up", "stop", "rm")) for call in operations)
         combined = stdout.read_text() + stderr.read_text()
         for private in ("fixture-token", "123456789", "name:pass", "private-credential", "unknown-token",
-                        "unknown-query", "private-display-name", "private-message", "QR █", "hidden-user",
+                        "unknown-query", "private-display-name", "QR █", "hidden-user",
                         "hidden-chat", "hidden-app", "a" * 32, "12345"):
             assert private not in combined
     finally:
