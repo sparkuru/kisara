@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
-- **Last Active**: 2026-10-11
+- **Total Sessions**: 20
+- **Last Active**: 2026-10-13
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~577 | Active |
+| `journal-1.md` | ~683 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,9 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-10-13 | Commit public commands and preview workflow | `7da12cd14a523b56e4491349c40cfb949d0ef3a7` | `keiyaku-no-kisu` |
+| 19 | 2026-10-13 | Preview profile selection, rebuild and platform logs | - | `keiyaku-no-kisu` |
+| 18 | 2026-10-12 | Public command features and Telegram UID | - | `keiyaku-no-kisu` |
 | 17 | 2026-10-11 | Accept and archive Setu archive attachments | `c3e2f32` | `keiyaku-no-kisu` |
 | 16 | 2026-10-11 | Review existing tasks and consolidate local branches | `e333af8`, `2782454` | `keiyaku-no-kisu` |
 | 15 | 2026-10-11 | Continuous preview bot logs and combined work commit | `2782454` | `feat/telegram-tgsetu` |

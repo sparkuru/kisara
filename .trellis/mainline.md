@@ -29,6 +29,41 @@
   cleanup request authorizes archival only for tasks with completed acceptance,
   local branch integration and removal, without new task creation or push.
 
+## Approved scoped work
+
+- title: Per-engine public command features and Telegram /tguid
+- task: [telegram-tguid](tasks/10-12-telegram-tguid/task.json)
+- source: [PRD](tasks/10-12-telegram-tguid/prd.md),
+  [design](tasks/10-12-telegram-tguid/design.md),
+  [implementation plan](tasks/10-12-telegram-tguid/implement.md).
+- decisions: on 2026-10-12 the user requested public-feature lists across bot
+  engines, chose `.env`, retained the group master switch, then approved the
+  final planning summary with “开始”. Implementation/checking is authorized.
+- scope: independent TELEGRAM/ONEBOT/OFFICIAL_PUBLIC_FEATURE inputs, Telegram
+  default tguid and otherwise empty defaults, explicit-empty clearing, public
+  ordinary command routing and source-UID reply. Existing native permissions,
+  live services, private values and unrelated task acceptance stay intact.
+- state: implementation and independent check complete, committed as 7da12cd
+  after the user's “提交” instruction. Original public-feature
+  offline Docker gate: 997 passed, 1 missing-Git skip, 3 existing PTB warnings;
+  [validation](tasks/10-12-telegram-tguid/validation.md). Only missing dotenv keys
+  were appended after seven scratch preservation/refusal cases passed.
+- follow-up: the user requested current-source/settings preview rebuild,
+  no-target startup for the COMPOSE_PROFILES list, and platform log labels.
+  They chose the same task and explicitly chose profile-list selection rather
+  than credential detection, then approved the final summary with “可用”.
+  Preview implementation, independent review and spec synchronization are
+  complete. Fresh combined full Docker gate: 1024 passed, 1 missing-Git skip,
+  3 existing PTB warnings; preview focused 237 and independent combined 140 passed.
+  Earlier 997-pass evidence covers only the public-feature scope.
+- boundaries: local delivery commits are authorized; no automatic enrollment,
+  account operation, deployment, archive or push. The existing native-archive initiative and its
+  separate account acceptance above remain unchanged.
+- proposed follow-up: after an ownership refusal on the stopped ordinary
+  Telegram container, the user highlighted redundant lifecycle guards.
+  Consolidating ordinary/preview container lifecycle is discussed, not yet
+  planned/implemented; no service conversion was performed.
+
 ## Previous initiative
 
 - title: Approved Trellis Plus audit-gap remediation
@@ -83,6 +118,7 @@ parent/child relationship or serial execution is inferred.
 | 2 | [Setu archive attachments](tasks/archive/2026-10/10-09-setu-archive-files/task.json) | completed, archived | Work c3e2f32 on keiyaku-no-kisu; user confirmed task acceptance passed on 2026-10-11; archive 10feef1; existing 308 focused/580 full passes and isolated native-byte/digest evidence retained |
 | 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | in_progress, implemented and merged; scoped QQ preview ready | Work 2782454 on keiyaku-no-kisu; final combined Docker suite 913 passed/1 host-verified Git skip; official image/RO-cache smoke passed; scoped OneBot preview ready with data retained; Telegram account/deployment acceptance pending, so not archived |
 | 4 | [Preview status bot logs](tasks/archive/2026-10/10-11-preview-status-logs/task.json) | completed, archived | Work 2782454; archive 47ea1cc on keiyaku-no-kisu; all acceptance met; fresh 20-case focused gate passed; existing full913 passed/1 skipped and real read-only follow/interrupt smoke preserved bot/NapCat |
+| 5 | [Public features, /tguid and preview](tasks/10-12-telegram-tguid/task.json) | in_progress; implemented/checked, locally committed | Work 7da12cd authorized by “提交”; focused 237/independent combined 140 passed, final full Docker 1024 passed/1 skipped/3 existing warnings; no deployment/archive/push |
 
 ## Evidence and decisions
 

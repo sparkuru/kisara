@@ -575,3 +575,109 @@ User confirmed setu-archive-files passed acceptance. Recorded the user-reported 
 ### Next Steps
 
 - Telegram task still requires its separately prepared account/deployment acceptance.
+
+
+## Session 18: Public command features and Telegram UID
+<!-- trellis-session: v=2 fp=bee727ff54d5bce2 -->
+
+**Date**: 2026-10-12
+**Task**: Public command features and Telegram UID
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+Implemented independent dotenv public features with group switch retained and self-ID lookup; independent review and full offline Docker gate passed. No deployment or commit.
+
+### Main Changes
+
+- Added TELEGRAM_PUBLIC_FEATURE, ONEBOT_PUBLIC_FEATURE and OFFICIAL_PUBLIC_FEATURE; safely appended only missing private dotenv keys.
+- Wired exact ordinary-feature authorization and Telegram /tguid, retaining native/admin gates and fixing disabled QQ fallback plus recall metadata.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Full ./kisara.sh test -q: 997 passed, 1 missing-Git skip, 3 existing PTB warnings; independent public gate 85 passed.
+- [OK] Dotenv scratch cases 7 passed; git diff --check and task contexts passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- User may choose targeted deployment or separately authorize commit/archive; task remains in_progress with checked uncommitted changes.
+
+
+## Session 19: Preview profile selection, rebuild and platform logs
+<!-- trellis-session: v=2 fp=b5df754e37f7d1ae -->
+
+**Date**: 2026-10-13
+**Task**: Preview profile selection, rebuild and platform logs
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+Extended the existing public-feature task after user approval. Unified profile-based preview and Official Compose images, platform log labels, preserved ownership/storage and completed combined regression.
+
+### Main Changes
+
+- No-target preview uses COMPOSE_PROFILES; down/build/start rebuilds every selected application image using current inputs and creates with current settings.
+- Official-only preview uses Compose; legacy owned hako cleanup verifies runtime engine. Platform log hints/prefixes retain distinct OneBot stream readers.
+- Preserved prior public-feature and /tguid edits; synchronized task/mainline/specs and operations without deployment, commit or archive.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Focused preview gate: 237 passed, 1 existing missing-Git skip in 293.33s.
+- [OK] Independent combined review: 140 passed, 362 deselected in 146.63s; no additional findings.
+- [OK] Full ./kisara.sh test -q: 1024 passed, 1 existing missing-Git skip, 3 existing PTB warnings in 315.57s. Bash syntax and diff checks passed; ShellCheck/shfmt unavailable.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Retain uncommitted changes and current task; real image/deployment/account verification and delivery remain separately authorized.
+
+
+## Session 20: Commit public commands and preview workflow
+<!-- trellis-session: v=2 fp=a90a63110778142a -->
+
+**Date**: 2026-10-13
+**Task**: Commit public commands and preview workflow
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+User authorized local delivery. Committed validated code/test/docs/spec changes, updated task/mainline, and diagnosed the ordinary Telegram ownership refusal without service operations.
+
+### Main Changes
+
+- Work commit 7da12cd contains 26 reviewed code/test/docs/spec paths for public features, tguid and preview behavior.
+- Retained task and archive boundaries; ordinary/preview lifecycle simplification is proposed after user feedback, not implemented.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7da12cd14a523b56e4491349c40cfb949d0ef3a7` | feat(bot): add public commands and refresh preview workflow |
+
+### Testing
+
+- [OK] Existing final full suite: 1024 passed, 1 missing-Git skip, 3 existing PTB warnings; no source change since that gate. Staged diff checks passed.
+- [OK] Fresh scoped Docker ps confirms the existing Telegram deployment is stopped; no live lifecycle mutations.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Resolve user-selected lifecycle simplification or deployment follow-up separately; no push or archive performed.

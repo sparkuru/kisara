@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared policy and scope"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Dispatch context and delivery"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Preserve scope and user state"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Registry routing and authorization contracts"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "Engine dotenv parsing and precedence"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Focused and full Docker checks"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline routing"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Authorization and behavioral checks"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Config and dispatch errors"}
+{"file": ".trellis/spec/trellis-plus/public-features.md", "reason": "Public authorization and error matrix"}
+{"file": ".trellis/spec/trellis-plus/cli-entrypoints.md", "reason": "Preview interface and ownership contracts"}
