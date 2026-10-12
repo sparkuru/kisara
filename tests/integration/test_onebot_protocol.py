@@ -17,6 +17,8 @@ from kisara.application.services.setu import Setu
 from kisara.bot.adapters import onebot_v11
 from kisara.bot.adapters.onebot_v11 import OneBotError, OneBotV11Adapter
 from kisara.bot.contracts import MessageEvent, MessageSegment, OutgoingMessage
+from kisara.bot.dispatcher import Dispatcher
+from kisara.application.services.public import RemoteResult
 from kisara.config import Settings
 from kisara.config.setu import SetuConfig
 from kisara.infrastructure.persistence import setu_files
@@ -396,6 +398,67 @@ def _quoted_event(text: str) -> MessageEvent:
                   MessageSegment("text", {"text": text})),
         reply_context={"quoted_message_id": "42", "self_id": "999"},
     )
+
+
+@pytest.mark.parametrize("command", ["/source", "/sauce", "/recall"])
+def test_public_quoted_command_preparation_and_dispatch(command: str) -> None:
+    """Unlisted callers prepare only their public command and dispatch once."""
+    async def run() -> None:
+        calls = []
+        services = SimpleNamespace(source_search=lambda url, threshold: calls.append((url, threshold)) or RemoteResult("Found"))
+        router = Dispatcher(frozenset(), False, frozenset(), public_services=services,
+                            public_features={"onebot": frozenset({"source", "recall"})})
+        settings = Settings("onebot", "test", frozenset(), False, frozenset())
+        adapter = OneBotV11Adapter(settings, router.dispatch_payload,
+                                  command_authorizer=router.authorize_command)
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        event = _quoted_event(command)
+        task = asyncio.create_task(adapter._process_event(event))
+        await _wait_for_requests(websocket, 1, delay=0.01)
+        assert websocket.sent[0]["action"] == "get_msg"
+        adapter._resolve_pending({"echo": websocket.sent[0]["echo"], "status": "ok", "retcode": 0,
+            "data": {"message_type": "private", "user_id": 999, "target_id": 123,
+                     "message": [{"type": "image", "data": {"url": "https://example.com/quoted.jpg"}}]}})
+        await _wait_for_requests(websocket, 2, delay=0.01)
+        second = websocket.sent[1]
+        if command == "/recall":
+            assert second["action"] == "delete_msg" and second["params"]["message_id"] == 42
+            assert not calls
+        else:
+            assert second["action"] == "send_private_msg"
+            assert second["params"]["user_id"] == 123
+            assert second["params"]["message"] == "Found"
+            assert calls == [("https://example.com/quoted.jpg", 70)]
+        adapter._resolve_pending({"echo": second["echo"], "status": "ok", "retcode": 0})
+        await task
+        assert len(websocket.sent) == 2
+        assert router.dispatch_payload(event) is None
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text,feature,available", [
+    ("/source", "source", False), ("/source-other", "source", True),
+    ("/setu", "source", True), ("请导出这张表情包", "source", True),
+    ("/recall", "source", True),
+])
+def test_public_permission_cannot_prepare_denied_or_native_quote(
+        text: str, feature: str, available: bool) -> None:
+    async def run() -> None:
+        calls = []
+        native = SimpleNamespace(is_authorized=lambda event: calls.append("native-auth") or True,
+                                 handle=lambda *args: calls.append("native-handle"))
+        router = Dispatcher(frozenset(), False, frozenset(),
+                            public_services=SimpleNamespace() if available else None,
+                            public_features={"onebot": frozenset({feature})})
+        settings = Settings("onebot", "test", frozenset(), False, frozenset())
+        adapter = OneBotV11Adapter(settings, router.dispatch_payload, setu=native,
+                                  command_authorizer=router.authorize_command)
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        await adapter._process_event(_quoted_event(text))
+        assert websocket.sent == [] and not calls
+    asyncio.run(run())
 
 
 def test_export_quote_sends_original_files_without_archiving(tmp_path: Path) -> None:

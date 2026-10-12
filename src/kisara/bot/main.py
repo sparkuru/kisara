@@ -31,6 +31,7 @@ def create_adapter(
     setu: Optional[Setu] = None,
     tgsetu: Optional[TgSetu] = None,
     native_authorizer: Optional[Callable[[MessageEvent, str], bool]] = None,
+    command_authorizer: Optional[Callable[[MessageEvent, str], bool]] = None,
 ) -> MessageAdapter:
     """Load only the selected adapter and assemble it with the shared handler."""
 
@@ -42,6 +43,7 @@ def create_adapter(
             settings, handler, daily_news_factory=daily_news_factory,
             delivery_store=store,
             setu=setu,
+            command_authorizer=command_authorizer,
         )
     elif settings.engine == "telegram":
         module = importlib.import_module("kisara.bot.adapters.telegram")
@@ -138,6 +140,7 @@ def main() -> int:
         public_services=public_services,
         daily_news=daily_news,
         admin_users=settings.admin_users,
+        public_features={settings.engine: settings.public_features},
         feature_switches={
             "tgsetu": tgsetu_config.enabled,
             "ping": settings.ping_enabled, "help": settings.help_enabled,
@@ -162,6 +165,8 @@ def main() -> int:
             if setu_config.enabled else None
         )
         native_options = {}
+        if settings.engine == "onebot":
+            native_options["command_authorizer"] = dispatcher.authorize_command
         if tgsetu_config.enabled:
             native_options = {
                 "tgsetu": TgSetu(tgsetu_config, settings.state_dir, settings.instance_id, settings.allowed_users),

@@ -8,6 +8,63 @@ import pytest
 from kisara.config import ConfigurationError, Settings
 
 
+@pytest.mark.parametrize("engine,default", [("onebot", frozenset()), ("official", frozenset()),
+                                          ("telegram", frozenset({"tguid"}))])
+def test_selected_engine_public_features_defaults_and_precedence(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine: str, default: frozenset) -> None:
+    """Only the selected namespace overrides the generic field, even when empty."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", engine)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "synthetic")
+    monkeypatch.setenv("OFFICIAL_APP_ID", "synthetic")
+    monkeypatch.setenv("OFFICIAL_APP_SECRET", "synthetic")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:synthetic")
+    monkeypatch.delenv("KISARA_PUBLIC_FEATURE", raising=False)
+    for platform in ("onebot", "official", "telegram"):
+        monkeypatch.delenv(platform.upper() + "_PUBLIC_FEATURE", raising=False)
+    assert Settings.from_environment().public_features == default
+    for platform in ("onebot", "official", "telegram"):
+        if platform != engine:
+            monkeypatch.setenv(platform.upper() + "_PUBLIC_FEATURE", "invalid-other-engine")
+    assert Settings.from_environment().public_features == default
+    monkeypatch.setenv("KISARA_PUBLIC_FEATURE", "help")
+    assert Settings.from_environment().public_features == frozenset({"help"})
+    selected = engine.upper() + "_PUBLIC_FEATURE"
+    monkeypatch.setenv(selected, " ping, help ,ping ")
+    environment_before = dict(os.environ)
+    assert Settings.from_environment().public_features == frozenset({"ping", "help"})
+    assert dict(os.environ) == environment_before
+    monkeypatch.setenv(selected, "")
+    assert not Settings.from_environment().public_features
+
+
+@pytest.mark.parametrize("engine,value", [
+    ("telegram", "unknown"), ("telegram", "song"), ("telegram", "start"),
+    ("telegram", "ahelp"), ("telegram", "/tguid"), ("telegram", "TGUID"),
+    ("telegram", "eat"), ("telegram", "tgsetu"), ("telegram", "news_push"),
+    ("onebot", "tguid"), ("onebot", "setu"), ("onebot", "export_img"),
+    ("official", "recall"), ("official", "news_push"),
+])
+def test_public_features_reject_noncanonical_or_unsupported_entries(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine: str, value: str) -> None:
+    """Misconfigured public permission fails before constructing an adapter."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", engine)
+    monkeypatch.setenv(engine.upper() + "_PUBLIC_FEATURE", value)
+    with pytest.raises(ConfigurationError, match="PUBLIC_FEATURE"):
+        Settings.from_environment()
+
+
+def test_public_feature_does_not_enable_disabled_feature(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ONEBOT_ACCESS_TOKEN", "synthetic")
+    monkeypatch.setenv("ONEBOT_PUBLIC_FEATURE", "music")
+    monkeypatch.setenv("ONEBOT_MUSIC_ENABLED", "false")
+    settings = Settings.from_environment()
+    assert settings.public_features == frozenset({"music"}) and not settings.music_enabled
+    assert not Settings("telegram", "test", frozenset(), False, frozenset()).public_features
+
+
 def _clear_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove settings that could leak between environment-based tests."""
 

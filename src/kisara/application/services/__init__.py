@@ -6,14 +6,18 @@ bot/commands/ping.py returns pong; bot/features.py owns the effective registry
 and derived help, including feature switches/platform capabilities.
 Telegram scheduled news is owned by news_push.py through a narrow async gateway
 and infrastructure/persistence/telegram_news.py durable claims. Telegram commands
-include ping/help/news/music and the Telegram-only /tgsetu native archive.
+include ping/help/tguid/news/music and the Telegram-only /tgsetu native archive.
+The tiny /tguid command is owned by bot/dispatcher.py and returns only the
+sender's Telegram user ID. Per-engine public feature configuration bypasses
+user/group allowlists for eligible ordinary commands, retaining group enablement.
 tgsetu.py owns private on/off activation, durable per-file jobs, caption/tag naming
 and explicit failed-item retries; the Telegram adapter retrieves local SDK cache
 paths, sends results and owns worker shutdown. The source adapter also uploads
 captioned news PNG documents and music title/artist/links. /recall is a OneBot platform action implemented
 in bot/dispatcher.py and bot/adapters/onebot_v11.py: it requires a quoted bot
 message; a group caller must be an admin, owner, or KISARA_ADMIN_USERS member.
-All commands still require the shared sender and, in groups, group allowlists.
+Commands absent from the public list require the shared sender and, in groups,
+group allowlists. Native archives and scheduled delivery retain strict access.
 Legacy aliases include ahelp for help and Chinese recall commands; consult the
 dispatcher for the complete accepted spelling set.
 """

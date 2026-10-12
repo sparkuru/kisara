@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 from typing import Any, Dict, Mapping, Optional
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,37 @@ from kisara.bot.adapters.onebot_v11 import (
     OneBotError, OneBotV11Adapter, _FileDownload, _file_request_timeout,
 )
 from kisara.config import Settings
+from kisara.bot.contracts import MessageEvent, MessageSegment
+from kisara.bot.dispatcher import Dispatcher
+
+
+@pytest.mark.parametrize("text,public,services,disabled,groups_enabled,kind,expected", [
+    ("/source", True, True, False, False, "private", True),
+    ("/sauce", True, True, False, True, "group", True),
+    ("识图", True, True, False, False, "private", True),
+    ("/source", False, True, False, False, "private", False),
+    ("/source", True, False, False, False, "private", False),
+    ("/source", True, True, True, False, "private", False),
+    ("/source", True, True, False, False, "group", False),
+    ("/sourcex", True, True, False, False, "private", False),
+    ("/recall", True, True, False, False, "private", True),
+    ("/recall", True, False, False, False, "private", True),
+    ("/unknown", True, True, False, False, "private", False),
+])
+def test_quote_preparation_checks_exact_public_feature_and_availability(
+        text: str, public: bool, services: bool, disabled: bool, groups_enabled: bool,
+        kind: str, expected: bool) -> None:
+    router = Dispatcher(frozenset(), groups_enabled, frozenset(),
+                        public_services=SimpleNamespace() if services else None,
+                        feature_switches={"source": not disabled},
+                        public_features={"onebot": frozenset({"source", "recall"}) if public else frozenset()})
+    settings = Settings("onebot", "test", frozenset(), groups_enabled, frozenset())
+    adapter = OneBotV11Adapter(settings, router.dispatch_payload, command_authorizer=router.authorize_command)
+    event = MessageEvent("onebot", "test", "1", kind, "123", "123",
+                         (MessageSegment("text", {"text": text}),), {"quoted_message_id": "42"})
+    assert adapter._should_enrich_quote(event) is expected
+    assert adapter._should_enrich_quote(event) is expected
+    assert not adapter._is_authorized(event)
 
 
 def _adapter() -> OneBotV11Adapter:

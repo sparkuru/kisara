@@ -36,14 +36,15 @@ after a command fails, and status labels remain visible without color.
 
 These scripts reuse the existing Docker toolchain. Tests require the development
 dependencies installed below. Preview and deployment require a configured
-`.env`. Preview also supports `KISARA_ENGINE=official` and
-`KISARA_ENGINE=onebot-dev` or `telegram`; deployment follows `COMPOSE_PROFILES`.
+`.env`. Preview and deployment use effective `COMPOSE_PROFILES`; an explicit
+command target overrides that list. `KISARA_ENGINE` selects an application
+runtime engine and does not narrow preview selection.
 See the Compose/Telegram section below for multiple engines and targeted operations.
 
 The project runs its Python toolchain in Docker. Preview requires Bash 4.4+,
 Docker/Compose and standard lifecycle tools listed by `./kisara.sh preview --help`;
 `ip` is additionally required for local wildcard publishing. Python, pip and
-bot SDKs stay inside the existing images/ephemeral containers managed by `hako`.
+bot SDKs stay inside the existing images and ephemeral development containers.
 
 Configuration is selected once at startup from `config/<engine>`. Ordinary
 features, dedicated Setu/TgSetu and default group JSON use this same root in
@@ -80,7 +81,7 @@ The existing QQ runtime paths are:
 - `onebot`: `./kisara.sh preview start onebot` starts Kisara + NapCat preview.
 - `onebot-dev`: `./kisara.sh preview start onebot-dev` starts the OneBot preview with source hot reload
   for Kisara development.
-- `official`: `./kisara.sh preview start official` uses the owned hako preview.
+- `official`: `./kisara.sh preview start official` uses its Compose-built application image.
 
 1. Only if `.env` is absent, copy `.env.example` to `.env`, then configure the selected engine. For
    OneBot, set `ONEBOT_WS_URL`, `ONEBOT_ACCESS_TOKEN`, and at least one ID in
@@ -119,8 +120,10 @@ The existing QQ runtime paths are:
 
    Choose an explicit target with `./kisara.sh preview start telegram`,
    `onebot`, `onebot-dev` or `official`; explicit target arguments win over
-   inherited environment and .env selection. With no target, existing
-   KISARA_ENGINE/COMPOSE_PROFILES selection remains, defaulting to OneBot.
+   inherited environment and .env selection. With no target, effective
+   COMPOSE_PROFILES selects every listed bot, defaulting to OneBot only when unset.
+   Inherited same-key environment values override `.env`, including empty values;
+   an empty or invalid profile list is an error. KISARA_ENGINE is not a preview selector.
    Comma-separated profile targets select a Compose group.
 
 4. Stop the bot and remove its development container:
@@ -128,6 +131,29 @@ The existing QQ runtime paths are:
    ```bash
    ./kisara.sh preview down
    ```
+
+For a code/settings update, use the same selected group throughout:
+
+```bash
+./kisara.sh preview down
+./kisara.sh preview build
+./kisara.sh preview
+```
+
+Down removes selected owned container objects while retaining volumes and
+login/state/cache/media. Build explicitly rebuilds every selected application
+image from current source and manifests, including existing tags and Official-only
+preview; it never starts services. Docker layer caching remains enabled and
+unchanged auxiliary images are retained. The next start uses the prepared tags,
+current engine-specific runtime settings and existing TOML binds. Explicit targets
+can isolate this sequence, for example `preview down telegram`, `preview build
+telegram`, then `preview start telegram`.
+
+An old owned Official hako preview uses the persisted `hako.service=bot` identity.
+`preview down official` can remove it only after checking the repository, scope,
+service and actual Official runtime engine; its mounted data stays intact.
+Start/build/status refuse that legacy conflict and direct you to selected down.
+Foreign containers are never adopted or removed automatically.
 
 The Kisara bot process does not expose a public application HTTP port.
 Preview start returns after bounded readiness and prints one summary using actual
@@ -162,7 +188,10 @@ preparation details are captured then redacted. After successful readiness,
 continuously follows new lines, with credentials redacted before display.
 User/chat/account IDs, bot names and ordinary numbers remain visible.
 Receive/reply/no-reply summaries retain their message previews;
-each line uses the Compose-style `service | log` prefix. Telegram message
+each line uses a `platform | log` prefix: NapCat and either OneBot application
+both show `onebot`, Telegram shows `telegram`, and Official shows `official`.
+Both OneBot streams retain their contents and separate internal readers. Follow
+hints use the same platform names. Telegram message
 summaries still require `TELEGRAM_MESSAGE_LOG_ENABLED=true` in the bot's startup
 configuration. Use `./kisara.sh preview status telegram` for an explicit engine.
 OneBot selections also follow their owned NapCat gateway, which emits QQ
@@ -348,8 +377,9 @@ cached PNG to regenerate it.
 Send `清除新闻缓存` to remove only the current China Standard Time day's
 `YYYYMMDD.png` and temporary `YYYYMMDD.html`. Surrounding whitespace and the
 optional `#` prefix are accepted; arguments are rejected. The command uses
-the existing user/group allowlists in private messages and enabled, allowed
-groups, including when chat is disabled. It confirms removal or reports that
+the existing user/group allowlists unless that engine publishes `news` through
+its public-feature list. Groups always require group enablement; chat may be
+disabled. It confirms removal or reports that
 no current-day cache exists. Clearing does not fetch, render, or send news;
 the next `/news` request fetches a fresh page and regenerates the image.
 Historical files and scheduled delivery records are preserved, so clearing
@@ -530,11 +560,10 @@ stop an already running engine.
 ./kisara.sh down-all                # Explicit whole-project shutdown; retains volumes
 ```
 
-`./kisara.sh preview` follows profile selection unless `KISARA_ENGINE` explicitly
-overrides it. `./kisara.sh preview start onebot` and `./kisara.sh preview start onebot-dev` retain QQ selection
-through the existing engine lifecycle; `./kisara.sh preview start official` retains the hako
-configuration path with detached preview ownership. Compose
-`official` is an additional independent deployment path.
+`./kisara.sh preview` follows effective `COMPOSE_PROFILES`, including all listed
+bots even when `KISARA_ENGINE=onebot` is present. All engines use the existing
+Compose image path, including `./kisara.sh preview start official`; explicit
+targets override default selection without rewriting `.env`.
 `./deploy/onebot.sh down` now stops only QQ services. Logs/status operations in
 that helper are
 also scoped to QQ. `down` in the unified helper means selected-service stop;
@@ -564,12 +593,51 @@ retaining state/login volumes; no cleanup or data deletion is needed.
 
 Configure `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (positive numeric ID
 strings), and optionally `TELEGRAM_GROUPS_ENABLED=true` plus
-`TELEGRAM_ALLOWED_GROUPS` (negative group/supergroup IDs). A group caller must
-also be in the user allowlist. IDs and credentials are independent from QQ.
+`TELEGRAM_ALLOWED_GROUPS` (negative group/supergroup IDs). Non-public group
+commands also require the caller in the user allowlist. IDs and credentials
+are independent from QQ.
 Create the token with Telegram's BotFather; keep it out of Git/logs. The bot
 uses outbound long polling, so no inbound port/webhook is required. Only one
 poller may own a token. Telegram network reachability still needs a real
 account/environment check.
+
+By default, anyone can privately send `/tguid` to receive their own numeric
+Telegram user ID, then give it to the operator for `TELEGRAM_ALLOWED_USERS`.
+In ordinary groups, `/tguid@YourBot` requires `TELEGRAM_GROUPS_ENABLED=true`;
+the caller and group need not be allowlisted. It accepts no arguments, returns
+only the sender's ID, and grants no access.
+
+Each engine owns a comma-separated public ordinary-feature list in `.env`:
+
+```dotenv
+TELEGRAM_PUBLIC_FEATURE=tguid
+ONEBOT_PUBLIC_FEATURE=
+OFFICIAL_PUBLIC_FEATURE=
+```
+
+An unset Telegram list defaults to `tguid`; OneBot/Official default to empty.
+An explicitly empty list disables public exemptions, including `/tguid`.
+Use canonical lowercase registry feature names without `/`, such as `ping`,
+`help`, `news`, or `music`. Names are trimmed and deduplicated. Unknown names,
+aliases (e.g. `song`), unsupported platforms, native workflows (`tgsetu`, Setu,
+image export), and scheduled features (`news_push`) fail startup validation.
+Disabled or unassembled ordinary features may be listed but remain unavailable.
+
+A public feature bypasses sender/group allowlists only for its registered
+commands. Groups still require that engine's `GROUPS_ENABLED=true`; other
+commands and ordinary text keep existing access rules. The list covers all
+aliases and subcommands: `help` also publishes `ahelp` and Telegram `/start`,
+and `news` publishes cache clearing as well as `/brief`. Feature switches,
+argument validation, duplicate suppression, and feature-specific restrictions
+(such as recall's quoted-bot/admin checks) remain effective. Native archives,
+exports and scheduled recipients never inherit this exception.
+
+Compose maps only the selected platform's deployment list to internal
+`KISARA_PUBLIC_FEATURE` (both OneBot profiles support its generic fallback).
+Direct runtime loading also accepts that internal name, with a selected
+`*_PUBLIC_FEATURE` taking precedence by presence, including empty values.
+Changing `.env` requires targeted recreation, for example
+`./kisara.sh up telegram`; a container restart retains its previous environment.
 
 Copy desired examples from `config/telegram/features/<name>/config.toml.example`
 to `config.toml` beside them. The same directory is
@@ -611,11 +679,12 @@ Allowed messages without a reply show a no-reply processing line. A bounded
 `Telegram polling ready` line follows completed polling/application startup.
 Changing this switch requires targeted recreation (`./kisara.sh up telegram`).
 
-Authorized private/group commands:
+Private/group commands (public access follows the configured feature list):
 
 | Command | Result |
 | --- | --- |
 | `/ping` | `pong` online check |
+| `/tguid` | Your own numeric Telegram user ID; public by default, with groups enabled for group use |
 | `/help`, `/start` | Effective enabled/supported help; no access grant/subscription |
 | `/news` (alias `/brief`) | Readable PNG document with date/source and any publication-delay warning |
 | `/news_clear` | Clear only today's engine-local news cache; scheduled receipts remain |
@@ -626,7 +695,7 @@ Authorized private/group commands:
 
 Group privacy mode supports explicit `/ping@YourBot` and other addressed
 commands. Commands addressed to other bots are ignored. Ordinary text stays
-silent; disabled/unsupported/unknown commands provide concise help guidance.
+silent; authorized disabled/unsupported/unknown commands provide concise help guidance.
 Channel, edited/service-only, anonymous-sender, and topic messages are ignored.
 Help derives from the same effective registry used by routing. Unavailable
 providers return a clear failure without fabricated data.

@@ -26,6 +26,7 @@ QQ_ENGINES = ("onebot", "official", "local")
 FEATURES = (
     FeatureDefinition("ping", ("ping",), "/ping — check whether Kisara is online"),
     FeatureDefinition("help", ("help", "ahelp"), "/help — show this command list", telegram_aliases=("start",)),
+    FeatureDefinition("tguid", ("tguid",), "/tguid — show your own Telegram user ID", ("telegram",)),
     FeatureDefinition("eat", ("eat", "what2eat"), "/eat — choose food suggestions", QQ_ENGINES),
     FeatureDefinition("roll", ("roll", "r", "dice"), "/roll [sides] or /roll <minimum> <maximum> [count]", QQ_ENGINES),
     FeatureDefinition("chat", ("chat",), "/chat <message> — ask the phrasebook directly", QQ_ENGINES),
@@ -35,7 +36,7 @@ FEATURES = (
     FeatureDefinition("ba", ("ba", "guide"), "/ba <name> — find a Blue Archive guide", QQ_ENGINES),
     FeatureDefinition("music", ("music", "song"), "/music <song> — search a configured music API"),
     FeatureDefinition("love", ("love",), "/love — fetch a short love note", QQ_ENGINES),
-    FeatureDefinition("recall", ("recall",), "/recall — recall a quoted bot message (OneBot)", QQ_ENGINES),
+    FeatureDefinition("recall", ("recall",), "/recall — recall a quoted bot message (OneBot)", ("onebot",)),
     FeatureDefinition("news", ("news", "brief", "news-clear"), "/news — today's daily news\n清除新闻缓存 — clear today's news PNG and HTML cache"),
     FeatureDefinition("tgsetu", ("tgsetu",), "/tgsetu [on|off|status|retry <message-id>] — archive received media", ("telegram",), "native"),
     FeatureDefinition("news_push", (), "Scheduled daily news (configured recipients only)", ("onebot", "telegram"), "scheduled"),

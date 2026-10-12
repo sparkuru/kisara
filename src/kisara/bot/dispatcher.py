@@ -5,13 +5,18 @@ must be an admin, owner, or KISARA_ADMIN_USERS member. The adapter executes
 the deletion after this module validates the request. Legacy Chinese and hash
 aliases are normalized here before command routing.
 Messages without command text, including file-status events, stay silent.
+Per-engine public feature names bypass sender/group allowlists only for an
+eligible ordinary registered command; group enablement remains mandatory.
+Native workflows keep their strict authorization. Telegram /tguid returns only
+the sender's numeric ID, accepts no arguments, and follows the normal duplicate
+cache and reply path. It grants no access and needs no external service/state.
 """
 
 import re
 import time
 from threading import Lock
 from collections import OrderedDict
-from typing import Callable, FrozenSet, Mapping, Optional, Union
+from typing import Callable, FrozenSet, Mapping, Optional, Tuple, Union
 
 from kisara.application.services.chat import ChatResponder
 from kisara.application.services.daily_news import DailyNews
@@ -45,6 +50,7 @@ class Dispatcher:
         admin_users: FrozenSet[str] = frozenset(),
         tarot_group_rates: Optional[Mapping[str, int]] = None,
         feature_switches: Optional[Mapping[str, bool]] = None,
+        public_features: Optional[Mapping[str, FrozenSet[str]]] = None,
     ) -> None:
         """Create a dispatcher with bounded in-memory duplicate tracking."""
 
@@ -62,12 +68,13 @@ class Dispatcher:
         self._daily_news = daily_news
         self._admin_users = admin_users
         self._tarot_group_rates = tarot_group_rates or {}
+        self._public_features = {engine: frozenset(names) for engine, names in (public_features or {}).items()}
         switches = {
             "tgsetu": False,
             "chat": chat_responder is not None, "tarot": tarot_reader is not None,
             "news": daily_news is not None,
             "news_push": daily_news is not None,
-            **{name: public_services is not None for name in ("music", "wallpaper", "source", "ba", "love", "recall")},
+            **{name: public_services is not None for name in ("music", "wallpaper", "source", "ba", "love")},
         }
         self._disabled_features = frozenset(name for name, enabled in (feature_switches or {}).items()
                                             if not enabled)
@@ -76,7 +83,7 @@ class Dispatcher:
         self.router = FeatureRouter(tuple(
             RegisteredFeature(definition, self._native_feature if definition.trigger == "native"
                               else self._shared_feature if definition.name in
-                              {"ping", "help", "news", "music"} else self._qq_feature)
+                              {"ping", "help", "tguid", "news", "music"} else self._qq_feature)
             for definition in FEATURES
         ), switches)
 
@@ -89,6 +96,14 @@ class Dispatcher:
         if feature == "tgsetu" and event.conversation_kind != "private":
             return False
         return allowed and self.router.eligible(feature, event.engine) and not self._is_duplicate(event)
+
+    def authorize_command(self, event: MessageEvent, feature: str) -> bool:
+        """Check one ordinary command before preparation, without consuming dedup."""
+        command, _ = self._command(event)
+        registration = self.router.match(command, event.engine)
+        return bool(registration and registration.definition.name == feature
+                    and registration.definition.trigger == "command"
+                    and self.router.eligible(feature, event.engine) and self._is_allowed(event))
 
     def dispatch(self, event: MessageEvent) -> Optional[str]:
         """Return a shared response for an allowed event, if one is due."""
@@ -127,27 +142,21 @@ class Dispatcher:
 
     def _route(self, event: MessageEvent) -> DispatchResult:
         """Authorize once, resolve registration, then execute its platform handler."""
-        content = event.text.strip()
-        if event.engine != "telegram":
-            content = _normalize_legacy_command(content)
-        parts = content.split(maxsplit=1)
-        command = parts[0].lower() if parts else ""
-        if command.startswith("/"):
-            command = command[1:]
-        arguments = parts[1] if len(parts) == 2 else ""
+        command, arguments = self._command(event)
         registration = self.router.match(command, event.engine)
-        if event.engine == "telegram" and not content.startswith("/"):
+        if event.engine == "telegram" and not event.text.strip().startswith("/"):
             return DispatchResult("unhandled", None, "Non-command Telegram message.")
         if registration is not None:
             definition = registration.definition
-            if event.engine != "telegram" and command == "ping" and arguments:
-                return self._route_qq(event)
             if self.router.eligible(definition.name, event.engine):
+                if event.engine != "telegram" and command == "ping" and arguments:
+                    if not self._is_normally_allowed(event):
+                        raise CommandInputError("Usage: /ping")
+                    return self._route_qq(event)
                 return registration.handler(event, command, arguments)
             if event.engine != "telegram" and definition.name not in self._disabled_features:
                 return self._route_qq(event)
-            if event.engine == "telegram" or definition.name in {"ping", "help", "news", "music"}:
-                return DispatchResult("unhandled", "This feature is unavailable. Try /help.")
+            return DispatchResult("unhandled", "This feature is unavailable. Try /help.")
         if event.engine == "telegram":
             return DispatchResult("unhandled", "Unknown command. Try /help.")
         return self._route_qq(event)
@@ -155,7 +164,7 @@ class Dispatcher:
     def _shared_feature(self, event: MessageEvent, command: str, arguments: str) -> DispatchResult:
         """Execute shared retained features and adapt only their normalized output."""
         name = self.router.match(command, event.engine).definition.name
-        if name in {"ping", "help", "news"} and arguments:
+        if name in {"ping", "help", "tguid", "news"} and arguments:
             if name == "news" and command == "news-clear" and event.engine != "telegram":
                 raise CommandInputError("用法：清除新闻缓存（无需参数）")
             raise CommandInputError("Usage: /{}".format("news_clear" if command == "news-clear" else name))
@@ -163,6 +172,8 @@ class Dispatcher:
             return DispatchResult("handled", execute_ping())
         if name == "help":
             return DispatchResult("handled", self.router.help(event.engine))
+        if name == "tguid":
+            return DispatchResult("handled", event.sender_id)
         if name == "music":
             if not arguments.strip():
                 raise CommandInputError("Usage: /music <song>")
@@ -315,8 +326,35 @@ class Dispatcher:
         )
 
     def _is_allowed(self, event: MessageEvent) -> bool:
-        """Check the sender, conversation kind, and group trigger policy."""
+        """Limit the public exception to the effective registered command."""
+        command, _ = self._command(event)
+        registration = self.router.match(command, event.engine)
+        if (registration and registration.definition.trigger == "command"
+                and registration.definition.name in self._public_features.get(event.engine, frozenset())
+                and self.router.eligible(registration.definition.name, event.engine)):
+            if event.conversation_kind == "group":
+                return self._groups_enabled
+            return event.conversation_kind == "private" or (
+                event.engine == "official" and event.conversation_kind == "channel"
+            )
+        return self._is_normally_allowed(event)
 
+    @staticmethod
+    def _command(event: MessageEvent) -> Tuple[str, str]:
+        """Resolve the same normalized exact command for access and execution."""
+        content = event.text.strip()
+        if event.engine == "telegram" and not content.startswith("/"):
+            return "", ""
+        if event.engine != "telegram":
+            content = _normalize_legacy_command(content)
+        parts = content.split(maxsplit=1)
+        command = parts[0].lower() if parts else ""
+        if command.startswith("/"):
+            command = command[1:]
+        return command, parts[1] if len(parts) == 2 else ""
+
+    def _is_normally_allowed(self, event: MessageEvent) -> bool:
+        """Retain the original sender, conversation and group trigger policy."""
         if event.sender_id not in self._allowed_users:
             return False
         if event.conversation_kind == "group":

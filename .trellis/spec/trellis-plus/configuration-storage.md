@@ -38,6 +38,7 @@ group overrides. Update `.env.example` and Compose
 environment wiring when a runtime variable changes.
 
 Local API and archive/cache/state: [TgSetu](tgsetu.md).
+Public command configuration: [per-engine public features](public-features.md).
 
 ## Incremental environment maintenance
 
@@ -84,8 +85,8 @@ returns a copied mapping for parsing and never modifies `os.environ`.
 Template blocks are deployment/shared services, OneBot/NapCat, Telegram, and
 Official. `KISARA_MUSIC_IMAGE` configures shared optional infrastructure.
 Engine-owned deployment fields use `ONEBOT_*`, `TELEGRAM_*`, or `OFFICIAL_*`;
-NapCat retains `NAPCAT_*`. Keep `KISARA_ENGINE` as a documented explicit runtime
-or preview override rather than a default deployment template assignment.
+NapCat retains `NAPCAT_*`. `KISARA_ENGINE` selects the runtime engine;
+preview selection uses `COMPOSE_PROFILES` or an explicit target.
 
 Compose maps `ONEBOT_ALLOWED_USERS`, `TELEGRAM_ALLOWED_USERS`, and
 `OFFICIAL_ALLOWED_USERS` to each container's `KISARA_ALLOWED_USERS`; instance,
@@ -210,7 +211,7 @@ integers to the service.
 | Group news push without groups enabled or outside group allowlist | Configuration failure |
 | Personal news push outside user allowlist, or either push kind in official mode | Configuration failure |
 | Telegram user ID not positive canonical decimal, or group ID not negative canonical decimal | Configuration failure |
-| Empty global user allowlist | Startup can validate, but dispatcher denies every sender |
+| Empty global user allowlist | Startup can validate; non-public commands are denied |
 
 For new dedicated configuration, document missing-file, invalid-value, disabled,
 and override behavior. Do not assume a new feature inherits group overrides.
@@ -476,9 +477,9 @@ return immutable fallback bytes, and refetch on later manual requests.
 ### Scope and trigger
 
 `清除新闻缓存` is a shared news command, normalized to `/news-clear`.
-It works for globally allowed senders in private conversations and enabled,
-allowed groups, including when chat is disabled. Authorization and message
-deduplication precede cache access; no separate admin policy applies.
+Authorized private callers and enabled groups can use it even when chat is
+disabled. Access uses normal allowlists or the public `news` exception;
+dispatch deduplication precedes cache access. No separate admin policy applies.
 
 ### Signatures
 
@@ -528,7 +529,7 @@ failures, and enabled-feature help visibility.
 
 ### Wrong versus correct
 
-Wrong: implement deletion in the adapter, skip allowlists, or delete only PNG.
+Wrong: adapter deletion, unauthorized allowlist bypass, or deleting only PNG.
 Correct: normalize the phrase in shared routing and call `DailyNews.clear_cache()`
 after authorization, with both dated paths owned by the service.
 

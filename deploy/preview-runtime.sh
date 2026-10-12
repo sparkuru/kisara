@@ -70,9 +70,10 @@ preview_redact() {
 }
 
 preview_log_lines() {
-	local service=$1 line
+	local platform line
+	platform=$(preview_platform "$1")
 	while IFS= read -r line || [[ -n $line ]]; do
-		printf '%s | %s\n' "$service" "$line"
+		printf '%s | %s\n' "$platform" "$line"
 	done
 }
 
@@ -88,7 +89,6 @@ preview_stop_readers() {
 preview_follow_logs() {
 	local service id pid status remaining
 	local -a targets=("${services[@]}") pending=() preview_secrets=() preview_filters=()
-	[[ $preview_official != true ]] || targets+=(bot)
 	preview_redact_values show
 	for service in "${targets[@]}"; do
 		case $service in napcat | kisara | kisara-dev | telegram | official | bot) ;; *) continue ;; esac
@@ -100,7 +100,7 @@ preview_follow_logs() {
 		mkfifo -- "${preview_tmp}/$service.raw" "${preview_tmp}/$service.replaced" "${preview_tmp}/$service.safe" || {
 			preview_error "Cannot create private log pipes for $service."; return 1;
 		}
-		preview_log "Following $service logs (last 80 lines; Ctrl+C stops viewing only)."
+		preview_log "Following $(preview_platform "$service") logs (last 80 lines; Ctrl+C stops viewing only)."
 		"${preview_docker_command[@]}" logs --follow --tail 80 "$id" >"${preview_tmp}/$service.raw" 2>&1 &
 		preview_log_pids+=("$!")
 		preview_replace_secrets <"${preview_tmp}/$service.raw" >"${preview_tmp}/$service.replaced" 2>/dev/null &
@@ -253,7 +253,8 @@ preview_addresses() {
 preview_fingerprint() {
 	local key
 	{
-		printf '%s\0' "${profiles[@]}" "${services[@]}" "$preview_official" "$(id -u)" "$(id -g)"
+		# Retain the established Compose fingerprint field after retiring standalone Official.
+		printf '%s\0' "${profiles[@]}" "${services[@]}" false "$(id -u)" "$(id -g)"
 		while IFS= read -r key; do
 			case $key in
 			KISARA_* | ONEBOT_* | TELEGRAM_* | OFFICIAL_* | NAPCAT_* | COMPOSE_* | HAKO_IMAGE | DOCKER_* | AppID | AppSecret | SAUCENAO_API_KEY | TIANAPI_KEY)
@@ -318,11 +319,29 @@ preview_owned() {
 	[[ $facts == "${REPO_ROOT}|preview.sh|${service}" ]]
 }
 
+preview_legacy_official() {
+	local id=$1 engine
+	preview_owned "$id" bot || return 1
+	engine=$(timeout 5 "${preview_docker_command[@]}" inspect --format '{{range .Config.Env}}{{if eq . "KISARA_ENGINE=official"}}official{{end}}{{end}}' "$id" 2>"${preview_tmp}/inspect.log") || return 1
+	[[ $engine == official ]]
+}
+
 preview_existing() {
 	local service id text count=0 found=0 fingerprint other
 	preview_ids=()
 	local -a targets=("${services[@]}")
-	[[ $preview_official != true ]] || targets+=(bot)
+	if [[ " ${services[*]} " == *' official '* ]]; then
+		text=$(preview_find bot 2>"${preview_tmp}/inspect.log") || { preview_error 'Cannot inspect legacy Official preview.'; return 1; }
+		if [[ -n $text ]]; then
+			[[ $text != *$'\n'* ]] && preview_legacy_official "$text" || {
+				preview_error 'Legacy bot preview is not a verified unique Official runtime; inspect ownership/engine explicitly.'; return 2;
+			}
+			[[ $preview_action == stop ]] || {
+				preview_error 'Legacy Official hako preview exists. Run ./kisara.sh preview down official before building/starting its Compose image.'; return 2;
+			}
+			targets+=(bot)
+		fi
+	fi
 	# Sharing the same QQ login/state concurrently would violate the existing lifecycle.
 	for service in "${services[@]}"; do
 		[[ $preview_action != stop ]] || break
@@ -385,14 +404,9 @@ preview_prepare_image() {
 	fi
 }
 
-preview_hako() {
-	HAKO_IMAGE="${HAKO_IMAGE:-python:3.12-slim}" "$REPO_ROOT/hako" "$@"
-}
-
 preview_validate_credentials() {
 	local service value
 	local -a targets=("${services[@]}")
-	[[ $preview_official != true ]] || targets+=(official)
 	for service in "${targets[@]}"; do
 		case $service in
 		kisara | kisara-dev)
@@ -433,19 +447,6 @@ preview_prepare() {
 		fi
 		preview_prepare_image "$service" "$image" || return $?
 	done
-	[[ $preview_official == true ]] || return 0
-	image=${HAKO_IMAGE:-python:3.12-slim}
-	if ! preview_docker image inspect "$image" >"${preview_tmp}/inspect.log" 2>&1; then
-		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error 'Missing hako image in offline mode.'; return 1; }
-		preview_capture 'Pull missing hako runtime image' preview_docker pull "$image" || return $?
-	fi
-	if ! HAKO_SERVICE= HAKO_DETACH=false preview_hako python /app/deploy/preview-deps.py check official >"${preview_tmp}/inspect.log" 2>&1; then
-		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error "Missing pinned Official dependencies in offline mode; run ./kisara.sh preview build $preview_target while online."; return 1; }
-		preview_capture 'Install missing pinned Official runtime dependencies' env HAKO_SERVICE= HAKO_DETACH=false "$REPO_ROOT/hako" python /app/deploy/preview-deps.py install official || return $?
-		HAKO_SERVICE= HAKO_DETACH=false preview_hako python /app/deploy/preview-deps.py check official >"${preview_tmp}/inspect.log" 2>&1 || {
-			preview_error 'Official dependencies remain unavailable after installation; no service started.'; return 1;
-		}
-	fi
 }
 
 preview_ready_one() {
@@ -462,9 +463,6 @@ preview_ready_one() {
 		;;
 	music)
 		timeout 6 "${preview_docker_command[@]}" exec "$id" node -e 'fetch("http://127.0.0.1:3000/").then(r=>process.exit(r.ok?0:1),()=>process.exit(1))' >"${preview_tmp}/probe.log" 2>&1
-		;;
-	bot)
-		timeout 6 "${preview_docker_command[@]}" exec "$id" python /app/deploy/preview-probe.py official >"${preview_tmp}/probe.log" 2>&1
 		;;
 	*)
 		local engine=$service
@@ -514,7 +512,6 @@ preview_diagnostics() {
 preview_cleanup() {
 	local original_status=$? service id
 	local -a targets=("${services[@]}")
-	[[ ${preview_official:-false} != true ]] || targets+=(bot)
 	trap - EXIT INT TERM
 	preview_stop_readers
 	if [[ $original_status -ne 0 && ${preview_started:-false} == true ]]; then
@@ -562,14 +559,6 @@ preview_start_group() {
 			preview_ids[$service]=$id
 		done
 	fi
-	if [[ $preview_official == true ]]; then
-		preview_capture 'Start Official in background through hako' env HAKO_SCOPE=preview.sh HAKO_SERVICE=bot HAKO_DETACH=true \
-			HAKO_CONFIG="$preview_config" HAKO_ATTEMPT="${preview_tmp##*/}" KISARA_ENGINE=official KISARA_PREVIEW_READINESS=/tmp/kisara-preview-ready.json \
-			"$REPO_ROOT/hako" python -m kisara || return $?
-		id=$(preview_find bot 2>"${preview_tmp}/inspect.log") || return 1
-		[[ -n $id && $id != *$'\n'* ]] || return 1
-		preview_ids[bot]=$id
-	fi
 }
 
 preview_listener_info() {
@@ -583,7 +572,6 @@ preview_listener_info() {
 	music)
 		timeout 5 "${preview_docker_command[@]}" exec "$id" node -e "$(cat "$REPO_ROOT/deploy/preview-listeners.js")" 0 2>"${preview_tmp}/inspect.log"
 		;;
-	bot) timeout 5 "${preview_docker_command[@]}" exec "$id" python /app/deploy/preview-probe.py listeners 2>"${preview_tmp}/inspect.log" ;;
 	*) timeout 5 "${preview_docker_command[@]}" exec "$id" python /opt/kisara/preview-probe.py listeners 2>"${preview_tmp}/inspect.log" ;;
 	esac
 }
@@ -593,7 +581,6 @@ preview_summary() {
 	local container_endpoint container_port mapping_active required_ui required_ws scope
 	local -a open=() local_urls=() listeners=() published=() internal=() notes=() candidates=()
 	local -a targets=("${services[@]}")
-	[[ $preview_official != true ]] || targets+=(bot)
 	for service in "${targets[@]}"; do
 		id=${preview_ids[$service]}
 		facts=$(preview_listener_info "$id" "$service") || { preview_error "Listener inspection unavailable for $service; no success summary is emitted."; return 1; }
@@ -696,7 +683,7 @@ preview_valid_selection() {
 
 preview_run() {
 	preview_action=start preview_verbose=false
-	local arg action_seen=false target_seen=false service id engine selection explicit_target=''
+	local arg action_seen=false target_seen=false service id selection explicit_target=''
 	for arg in "$@"; do
 		case $arg in
 		--help | -h) preview_usage; return 0 ;;
@@ -717,26 +704,14 @@ preview_run() {
 	[[ -f $REPO_ROOT/.env ]] || { preview_error 'Missing .env; copy .env.example only if absent, then edit the required selected-engine values.'; return 2; }
 	DOTENV_KEYS=()
 	dotenv_load "$REPO_ROOT/.env" || return $?
-	preview_official=false
-	engine=${KISARA_ENGINE-selected}
 	selection=${COMPOSE_PROFILES-onebot}
 	if [[ $target_seen == true ]]; then
-		engine=selected selection=$explicit_target
-		[[ $explicit_target != official ]] || engine=official
+		selection=$explicit_target
 	fi
-	case $engine in
-	onebot | onebot-dev | telegram) selection=$engine ;;
-	official) preview_official=true; selection='' ;;
-	selected) ;;
-	*) preview_error 'Invalid/empty KISARA_ENGINE selection.'; return 2 ;;
-	esac
 	services=() profiles=()
-	preview_target=official
-	if [[ $preview_official != true ]]; then
-		preview_valid_selection "$selection" || return $?
-		preview_target=$selection
-		select_services "$selection"
-	fi
+	preview_valid_selection "$selection" || return $?
+	preview_target=$selection
+	select_services "$selection"
 	[[ $preview_action != start ]] || preview_validate_credentials || return $?
 	[[ ${KISARA_PREVIEW_TIMEOUT:-90} =~ ^[1-9][0-9]*$ ]] || { preview_error 'KISARA_PREVIEW_TIMEOUT must be a positive integer.'; return 2; }
 	for arg in docker timeout sha256sum sed awk sort find mktemp mkfifo cat id; do

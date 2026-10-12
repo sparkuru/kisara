@@ -66,9 +66,11 @@ def test_main_wires_private_only_news_factory(
             """Record normal cleanup."""
             captured["closed"] = True
 
-    def create_adapter(settings: Settings, handler: Any, factory: Any, setu: Any) -> Adapter:
+    def create_adapter(settings: Settings, handler: Any, factory: Any, setu: Any,
+                       **kwargs: Any) -> Adapter:
         """Capture the factory selected by the real main function."""
         captured["factory"] = factory
+        assert callable(kwargs["command_authorizer"])
         return Adapter()
 
     monkeypatch.setattr(bot_main, "DailyNews", News)

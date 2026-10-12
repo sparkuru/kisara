@@ -120,6 +120,32 @@ def test_config_profile_and_secret_mapping_contract() -> None:
     assert "env_file:" not in text
 
 
+@pytest.mark.parametrize("service,engine", [("kisara", "onebot"), ("kisara-dev", "onebot"),
+                                           ("telegram", "telegram"), ("official", "official")])
+@pytest.mark.parametrize("configured", [None, "", "ping,help"])
+def test_compose_public_features_unset_empty_and_engine_isolation(
+        service: str, engine: str, configured: Optional[str]) -> None:
+    """Exercise unset-only interpolation from each actual Compose service block."""
+    text = (ROOT / "deploy/compose.yaml").read_text()
+    block = re.split(r"\n(?=  \S)", text.split("  " + service + ":\n", 1)[1], maxsplit=1)[0]
+    expression = re.search(r"^      KISARA_PUBLIC_FEATURE: (.+)$", block, re.MULTILINE).group(1)
+    environment = {"PATH": os.defpath}
+    for platform in ("onebot", "official", "telegram"):
+        if platform != engine:
+            environment[platform.upper() + "_PUBLIC_FEATURE"] = "wrong-engine"
+    if configured is not None:
+        environment[engine.upper() + "_PUBLIC_FEATURE"] = configured
+    result = subprocess.run(["bash", "-c", 'printf "%s" "' + expression + '"'],
+                            env=environment, capture_output=True, text=True, check=True)
+    assert result.stdout == (configured if configured is not None else "tguid" if engine == "telegram" else "")
+    environment["KISARA_PUBLIC_FEATURE"] = "help"
+    result = subprocess.run(["bash", "-c", 'printf "%s" "' + expression + '"'],
+                            env=environment, capture_output=True, text=True, check=True)
+    expected = "help" if engine == "onebot" and configured is None else (
+        configured if configured is not None else "tguid" if engine == "telegram" else "")
+    assert result.stdout == expected
+
+
 @pytest.mark.parametrize("service,engine", [("kisara", "onebot"),
                                             ("kisara-dev", "onebot"),
                                             ("telegram", "telegram"),

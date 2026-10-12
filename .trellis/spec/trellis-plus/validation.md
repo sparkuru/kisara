@@ -166,13 +166,17 @@ Optional consumed keys in .env.example:
 | KISARA_PREVIEW_TIMEOUT | positive seconds, default 90, bounds group readiness |
 | KISARA_PREVIEW_IMAGE_PREFIX | empty derives the Compose project's preview image namespace |
 | KISARA_PREVIEW_HOST_ADDRESSES | empty; explicit daemon-host address CSV when remote wildcard publishing requires it |
-| HAKO_IMAGE | python:3.12-slim; Official wrapper runtime, must satisfy Python 3.12 preview requirements |
+
+No-target preview actions share effective COMPOSE_PROFILES selection, defaulting
+to onebot only when unset. Same-key inherited environment overrides dotenv;
+explicit targets override that default list. KISARA_ENGINE is not a preview
+selector. Every bot, including Official-only, uses its Compose-built image.
+HAKO_IMAGE remains an offline development-wrapper input.
 
 When no owned group exists, prepare a missing configured image, check selected
 dependency versions/import entries, install the missing pinned runtime closure,
 repeat that check, then create the service group. Prepare containers publish no
-ports and receive no runtime credential environment; a mounted source tree can
-still expose .env as a file, so this is not secret-file isolation. Use
+ports and receive no runtime credential environment. Use
 `deploy/preview-constraints-py312.txt` and `preview-deps.py`: exact observed Python
 3.12 distribution versions, selected engine closure and no-deps pip installation.
 No package manager, SDK extras or build backend is added just for preview.
@@ -190,6 +194,15 @@ explicit preparation instead of silently falling back to host execution.
 Start rejects missing/example OneBot access tokens before any Docker operation.
 Stop/down do not require host-address discovery; unavailable browser candidates
 must never prevent data-preserving teardown of owned containers.
+
+For a code/settings update, down removes only selected owned containers; build
+explicitly rebuilds all selected application image tags using current source
+and manifests, including already-existing tags; the next start uses those tags
+with current runtime settings and engine config binds. Retain all persistent
+storage and normal Docker cache behavior. Auxiliary images follow existing
+missing-resource rules. Legacy Official hako.service=bot ownership remains
+recognizable for selected down; start/build reject that duplicate conflict.
+Non-preview containers require separately authorized conversion.
 
 ### Readiness and console contract
 
@@ -235,9 +248,12 @@ summary; an unready status returns actual failure/state with no ready banner.
 
 After ready status's summary, follow the last 80 lines and subsequent new lines
 from selected owned application bots (`kisara`, `kisara-dev`, `telegram`,
-`official`, standalone `bot`) and the selected OneBot group's `napcat` gateway,
+`official`) and the selected OneBot group's `napcat` gateway,
 which owns QQ receive/send logs. Verify ownership before reading, label mixed
-output using `service | log`, and omit Music/local Bot API streams.
+output using `platform | log`, and omit Music/local Bot API streams. Map
+napcat/kisara/kisara-dev to onebot, telegram to telegram and official to official
+in both prefixes and follow hints. Preserve unique service IDs for FIFOs/readers
+so both OneBot streams survive their shared display label.
 Status retains receive/reply/no-reply message previews already emitted by the bot,
 and shows user/chat/account IDs, bot names and ordinary numbers, while still
 redacting credentials. Account and access-list configuration values are not

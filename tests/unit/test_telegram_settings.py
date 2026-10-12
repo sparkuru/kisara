@@ -1,10 +1,36 @@
 """Selected Telegram configuration and retained feature precedence."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from kisara.config.settings import ConfigurationError, Settings
+from kisara.bot.contracts import MessageEvent, MessageSegment
+
+
+@pytest.mark.parametrize("public,expected", [(None, "789"), ("", None)])
+def test_startup_injects_selected_public_features(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, public: object, expected: object) -> None:
+    """Use the real startup's shared handler, including environment-only defaults."""
+    import kisara.bot.main as startup
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("KISARA_ENGINE", "telegram")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:synthetic")
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "")
+    monkeypatch.delenv("KISARA_PUBLIC_FEATURE", raising=False)
+    monkeypatch.delenv("TELEGRAM_PUBLIC_FEATURE", raising=False)
+    if public is not None:
+        monkeypatch.setenv("TELEGRAM_PUBLIC_FEATURE", public)
+    results = []
+    event = MessageEvent("telegram", "test", "1", "private", "789", "789",
+                         (MessageSegment("text", {"text": "/tguid"}),), {})
+    def create(settings: Settings, handler: object, *args: object, **kwargs: object) -> object:
+        results.append(handler(event))
+        return SimpleNamespace(start=lambda: None, close=lambda: None)
+    monkeypatch.setattr(startup, "create_adapter", create)
+    assert startup.main() == 0
+    assert results == [expected]
 
 
 def prepare(monkeypatch: object, tmp_path: Path) -> None:

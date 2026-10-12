@@ -30,17 +30,26 @@ preview_message() {
 preview_log() { preview_message log 2 "[log] $*"; }
 preview_error() { preview_message error 2 "[error] $*"; }
 
+preview_platform() {
+	case $1 in
+	napcat | kisara | kisara-dev) printf '%s' onebot ;;
+	official | bot) printf '%s' official ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
+
 preview_usage() {
 	preview_message title 2 'Usage: ./kisara.sh preview [start|stop|down|status|build] [engine-or-profile-list] [--verbose]'
 	preview_message section 2 'Commands:'
 	printf '%s\n' \
 		'  start    Prepare only missing resources, start detached, wait for readiness.' \
-		'  status   Show readiness, then follow bot IO as service | log (last 80 lines, credentials redacted).' \
+		'  status   Show readiness, then follow bot IO as platform | log (last 80 lines, credentials redacted).' \
 		'           Ctrl+C stops viewing only; bot containers keep running. Never build/install/start.' \
 		'  build    Explicit rebuild/preparation; never start the service group.' \
 		'  stop/down Stop and remove only owned preview containers; preserve volumes/data.' \
 		'  Target   onebot, onebot-dev, telegram, official, music; comma-separated profiles supported.' \
-		'           Explicit target wins over KISARA_ENGINE/COMPOSE_PROFILES; omitted target keeps their selection.' \
+		'           Explicit target wins; omitted targets use COMPOSE_PROFILES (unset defaults to onebot).' \
+		'           KISARA_ENGINE is an application setting, not a preview selector.' \
 		'  --verbose Show captured, redacted details after each step (not streaming).' \
 		'  --help    Read no configuration and perform no Docker operations.' >&2
 	preview_message section 2 'First use:'
@@ -52,7 +61,8 @@ preview_usage() {
 		'  Root .env is data; inherited environment wins by presence, including empty values.' \
 		'  First start may download missing images and pinned Python 3.12 packages; no host Python required.' \
 		'  KISARA_PREVIEW_OFFLINE=true forbids automatic build/pull/install; prepare explicitly when online.' \
-		'  Rebuild after dependency/image source changes: ./kisara.sh preview build telegram; stop its group first.' \
+		'  Update selected bots: ./kisara.sh preview down; ./kisara.sh preview build; ./kisara.sh preview.' \
+		'  Build always rebuilds selected application images, including Official; storage and Docker cache stay intact.' \
 		'  Loopback/SSH-tunnel and internal-only boundaries remain; bot engines have no inbound listener.' \
 		'  stdout contains a ready summary and status bot logs; help/progress/errors use stderr. NO_COLOR disables color.' >&2
 }

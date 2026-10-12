@@ -1,4 +1,9 @@
-"""OneBot 11 forward-WebSocket adapter."""
+"""OneBot 11 forward-WebSocket adapter.
+
+Quote preparation for ordinary source/recall commands uses the injected pure
+command authorizer. Native image export, Setu and scheduled delivery retain
+their strict global/feature allowlists; public commands never authorize them.
+"""
 
 import asyncio
 import base64
@@ -55,6 +60,7 @@ class OneBotV11Adapter:
         daily_news_factory: Optional[Callable[[], OutgoingMessage]] = None,
         delivery_store: Optional[NewsDeliveryStore] = None,
         setu: Optional[Setu] = None,
+        command_authorizer: Optional[Callable[[MessageEvent, str], bool]] = None,
     ) -> None:
         """Create a forward-WebSocket adapter for the selected OneBot instance."""
 
@@ -80,6 +86,7 @@ class OneBotV11Adapter:
         self._allowed_groups = settings.allowed_groups
         self._groups_enabled = settings.groups_enabled
         self._setu = setu
+        self._command_authorizer = command_authorizer
 
     def start(self) -> None:
         """Run the reconnecting adapter loop until interrupted or closed."""
@@ -280,20 +287,24 @@ class OneBotV11Adapter:
     def _should_enrich_quote(self, event: MessageEvent) -> bool:
         """Limit history lookups to authorized image search and recall commands."""
 
-        if not self._is_authorized(event):
-            return False
         if not event.reply_context.get("quoted_message_id"):
             return False
         parts = event.text.strip().split(maxsplit=1)
         if not parts:
             return False
         command = parts[0].lower().lstrip("/")
-        if command in {"source", "sauce"}:
+        if self._command_authorizer is not None:
+            source = self._command_authorizer(event, "source")
+            recall = self._command_authorizer(event, "recall")
+        else:
+            source = self._is_authorized(event) and command in {"source", "sauce"}
+            recall = self._is_authorized(event) and command == "recall"
+        if source:
             return not any(segment.kind == "image" for segment in event.segments)
-        return command == "recall"
+        return recall
 
     def _is_authorized(self, event: MessageEvent) -> bool:
-        """Apply the same sender and conversation allowlists as normal routing."""
+        """Apply strict global allowlists independently of public commands."""
         if event.sender_id not in self._allowed_users:
             return False
         if event.conversation_kind == "group":

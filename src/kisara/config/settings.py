@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Dict, FrozenSet, Mapping, Optional, Tuple
 from urllib.parse import urlsplit
 
+from kisara.bot.features import FEATURES
+
 from .feature_files import (
     ConfigurationError, boolean, engine_config_root, groups, load_feature,
     percent, string, words,
@@ -76,6 +78,7 @@ class Settings:
     telegram_message_log_enabled: bool = False
     telegram_api_base_url: str = DEFAULT_TELEGRAM_API_BASE_URL
     telegram_local_mode: bool = False
+    public_features: FrozenSet[str] = frozenset()
 
     @property
     def config_root(self) -> Path:
@@ -97,6 +100,7 @@ class Settings:
 
         config_root = engine_config_root(engine)
         environment = _engine_environment(os.environ, engine)
+        public_features = _read_public_features(environment, engine)
         instance_id = environment.get("KISARA_INSTANCE_ID", "personal").strip()
         if not instance_id:
             raise ConfigurationError("KISARA_INSTANCE_ID must not be empty.")
@@ -176,6 +180,7 @@ class Settings:
         if music_api_url and not music_api_url.startswith(("http://", "https://")):
             raise ConfigurationError("KISARA_MUSIC_API_URL must be an HTTP URL.")
         feature_options = {
+            "public_features": public_features,
             "ping_enabled": boolean(
                 load_feature("ping", config_root), "enabled",
                 lambda: _read_bool("KISARA_PING_ENABLED", True, environment=environment),
@@ -343,7 +348,7 @@ def _engine_environment(source: Mapping[str, str], engine: str) -> Mapping[str, 
     """Copy deployment aliases into runtime fields without changing the process."""
     environment = dict(source)
     suffixes = (
-        "INSTANCE_ID", "ALLOWED_USERS", "ADMIN_USERS", "GROUPS_ENABLED",
+        "INSTANCE_ID", "ALLOWED_USERS", "ADMIN_USERS", "GROUPS_ENABLED", "PUBLIC_FEATURE",
         "ALLOWED_GROUPS", "PING_ENABLED", "HELP_ENABLED", "MUSIC_ENABLED",
         "NEWS_ENABLED", "NEWS_PUSH_ENABLED", "MUSIC_API_URL", "NEWS_PUSH_USERS",
         "NEWS_PUSH_GROUPS", "NEWS_PUSH_TIME", "NEWS_CACHE_DIR", "STATE_DIR",
@@ -392,6 +397,22 @@ def _read_csv(name: str, environment: Mapping[str, str]) -> FrozenSet[str]:
 
     values = environment.get(name, "").split(",")
     return frozenset(value.strip() for value in values if value.strip())
+
+
+def _read_public_features(environment: Mapping[str, str], engine: str) -> FrozenSet[str]:
+    """Validate canonical ordinary feature names for the selected engine only."""
+    raw = environment.get("KISARA_PUBLIC_FEATURE", "tguid" if engine == "telegram" else "")
+    names = frozenset(value.strip() for value in raw.split(",") if value.strip())
+    definitions = {definition.name: definition for definition in FEATURES}
+    for name in names:
+        definition = definitions.get(name)
+        if definition is None or definition.trigger != "command" or engine not in definition.engines:
+            raise ConfigurationError(
+                "{}_PUBLIC_FEATURE requires canonical ordinary feature names supported by {}; invalid entry: {!r}.".format(
+                    engine.upper(), engine, name,
+                )
+            )
+    return names
 
 
 def _read_bool(name: str, default: bool, environment: Mapping[str, str]) -> bool:

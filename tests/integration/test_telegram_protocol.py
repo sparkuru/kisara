@@ -113,6 +113,44 @@ def test_real_sdk_polling_router_documents_and_shutdown(monkeypatch: object, tmp
     assert "123:synthetic" not in caplog.text
 
 
+def test_public_tguid_real_sdk_addressing_source_id_and_dedup(
+        monkeypatch: object, caplog: object) -> None:
+    """Public replies use the original chat, sender UID and scoped message ID."""
+    async def run() -> None:
+        request = BotPeer()
+        first = packet(1, "/tguid", chat=777)
+        first["message"]["reply_to_message"] = dict(message_id=42, date=1780000000,
+            chat=dict(id=777, type="private"), **{"from": dict(id=999, is_bot=False, first_name="Other")}, text="quote")
+        updates = BotPeer([first, packet(2, "/tguid@TestBot", -456),
+                           packet(3, "/tguid", 777), packet(4, "/tguid", 778),
+                           packet(5, "/tguid@other", 780), packet(6, "/ping", 781),
+                           packet(7, "/tguid 999", 779), packet(8, "/tguid@TestBot", -457)])
+        monkeypatch.setattr(transport, "HTTPXRequest",
+                            lambda **kwargs: updates if kwargs.get("read_timeout") == 35 else request)
+        router = Dispatcher(frozenset(), True, frozenset(),
+                            public_features={"telegram": frozenset({"tguid"})})
+        settings = Settings("telegram", "test", frozenset(), True, frozenset(),
+                            telegram_token="123:synthetic", telegram_message_log_enabled=True)
+        adapter = transport.TelegramAdapter(settings, router.dispatch_payload)
+        task = asyncio.create_task(adapter._run())
+        try:
+            for _ in range(300):
+                if sum(call[0] == "sendMessage" for call in request.calls) >= 5:
+                    break
+                await asyncio.sleep(0.01)
+            sends = [call[1] for call in request.calls if call[0] == "sendMessage"]
+            assert [(send["chat_id"], send["text"]) for send in sends] == [
+                (777, "123"), (-456, "123"), (778, "123"), (779, "Usage: /tguid"), (-457, "123")]
+            assert all(send["reply_parameters"]["message_id"] == 1 for send in sends)
+        finally:
+            adapter.close()
+            await asyncio.wait_for(task, 3)
+        assert request.closed and updates.closed
+    with caplog.at_level(logging.INFO, logger="kisara.telegram"):
+        asyncio.run(run())
+    assert not any(record.getMessage().startswith(("Received", "Sent", "No reply")) for record in caplog.records)
+
+
 def test_scheduler_cancel_before_sdk_stop(monkeypatch: object, tmp_path: object) -> None:
     async def run() -> None:
         events = []

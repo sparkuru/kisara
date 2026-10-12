@@ -66,13 +66,19 @@ implementation and verification.
 
 | Condition | Required boundary behavior |
 | --- | --- |
-| Sender absent from global allowlist, including empty allowlist | Return `unhandled`; do not call business or external services |
-| Group handling disabled or group absent from allowlist | Ignore group business actions |
+| Sender absent from global allowlist, command not public | Return `unhandled`; do not call business or external services |
+| Group handling disabled | Ignore all group business actions, including public commands |
+| Group absent from allowlist, command not public | Ignore group business actions |
 | Authorized group with chat responder | Existing phrasebook policy may handle ordinary text; no new mention-only restriction |
 | Duplicate event | Return `unhandled`; no repeated business action within cache lifetime |
 | Invalid recognized command arguments | Raise `CommandInputError`; dispatcher returns `error` |
 | Failed remote command | Raise `RemoteServiceError`; dispatcher returns `error` |
 | Quoted history, media export, archive, or recall | Authorize before fetching history/media or executing platform operations |
+
+An explicitly configured eligible public ordinary feature bypasses only global
+sender/group membership. Group enablement remains mandatory; native workflows
+and feature-owned restrictions stay strict. See [public command features](public-features.md)
+for selected-engine configuration, defaults, alias scope and Telegram `/tguid`.
 
 The current dispatcher deduplication key is `(engine, instance_id, message_id)`.
 The cache is bounded by size and TTL, protected by a lock, and cleared on
@@ -157,6 +163,8 @@ feature. `RegisteredFeature(definition, handler)` binds its application handler.
 `eligible(name, engine) -> bool`, and `help(engine) -> str`.
 `Dispatcher.authorize_native(event, feature) -> bool` supplies the shared access,
 feature eligibility and deduplication gate for future adapter-native handlers.
+`Dispatcher.authorize_command(event, feature) -> bool` performs pure ordinary
+command permission checks for OneBot quote preparation without consuming dedup.
 
 ### 3. Contracts
 
@@ -164,7 +172,7 @@ The effective inventory requires platform support, an assembled service where
 needed, and its configured enablement; an explicit true cannot invoke a missing
 service. It owns help and invocation eligibility. Aliases share their
 feature's switch. Register explicitly in code; configuration supplies values,
-never import paths or executable plugins. Telegram's inventory is ping, help,
+never import paths or executable plugins. Telegram's inventory is ping, help, tguid,
 news, news_push, music, and optionally tgsetu when its dedicated service is
 configured. `/setu` stays OneBot-only. `/start` is Telegram onboarding through help, without
 access grants or scheduled subscriptions. Manual news and news_push are separate
@@ -182,11 +190,11 @@ and narrow gateways, never raw SDK updates.
 | Condition | Behavior |
 | --- | --- |
 | Duplicate registered alias | Reject registration |
-| Disallowed sender/chat or duplicate command | No handler/provider effects |
+| Disallowed sender/chat without a public exception, or duplicate command | No handler/provider effects |
 | Disabled feature or unsupported Telegram slash command | Concise unavailable guidance without invocation |
 | Unknown Telegram slash command | Safe help guidance without echoing the input |
 | Ordinary Telegram text or another bot's addressed command | Ignore |
-| QQ/local service absent without explicit disablement | Preserve existing echo/phrasebook fallback; omit the unavailable feature from help |
+| QQ/local service absent without explicit disablement | Preserve already-authorized echo/phrasebook fallback; omit unavailable help; public access cannot enter fallback |
 | Explicit false with or without a service | No feature invocation; retained command returns unavailable |
 | Manual news disabled, push enabled with recipients | Scheduler remains eligible |
 | Push disabled or recipient lists empty | No background scheduler |
