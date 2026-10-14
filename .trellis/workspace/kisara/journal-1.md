@@ -681,3 +681,74 @@ User authorized local delivery. Committed validated code/test/docs/spec changes,
 ### Next Steps
 
 - Resolve user-selected lifecycle simplification or deployment follow-up separately; no push or archive performed.
+
+
+## Session 21: Unified ordinary and preview container lifecycle
+<!-- trellis-session: v=2 fp=5f01e5b2ccdf6f30 -->
+
+**Date**: 2026-10-13
+**Task**: Unified ordinary and preview container lifecycle
+**Branch**: `feat/container-lifecycle`
+
+### Summary
+
+Approved down-only task implemented and independently checked; final full offline regression passed. Code remains uncommitted; no live bot or private dotenv operations.
+
+### Main Changes
+
+- Shared exact repository identity/preflight/down helper; ordinary-preview roundtrip, QQ switching and scoped OneBot forwarding.
+- Removed fingerprint/reuse/partial/build-existing and automatic rollback gates; selected application startup refreshes configuration while auxiliaries reconcile normally.
+- Synced task artifacts, mainline, operations and executable code specs; retained both QQ modes in read-only diagnostics and captured preview switch output.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Independent core/log subset: 70 passed, 163 deselected in 237.94s.
+- [OK] Final ./kisara.sh test -q: 1067 passed, 1 existing missing-Git skip, 3 existing PTB warnings in 500.97s.
+- [OK] Six-shell Bash syntax and whitespace checks passed; ShellCheck/shfmt unavailable, application lint/type-check unconfigured.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Uncommitted code is ready for review; task stays in_progress. Real deployment/account checks, commit/archive/push require separately scoped authorization.
+
+
+## Session 22: Commit unified container lifecycle
+<!-- trellis-session: v=2 fp=4f67372d0402ba28 -->
+
+**Date**: 2026-10-14
+**Task**: Commit unified container lifecycle
+**Branch**: `feat/container-lifecycle`
+
+### Summary
+
+User authorized local delivery with 提交. Committed validated lifecycle code/tests/docs/specs and recorded the task work hash; no new implementation, archive, push or live operation.
+
+### Main Changes
+
+- Work commit 6af84c6 unifies ordinary/preview management and down-only behavior; task and mainline now record committed delivery.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6af84c646c07c069d8f35f77308e509b401b29ee` | fix(deploy): unify container lifecycle |
+
+### Testing
+
+- [OK] Previously completed final full gate: 1067 passed, 1 existing skip, 3 existing PTB warnings; independent subset 70 passed.
+- [OK] Commit-time Bash syntax and staged whitespace checks passed; full suite not repeated for unchanged code.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Retain the active task without archive; no push, merge or deployment performed.

@@ -61,8 +61,38 @@
   separate account acceptance above remain unchanged.
 - proposed follow-up: after an ownership refusal on the stopped ordinary
   Telegram container, the user highlighted redundant lifecycle guards.
-  Consolidating ordinary/preview container lifecycle is discussed, not yet
-  planned/implemented; no service conversion was performed.
+  The user requested a new fix task, now tracked as
+  [container-lifecycle](tasks/10-13-container-lifecycle/prd.md). No service
+  conversion was performed.
+
+## Approved lifecycle fix
+
+- task: [container-lifecycle](tasks/10-13-container-lifecycle/task.json)
+- source: [PRD](tasks/10-13-container-lifecycle/prd.md),
+  [design](tasks/10-13-container-lifecycle/design.md),
+  [implementation plan](tasks/10-13-container-lifecycle/implement.md),
+  [research](tasks/10-13-container-lifecycle/research/lifecycle.md).
+- owner decisions: on 2026-10-13 the user requested task creation and a fix for
+  the redundant deployment/preview guards, then explicitly chose to merge
+  stop/down and retain down only (stop and remove objects, persistent data kept).
+- delivered scope: common exact repository identity/preflight and removal;
+  ordinary/preview switching through Compose; remove custom fingerprint/reuse/
+  partial/build-existing refusals and attempt labels; scoped OneBot forwarding;
+  application-only startup recreation and normal auxiliary reconciliation.
+- approved failure policy: retain failed-start containers for diagnostic
+  inspection and direct startup retry, rather than bespoke container rollback.
+  Keep redacted logs, readiness and readers/temp cleanup.
+- state: final summary approved with “开始”; implementation, independent review
+  and spec synchronization complete on feat/container-lifecycle. The user's
+  2026-10-14 “提交” instruction authorized local delivery; work commit is 6af84c6.
+  Independent gate 70 passed; final full Docker gate 1067 passed, 1 existing
+  missing-Git skip, 3 existing PTB warnings. Bash/whitespace checks and both
+  context manifests pass; [validation](tasks/10-13-container-lifecycle/validation.md)
+  records intermediate fixes, exact checks and offline evidence limits.
+- boundaries: preserve prior work, all stored data, bot/native/public permissions
+  and foreign project isolation. Local delivery commits are authorized. No
+  private dotenv changes, live operation, archive/push or generic repository
+  lock audit in this new task.
 
 ## Previous initiative
 
@@ -119,6 +149,7 @@ parent/child relationship or serial execution is inferred.
 | 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | in_progress, implemented and merged; scoped QQ preview ready | Work 2782454 on keiyaku-no-kisu; final combined Docker suite 913 passed/1 host-verified Git skip; official image/RO-cache smoke passed; scoped OneBot preview ready with data retained; Telegram account/deployment acceptance pending, so not archived |
 | 4 | [Preview status bot logs](tasks/archive/2026-10/10-11-preview-status-logs/task.json) | completed, archived | Work 2782454; archive 47ea1cc on keiyaku-no-kisu; all acceptance met; fresh 20-case focused gate passed; existing full913 passed/1 skipped and real read-only follow/interrupt smoke preserved bot/NapCat |
 | 5 | [Public features, /tguid and preview](tasks/10-12-telegram-tguid/task.json) | in_progress; implemented/checked, locally committed | Work 7da12cd authorized by “提交”; focused 237/independent combined 140 passed, final full Docker 1024 passed/1 skipped/3 existing warnings; no deployment/archive/push |
+| 6 | [Unified container lifecycle](tasks/10-13-container-lifecycle/task.json) | implemented/checked; locally committed | Work 6af84c6 authorized by “提交”; independent 70 passed, final full 1067 passed/1 existing skip/3 existing warnings; no live service change/archive/push |
 
 ## Evidence and decisions
 

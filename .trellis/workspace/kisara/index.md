@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
-- **Last Active**: 2026-10-13
+- **Total Sessions**: 22
+- **Last Active**: 2026-10-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~683 | Active |
+| `journal-1.md` | ~754 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-10-14 | Commit unified container lifecycle | `6af84c646c07c069d8f35f77308e509b401b29ee` | `feat/container-lifecycle` |
+| 21 | 2026-10-13 | Unified ordinary and preview container lifecycle | - | `feat/container-lifecycle` |
 | 20 | 2026-10-13 | Commit public commands and preview workflow | `7da12cd14a523b56e4491349c40cfb949d0ef3a7` | `keiyaku-no-kisu` |
 | 19 | 2026-10-13 | Preview profile selection, rebuild and platform logs | - | `keiyaku-no-kisu` |
 | 18 | 2026-10-12 | Public command features and Telegram UID | - | `keiyaku-no-kisu` |
