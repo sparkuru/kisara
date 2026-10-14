@@ -250,31 +250,6 @@ preview_addresses() {
 	done <<<"$raw"
 }
 
-preview_fingerprint() {
-	local key
-	{
-		# Retain the established Compose fingerprint field after retiring standalone Official.
-		printf '%s\0' "${profiles[@]}" "${services[@]}" false "$(id -u)" "$(id -g)"
-		while IFS= read -r key; do
-			case $key in
-			KISARA_* | ONEBOT_* | TELEGRAM_* | OFFICIAL_* | NAPCAT_* | COMPOSE_* | HAKO_IMAGE | DOCKER_* | AppID | AppSecret | SAUCENAO_API_KEY | TIANAPI_KEY)
-				printf '%s\0%s\0' "$key" "${!key}" ;;
-			esac
-		done < <(compgen -e | LC_ALL=C sort)
-		for key in "${REPO_ROOT}/deploy/compose.yaml" "${REPO_ROOT}/deploy/Dockerfile" "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/deploy/preview-constraints-py312.txt"; do
-			cat -- "$key" 2>"${preview_tmp}/inspect.log" || {
-				preview_error "Required fingerprint input ${key##*/} is missing/unreadable; restore it before preview preparation."; return 1;
-			}
-		done
-		if [[ " ${services[*]} " == *' telegram-bot-api '* ]]; then
-			for key in telegram-bot-api.Dockerfile telegram-bot-api-entrypoint.sh telegram-bot-api-probe.sh; do
-				cat -- "$REPO_ROOT/deploy/$key" || return 1
-			done
-		fi
-		while IFS= read -r -d '' key; do sha256sum -- "$key"; done < <(find "${REPO_ROOT}/config" -type f \( -name '*.toml' -o -name '*.json' \) -print0 2>/dev/null | sort -z)
-	} | sha256sum | awk '{print $1}'
-}
-
 preview_compose() {
 	local profile
 	local -a args=()
@@ -287,93 +262,34 @@ preview_override() {
 	local service image
 	printf 'services:\n' >"${preview_tmp}/override.yaml"
 	for service in "${services[@]}"; do
-		printf '  %s:\n    labels:\n      hako.repo: %s\n      hako.scope: preview.sh\n      hako.service: %s\n      hako.config: %s\n      hako.attempt: %s\n' \
-			"$service" "\"${REPO_ROOT//\"/\\\"}\"" "$service" "$preview_config" "${preview_tmp##*/}" >>"${preview_tmp}/override.yaml"
 		case $service in
 		kisara | kisara-dev | telegram | official | telegram-bot-api)
 			image="${KISARA_PREVIEW_IMAGE_PREFIX:-${COMPOSE_PROJECT_NAME:-kisara}-preview}-${service}:latest"
 			[[ $image =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:-]+$ ]] || { preview_error 'Invalid KISARA_PREVIEW_IMAGE_PREFIX.'; return 2; }
 			preview_images[$service]=$image
-			if [[ $service == telegram-bot-api ]]; then
-				printf '    image: %s\n' "$image" >>"${preview_tmp}/override.yaml"
-			else
-				printf '    image: %s\n    environment:\n      KISARA_PREVIEW_READINESS: /tmp/kisara-preview-ready.json\n' "$image" >>"${preview_tmp}/override.yaml"
+			printf '  %s:\n    image: %s\n' "$service" "$image" >>"${preview_tmp}/override.yaml"
+			if [[ $service != telegram-bot-api ]]; then
+				printf '    environment:\n      KISARA_PREVIEW_READINESS: /tmp/kisara-preview-ready.json\n' >>"${preview_tmp}/override.yaml"
 			fi
 			;;
 		esac
 	done
+	# Auxiliary-only selections need a valid empty override.
+	[[ ${#preview_images[@]} -gt 0 ]] || printf 'services: {}\n' >"${preview_tmp}/override.yaml"
 }
 
-preview_find() {
-	local service=$1
-	if [[ $service == bot ]]; then
-		timeout 5 "${preview_docker_command[@]}" ps -aq --filter "label=hako.repo=${REPO_ROOT}" --filter label=hako.scope=preview.sh --filter label=hako.service=bot
-	else
-		timeout 5 "${preview_docker_command[@]}" ps -aq --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-kisara}" --filter "label=com.docker.compose.service=$service"
-	fi
-}
+preview_find() { lifecycle_find "$1"; }
+preview_owned() { lifecycle_owned "$1" "$2"; }
 
-preview_owned() {
-	local id=$1 service=$2 facts
-	facts=$(timeout 5 "${preview_docker_command[@]}" inspect --format '{{index .Config.Labels "hako.repo"}}|{{index .Config.Labels "hako.scope"}}|{{index .Config.Labels "hako.service"}}' "$id" 2>"${preview_tmp}/inspect.log") || return 1
-	[[ $facts == "${REPO_ROOT}|preview.sh|${service}" ]]
-}
-
-preview_legacy_official() {
-	local id=$1 engine
-	preview_owned "$id" bot || return 1
-	engine=$(timeout 5 "${preview_docker_command[@]}" inspect --format '{{range .Config.Env}}{{if eq . "KISARA_ENGINE=official"}}official{{end}}{{end}}' "$id" 2>"${preview_tmp}/inspect.log") || return 1
-	[[ $engine == official ]]
-}
-
-preview_existing() {
-	local service id text count=0 found=0 fingerprint other
+preview_collect() {
+	local service id
 	preview_ids=()
-	local -a targets=("${services[@]}")
-	if [[ " ${services[*]} " == *' official '* ]]; then
-		text=$(preview_find bot 2>"${preview_tmp}/inspect.log") || { preview_error 'Cannot inspect legacy Official preview.'; return 1; }
-		if [[ -n $text ]]; then
-			[[ $text != *$'\n'* ]] && preview_legacy_official "$text" || {
-				preview_error 'Legacy bot preview is not a verified unique Official runtime; inspect ownership/engine explicitly.'; return 2;
-			}
-			[[ $preview_action == stop ]] || {
-				preview_error 'Legacy Official hako preview exists. Run ./kisara.sh preview down official before building/starting its Compose image.'; return 2;
-			}
-			targets+=(bot)
-		fi
-	fi
-	# Sharing the same QQ login/state concurrently would violate the existing lifecycle.
 	for service in "${services[@]}"; do
-		[[ $preview_action != stop ]] || break
-		case $service in
-		kisara) other=kisara-dev ;;
-		kisara-dev) other=kisara ;;
-		*) continue ;;
-		esac
-		text=$(preview_find "$other" 2>"${preview_tmp}/inspect.log") || return 1
-		[[ -z $text ]] || { preview_error "Conflicting $other group exists; stop it explicitly before changing the OneBot mode."; return 2; }
+		id=$(preview_find "$service") || return 1
+		[[ -n $id && $id != *$'\n'* ]] || { preview_error "Selected $service container is missing/duplicated; start explicitly to reconcile it."; return 1; }
+		preview_owned "$id" "$service" || { preview_error "Selected $service repository identity changed/unavailable."; return 2; }
+		preview_ids[$service]=$id
 	done
-	for service in "${targets[@]}"; do
-		text=$(preview_find "$service" 2>"${preview_tmp}/inspect.log") || { preview_error 'Cannot inspect selected services.'; return 1; }
-		count=0
-		while IFS= read -r id; do
-			[[ -n $id ]] || continue
-			count=$((count + 1))
-			preview_owned "$id" "$service" || { preview_error "Selected $service container is not owned by preview; use its existing deployment lifecycle explicitly."; return 2; }
-			fingerprint=$(preview_docker inspect --format '{{index .Config.Labels "hako.config"}}' "$id" 2>"${preview_tmp}/inspect.log") || return 1
-			if [[ $fingerprint != "$preview_config" && $preview_action != stop ]]; then
-				preview_error "Configuration changed for $service. Run ./kisara.sh preview stop $preview_target, then ./kisara.sh preview start $preview_target (build first for source/dependency changes)."; return 2
-			fi
-			preview_ids[$service]=$id
-		done <<<"$text"
-		[[ $count -le 1 ]] || { preview_error "Duplicate $service containers; inspect and recover explicitly."; return 2; }
-		[[ $count -eq 0 ]] || found=$((found + 1))
-	done
-	if [[ $preview_action != stop && $found -gt 0 && $found -ne ${#targets[@]} ]]; then
-		preview_error "Incomplete preview group; run ./kisara.sh preview stop $preview_target then ./kisara.sh preview start $preview_target. No automatic repair was performed."; return 2
-	fi
-	preview_reuse=false
-	[[ $found -eq 0 ]] || preview_reuse=true
 }
 
 preview_prepare_image() {
@@ -484,8 +400,8 @@ preview_wait() {
 			fi
 		done
 		[[ $ready != true ]] || return 0
-		if [[ $preview_action == status || $SECONDS -ge $deadline || $preview_reuse == true ]]; then
-			preview_error "Service $preview_failed_service is not ready; inspect credentials/login/network/application errors. Run ./kisara.sh preview stop $preview_target then ./kisara.sh preview start $preview_target for explicit recovery."
+		if [[ $preview_action == status || $SECONDS -ge $deadline ]]; then
+			preview_error "Service $preview_failed_service is not ready; inspect credentials/login/network/application errors. Retry ./kisara.sh preview start $preview_target after correcting the cause, or use preview down $preview_target to remove containers with data retained."
 			if [[ " ${services[*]} " == *' napcat '* ]]; then
 				preview_error 'NapCat readiness requires an available WebUI and OneBot socket. Login may need its WebUI/SSH tunnel. Stored login data is retained; resolve the unavailable endpoint before retrying.'
 			fi
@@ -519,14 +435,8 @@ preview_cleanup() {
 		for service in "${targets[@]}"; do
 			id=$(preview_find "$service" 2>/dev/null) || continue
 			[[ -z $id || $id == *$'\n'* ]] || preview_ids[$service]=$id
-			done
+		done
 		preview_diagnostics || :
-		for service in "${!preview_ids[@]}"; do
-			id=${preview_ids[$service]}
-			preview_owned "$id" "$service" || continue
-			[[ $(preview_docker inspect --format '{{index .Config.Labels "hako.attempt"}}' "$id" 2>/dev/null) == "${preview_tmp##*/}" ]] || continue
-			preview_docker rm --force "$id" >"${preview_tmp}/cleanup.log" 2>&1 || preview_error "Cleanup failed for newly created $service; recover explicitly."
-			done
 	fi
 	if [[ -n ${preview_tmp:-} && $preview_tmp == /tmp/kisara-preview.* && -d $preview_tmp ]]; then rm -rf -- "$preview_tmp"; fi
 	exit "$original_status"
@@ -534,31 +444,36 @@ preview_cleanup() {
 
 preview_start_group() {
 	local service id
+	local -a auxiliary=() applications=()
+	preview_capture 'Switch selected application mode' lifecycle_switch || return $?
 	preview_started=true
-	if [[ ${#services[@]} -gt 0 ]]; then
-		if [[ " ${services[*]} " == *' napcat '* ]]; then
-			mkdir -p -- "$REPO_ROOT/data/napcat/config" "$REPO_ROOT/data/napcat/QQ" "$REPO_ROOT/data/kisara/setu"
-			chmod 2770 -- "$REPO_ROOT/data/kisara/setu"
-		fi
-		if [[ " ${services[*]} " == *' telegram '* ]]; then
-			mkdir -p -- "$REPO_ROOT/data/kisara/tgsetu"
-			chmod 2770 -- "$REPO_ROOT/data/kisara/tgsetu"
-		fi
-		if [[ " ${services[*]} " == *' telegram-bot-api '* ]]; then
-			preview_capture 'Start local Bot API before Telegram' preview_compose up --detach --no-build --no-recreate telegram-bot-api || return $?
-			id=$(preview_find telegram-bot-api) || return 1
-			[[ -n $id && $id != *$'\n'* ]] && preview_owned "$id" telegram-bot-api || { preview_error 'Unexpected local Bot API ownership.'; return 1; }
-			preview_ids[telegram-bot-api]=$id
-			preview_wait || return $?
-		fi
-		preview_capture 'Start selected services in background' preview_compose up --detach --no-build --no-recreate "${services[@]}" || return $?
-		for service in "${services[@]}"; do
-			id=$(preview_find "$service" 2>"${preview_tmp}/inspect.log") || return 1
-			[[ -n $id && $id != *$'\n'* ]] || { preview_error "Expected exactly one $service container after startup."; return 1; }
-			preview_owned "$id" "$service" || { preview_error "Unexpected $service ownership after startup."; return 1; }
-			preview_ids[$service]=$id
-		done
+	if [[ " ${services[*]} " == *' napcat '* ]]; then
+		mkdir -p -- "$REPO_ROOT/data/napcat/config" "$REPO_ROOT/data/napcat/QQ" "$REPO_ROOT/data/kisara/setu"
+		chmod 2770 -- "$REPO_ROOT/data/kisara/setu"
 	fi
+	if [[ " ${services[*]} " == *' telegram '* ]]; then
+		mkdir -p -- "$REPO_ROOT/data/kisara/tgsetu"
+		chmod 2770 -- "$REPO_ROOT/data/kisara/tgsetu"
+	fi
+	for service in "${services[@]}"; do
+		case $service in
+		kisara | kisara-dev | telegram | official) applications+=("$service") ;;
+		*) auxiliary+=("$service") ;;
+		esac
+	done
+	if [[ ${#auxiliary[@]} -gt 0 ]]; then
+		preview_capture 'Start selected auxiliary services' preview_compose up --detach --no-build "${auxiliary[@]}" || return $?
+	fi
+	if [[ " ${services[*]} " == *' telegram-bot-api '* ]]; then
+		id=$(preview_find telegram-bot-api) || return 1
+		[[ -n $id && $id != *$'\n'* ]] && preview_owned "$id" telegram-bot-api || { preview_error 'Unexpected local Bot API repository identity.'; return 1; }
+		preview_ids=([telegram-bot-api]="$id")
+		preview_wait || return $?
+	fi
+	if [[ ${#applications[@]} -gt 0 ]]; then
+		preview_capture 'Recreate selected applications with current settings' preview_compose up --detach --no-build --force-recreate --no-deps "${applications[@]}" || return $?
+	fi
+	preview_collect
 }
 
 preview_listener_info() {
@@ -683,14 +598,14 @@ preview_valid_selection() {
 
 preview_run() {
 	preview_action=start preview_verbose=false
-	local arg action_seen=false target_seen=false service id selection explicit_target=''
+	local arg action_seen=false target_seen=false service selection explicit_target=''
 	for arg in "$@"; do
 		case $arg in
 		--help | -h) preview_usage; return 0 ;;
 		--verbose)
 			[[ $preview_verbose == false ]] || { preview_error 'Specify --verbose once.'; return 2; }
 			preview_verbose=true ;;
-		start | up | status | build | stop | down)
+		start | up | status | build | down)
 			[[ $action_seen == false && $target_seen == false ]] || { preview_error 'Specify one command before the engine/profile list.'; return 2; }
 			preview_action=$arg action_seen=true ;;
 		-*) preview_error 'Unknown preview option.'; preview_usage; return 2 ;;
@@ -700,7 +615,7 @@ preview_run() {
 			explicit_target=$arg target_seen=true ;;
 		esac
 	done
-	case $preview_action in up) preview_action=start ;; down) preview_action=stop ;; esac
+	case $preview_action in up) preview_action=start ;; esac
 	[[ -f $REPO_ROOT/.env ]] || { preview_error 'Missing .env; copy .env.example only if absent, then edit the required selected-engine values.'; return 2; }
 	DOTENV_KEYS=()
 	dotenv_load "$REPO_ROOT/.env" || return $?
@@ -713,14 +628,17 @@ preview_run() {
 	preview_target=$selection
 	select_services "$selection"
 	[[ $preview_action != start ]] || preview_validate_credentials || return $?
-	[[ ${KISARA_PREVIEW_TIMEOUT:-90} =~ ^[1-9][0-9]*$ ]] || { preview_error 'KISARA_PREVIEW_TIMEOUT must be a positive integer.'; return 2; }
-	for arg in docker timeout sha256sum sed awk sort find mktemp mkfifo cat id; do
+	if [[ $preview_action == start || $preview_action == status ]]; then
+		[[ ${KISARA_PREVIEW_TIMEOUT:-90} =~ ^[1-9][0-9]*$ ]] || { preview_error 'KISARA_PREVIEW_TIMEOUT must be a positive integer.'; return 2; }
+	fi
+	for arg in docker timeout sed mktemp cat id; do
 		command -v "$arg" >/dev/null 2>&1 || { preview_error "Required host command: $arg"; return 127; }
 	done
+	[[ $preview_action != status ]] || command -v mkfifo >/dev/null 2>&1 || { preview_error 'Required host command: mkfifo'; return 127; }
 	preview_tmp=$(mktemp -d /tmp/kisara-preview.XXXXXXXXXX)
 	preview_started=false
 	preview_log_pids=()
-	declare -gA preview_ids=() preview_images=()
+	declare -gA preview_ids=() preview_images=() lifecycle_ids=()
 	trap preview_cleanup EXIT
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
@@ -728,40 +646,34 @@ preview_run() {
 	if [[ $preview_action == start && " ${services[*]} " == *' napcat '* && ( ${NAPCAT_WEBUI_BIND:-127.0.0.1} == 0.0.0.0 || ${NAPCAT_WEBUI_BIND:-127.0.0.1} == '::' ) ]]; then preview_addresses || return $?; fi
 	# Use host fallback inputs, leaving explicit dotenv UID/GID values intact.
 	export KISARA_HOST_UID="$(id -u)" KISARA_HOST_GID="$(id -g)"
-	preview_config=$(preview_fingerprint) || return 1
-	preview_override || return $?
+	lifecycle_docker_command=("${preview_docker_command[@]}")
 	if [[ ${#services[@]} -gt 0 && ( $preview_action == start || $preview_action == build ) ]]; then
+		preview_override || return $?
 		preview_capture 'Validate selected Compose configuration' preview_compose config --quiet || return $?
 	fi
-	preview_existing || return $?
+	lifecycle_targets
+	lifecycle_preflight "${lifecycle_services[@]}" || return $?
 	case $preview_action in
-	stop)
-		for service in "${!preview_ids[@]}"; do
-			id=${preview_ids[$service]}
-			preview_capture "Stop owned $service" preview_docker stop "$id" || return $?
-			preview_capture "Remove stopped $service container (preserve data)" preview_docker rm "$id" || return $?
-			done
-		preview_log 'Selected preview containers stopped; persistent volumes and data retained.'
+	down)
+		for service in "${lifecycle_services[@]}"; do
+			preview_capture "Remove selected $service containers (preserve data)" lifecycle_remove "$service" || return $?
+		done
+		preview_log 'Selected repository containers removed; persistent volumes and data retained.'
 		;;
 	status)
-		[[ $preview_reuse == true ]] || { preview_error 'Selected preview group is absent; no resources were prepared.'; return 1; }
+		preview_collect || return $?
 		preview_wait || { preview_diagnostics; return 1; }
 		preview_summary || return $?
 		preview_follow_logs
 		;;
 	build)
-		[[ $preview_reuse == false ]] || { preview_error "Run ./kisara.sh preview stop $preview_target before rebuilding; no running resources changed."; return 2; }
 		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error 'Explicit build is disabled by offline mode; disable it only when downloads are permitted.'; return 2; }
 		preview_prepare
 		;;
 	start)
-		if [[ $preview_reuse == false ]]; then
-			preview_prepare || return $?
-			preview_start_group || return $?
-		else
-			preview_log 'Reuse the matching existing preview group.'
-		fi
-		preview_wait || { [[ $preview_started == true ]] || preview_diagnostics; return 1; }
+		preview_prepare || return $?
+		preview_start_group || return $?
+		preview_wait || return 1
 		preview_summary || return $?
 		preview_started=false
 		;;

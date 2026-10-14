@@ -357,10 +357,10 @@ engine environment mappings, never the entire shared .env. Same-path selected
 configuration mounts and migration rules are in [engine roots](engine-config.md).
 Telegram uses telegram_state and official uses official_state at /app/state.
 
-`stop`/`down`, restart, logs, and rebuild through explicit targets affect only
-selected engines. `down-all` is the explicit whole-project operation. Changing
-profile selection does not stop previously running engines. Ordinary stop keeps
-volumes. Validate profile selection and credential isolation with placeholders,
+`down` removes selected repo-owned containers with volumes/data retained;
+`stop` is removed. Restart/logs/rebuild stay targeted; `down-all` is explicit
+whole-project removal. QQ startup switches its verified opposing mode;
+other unselected engines remain. Validate profiles/credentials with placeholders,
 never by printing rendered real secret-bearing configuration.
 
 Do not log message bodies by default, raw events, tokens, login QR codes, or
@@ -375,9 +375,9 @@ must remain diagnosable without dumping private payloads.
 
 OneBot stays inside the Compose network. NapCat WebUI defaults to loopback
 and remote access uses an SSH tunnel. Optional music service has no host port.
-Keep one Kisara runtime and one NapCat owner per QQ data directory; normal stop
-retains login data and state. Hot reload restarts Kisara only. Cleanup must be
-scoped to project labels/Compose project, never host-wide process or volume
+Keep one Kisara runtime and one NapCat owner per QQ data directory; scoped down
+retains login/state. Hot reload restarts Kisara only. Lifecycle checks require
+repository source identity, never just a project name or host-wide process/volume
 cleanup. Image pinning and tested version pairs need a separate validated
 change: current Compose defaults still use `latest` for external images.
 

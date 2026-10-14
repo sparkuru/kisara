@@ -10,11 +10,11 @@ Common development and runtime commands are:
 ./kisara.sh test tests/unit/test_offline_commands.py  # Focused offline tests
 ./kisara.sh preview         # Prepare/start preview and wait for readiness
 ./kisara.sh preview status  # Inspect readiness, then follow current bot logs
-./kisara.sh preview build   # Explicit rebuild; stop the preview group first
-./kisara.sh preview stop    # Remove owned preview containers, preserving storage
+./kisara.sh preview build   # Rebuild selected images; running bots stay unchanged
+./kisara.sh preview down    # Remove selected repository containers, preserving storage
 ./kisara.sh up              # Build/start selected engines in the background
 ./kisara.sh logs            # Follow deployment logs
-./kisara.sh down            # Stop selected engines, preserving login/state data
+./kisara.sh down            # Stop/remove selected containers, preserving login/state data
 ```
 
 The offline console accepts messages such as `/help`, `/chat hello`, `/eat`, and `/roll 20`
@@ -65,10 +65,11 @@ This layout changes Compose mounts, so activate updated code with targeted
 recreation (`./kisara.sh up <engine>`). A restart alone retains the previous
 container's mounts. After recreation, TOML-only changes use ordinary restart.
 
-Preview reuse detection remains conservative: its existing fingerprint includes
-all config TOML/JSON files, including other-engine settings and retained legacy
-backups. Editing those can require rebuilding a preview, even though the
-application loads only the selected engine's configuration.
+Explicit startup recreates selected application bots to reload current environment
+and same-path TOML. Unchanged NapCat, music and local Bot API auxiliaries use
+normal Compose reconciliation. Build prepares images without changing running
+containers; another startup applies those images. Preview has no configuration
+fingerprint or complete-group/reuse gate.
 
 The canonical user entrypoint is `./kisara.sh`. It delegates offline console/tests
 to `hako` and online operations to `deploy/engines.sh`. The previous `dev.sh`,
@@ -126,7 +127,7 @@ The existing QQ runtime paths are:
    an empty or invalid profile list is an error. KISARA_ENGINE is not a preview selector.
    Comma-separated profile targets select a Compose group.
 
-4. Stop the bot and remove its development container:
+4. Stop the selected bots and remove their containers with data retained:
 
    ```bash
    ./kisara.sh preview down
@@ -135,7 +136,6 @@ The existing QQ runtime paths are:
 For a code/settings update, use the same selected group throughout:
 
 ```bash
-./kisara.sh preview down
 ./kisara.sh preview build
 ./kisara.sh preview
 ```
@@ -146,14 +146,16 @@ image from current source and manifests, including existing tags and Official-on
 preview; it never starts services. Docker layer caching remains enabled and
 unchanged auxiliary images are retained. The next start uses the prepared tags,
 current engine-specific runtime settings and existing TOML binds. Explicit targets
-can isolate this sequence, for example `preview down telegram`, `preview build
-telegram`, then `preview start telegram`.
+can isolate this sequence, for example `preview build telegram`, then
+`preview start telegram`. Down is optional cleanup; it stops and removes selected
+containers while retaining storage. `stop` is no longer a command or alias.
 
 An old owned Official hako preview uses the persisted `hako.service=bot` identity.
 `preview down official` can remove it only after checking the repository, scope,
 service and actual Official runtime engine; its mounted data stays intact.
-Start/build/status refuse that legacy conflict and direct you to selected down.
-Foreign containers are never adopted or removed automatically.
+Explicit startup removes that verified old runtime before creating its Compose
+replacement. Build leaves it untouched; status reports a missing Compose bot
+until explicit startup. Foreign containers are never adopted or removed automatically.
 
 The Kisara bot process does not expose a public application HTTP port.
 Preview start returns after bounded readiness and prints one summary using actual
@@ -163,26 +165,34 @@ are candidates, not proof of access from another device. Initial NapCat login
 and external gateway/network readiness may require user action; failed startup
 reports diagnostics and never prints a ready banner.
 
-Healthy, identically configured preview instances are reused. Existing deployment
-containers, incomplete/unhealthy groups and changed preview configuration require
-explicit recovery; preview does not silently replace them. Stop with
-`./kisara.sh preview stop`, then use `build` and `start` when configuration/dependencies
-require recreation. Never remove login directories or state volumes as recovery.
+Ordinary deployment and preview share one repository ownership check. Containers
+from this checkout can be removed through either down entry, even if stopped or
+created in the other mode. Exact Compose project, service, deployment directory
+and base configuration file identify ordinary containers; previously stored
+preview labels remain recognized. Foreign or unverifiable source identity fails
+before any selected container is changed. No manual label edits or Docker rm
+steps are needed for switching:
 
-Stopped deployment containers also count as existing containers. A
-`not owned by preview` error means the selected service belongs to a deployment
-group. `./kisara.sh down onebot` stops QQ containers but leaves them present.
-Keep deployment mode with `./kisara.sh up onebot`, or explicitly verify and
-remove the stopped QQ deployment containers before starting OneBot preview.
-Retain their mounted login/config directories and state volumes; remove only
-the selected container objects, without volume-removal flags. Preview stop
-manages containers with the existing preview ownership labels.
+```bash
+./kisara.sh preview start telegram
+./kisara.sh up telegram
+./kisara.sh preview down telegram
+```
+
+Startup reconciles partial/stopped groups. A failed startup keeps selected
+containers available for diagnosis, emits bounded redacted preview errors and
+never prints ready. Correct the reported cause and retry `preview start`; use
+`down` for explicit removal. Never remove login directories or volumes as recovery.
+OneBot startup switches the repository-owned opposing application mode; OneBot
+down covers both modes and NapCat. Build/status do not switch modes. Down-all
+preflights the entire Compose project and removes its repository-owned containers,
+including a verified old Official preview, while retaining data and networks.
 
 Stopping preview does not depend on host-address discovery. OneBot preview
 rejects empty/example access tokens before preparation. Telegram preview becomes
 ready only after a successful poll while its application is running.
 
-Preview help/status/stop/down do not build, install or start services; verbose
+Preview help/status/down do not build, install or start services; verbose
 preparation details are captured then redacted. After successful readiness,
 `./kisara.sh preview status` shows the selected bot's last 80 log lines and
 continuously follows new lines, with credentials redacted before display.
@@ -344,7 +354,6 @@ polling interval.
 Switch back to the normal image-based runtime with:
 
 ~~~bash
-./kisara.sh preview down
 ./kisara.sh preview start onebot
 ~~~
 
@@ -553,7 +562,7 @@ stop an already running engine.
 ./kisara.sh preview start telegram  # Explicit preview target overrides env
 ./kisara.sh up                      # Build/start selected engines in the background
 ./kisara.sh up telegram             # Build/recreate Telegram only
-./kisara.sh down telegram           # Stop Telegram only; keep QQ and all volumes
+./kisara.sh down telegram           # Stop/remove Telegram only; keep QQ and all volumes
 ./kisara.sh restart telegram
 ./kisara.sh logs telegram
 ./kisara.sh ps
@@ -564,17 +573,14 @@ stop an already running engine.
 bots even when `KISARA_ENGINE=onebot` is present. All engines use the existing
 Compose image path, including `./kisara.sh preview start official`; explicit
 targets override default selection without rewriting `.env`.
-`./deploy/onebot.sh down` now stops only QQ services. Logs/status operations in
-that helper are
-also scoped to QQ. `down` in the unified helper means selected-service stop;
-`down-all` is the explicit whole-stack operation. Stop does not remove state.
-
-Equivalent Compose commands (explicit service targets can override profiles):
-
-```bash
-docker compose --env-file .env --project-name kisara -f deploy/compose.yaml up -d --build
-docker compose --env-file .env --project-name kisara -f deploy/compose.yaml stop telegram
-```
+`./deploy/onebot.sh` forwards scoped QQ commands into the same lifecycle helper.
+Its down removes both OneBot application modes and NapCat, with login/state data
+intact; it leaves Telegram/Official untouched. Ordinary QQ logs/ps/status include
+NapCat and both application modes after ownership preflight. `down-all` explicitly removes all
+repository-owned containers in the configured project. All affected objects are
+verified before removal. Networks and volumes remain; no stop alias is accepted.
+Use the canonical commands above for repository preflight. Direct Compose commands
+remain available to administrators, but do not perform that repository check.
 
 The existing `kisara`/`kisara-dev`/`napcat` service names, project default
 `kisara`, `kisara_state` volume, QQ login/config/art/archive mounts, network and
@@ -761,7 +767,7 @@ TELEGRAM_API_HASH=<your-api-hash>
 The server uses its own internal Compose profile and no host port. Deployment
 and preview helpers select it only for local-mode Telegram, start/check it
 before Telegram, stage local-server restarts before restarting Telegram, and
-stop only the selected group. Its persistent cache/state
+remove only the selected group on down, retaining its persistent cache/state. The cache/state
 is mounted at the identical `/var/lib/telegram-bot-api` path in both containers,
 writable for the server and read-only for Kisara. Both use UID 10001 so
 owner-only downloaded cache files remain readable; archive ownership uses the
@@ -866,5 +872,5 @@ Compose operations. Before real deployment, verify authorized and denied private
 and group messages, own/other bot targeting, news readability/attribution/warning,
 configured music provider, one near-term private/group push, and restart without
 replaying confirmed sends. Check QQ while Telegram runs and after targeted
-Telegram stop/rebuild. Real credentials/accounts/provider/network behavior needs
+Telegram down/rebuild. Real credentials/accounts/provider/network behavior needs
 human acceptance; tests do not start real bot services.

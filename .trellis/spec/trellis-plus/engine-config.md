@@ -46,10 +46,10 @@ Changed mount layout needs targeted container recreation, not restart. Once
 deployed, ordinary TOML edits still need only a restart. No automatic service
 operation or account migration occurs during code checks.
 
-Existing preview fingerprints still hash all configuration TOML/JSON for
-conservative reuse detection. Unrelated/backup config edits may invalidate
-reuse; this does not change selected-engine feature loading. This follow-up
-does not redefine fingerprint inputs or external explicit-path detection.
+Explicit ordinary/preview startup recreates selected applications to reload
+same-path TOML and current environment; auxiliaries reconcile normally.
+Preview no longer hashes cross-engine/backup configuration to block reuse.
+Selected-engine loading and explicit external group-path semantics remain.
 
 ## 4. Validation and error matrix
 

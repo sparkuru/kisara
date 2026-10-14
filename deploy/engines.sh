@@ -9,17 +9,19 @@ services=()
 profiles=()
 # shellcheck source=deploy/dotenv.sh
 source "${REPO_ROOT}/deploy/dotenv.sh"
+source "${REPO_ROOT}/deploy/lifecycle.sh"
 
 usage() {
-	printf 'Usage: %s [up|deploy|stop|restart|logs|ps|pull|down-all] [onebot,onebot-dev,telegram,official,music]\n' "${SCRIPT_NAME}" >&2
+	printf 'Usage: %s [up|deploy|down|restart|logs|ps|pull|down-all] [onebot,onebot-dev,telegram,official,music]\n' "${SCRIPT_NAME}" >&2
 	printf 'Default selection: COMPOSE_PROFILES from environment or .env; fallback onebot.\n' >&2
-	printf 'stop/down target selected engines; down-all explicitly stops the whole project.\n' >&2
+	printf 'down removes selected containers with storage retained; down-all selects the whole project.\n' >&2
 }
 
 die() { printf '[%s] %s\n' "${SCRIPT_NAME}" "$*" >&2; exit 2; }
 
 resolve_compose() {
 	command -v docker >/dev/null 2>&1 || die 'Docker is required'
+	command -v timeout >/dev/null 2>&1 || die 'timeout is required for bounded container inspection'
 	if docker compose version >/dev/null 2>&1; then
 		compose_command=(docker compose)
 	elif command -v docker-compose >/dev/null 2>&1; then
@@ -40,9 +42,12 @@ run_compose() {
 
 select_services() {
 	local selection=$1
-	local profile
+	local profile seen=','
+	[[ -n $selection && $selection != ,* && $selection != *, && $selection != *,,* ]] || die 'select a nonempty profile list'
 	IFS=, read -r -a profiles <<<"${selection}"
 	for profile in "${profiles[@]}"; do
+		[[ $seen != *",$profile,"* ]] || die 'duplicate profile'
+		seen+="$profile,"
 		case "${profile}" in
 		onebot) services+=(napcat kisara) ;;
 		onebot-dev) services+=(napcat kisara-dev) ;;
@@ -71,7 +76,7 @@ start_local_api() {
 		die 'Set TELEGRAM_API_ID and TELEGRAM_API_HASH for the local Bot API server'
 	[[ ${TELEGRAM_API_BASE_URL:-https://api.telegram.org} == http://telegram-bot-api:8081 ]] ||
 		die 'Local deployment requires TELEGRAM_API_BASE_URL=http://telegram-bot-api:8081'
-	run_compose up --build --detach telegram-bot-api
+	run_compose up --no-build --detach telegram-bot-api
 	wait_local_api
 }
 
@@ -99,20 +104,48 @@ main() {
 		preview_run "$@"
 		return
 	fi
-	local selection=${2:-${COMPOSE_PROFILES:-}}
+	local selection=${2-${COMPOSE_PROFILES-}}
 	[[ $# -le 2 ]] || { usage; return 2; }
 	case "${action}" in --help | -h) usage; return 0 ;; esac
+	case $action in up | start | deploy | down | restart | logs | ps | status | pull | down-all) ;; *) usage; return 2 ;; esac
 	[[ -f "${REPO_ROOT}/.env" ]] || die 'missing .env; copy .env.example and configure selected engines'
 	DOTENV_KEYS=()
 	dotenv_load "${REPO_ROOT}/.env" || return $?
-	if [[ $# -lt 2 || -z $2 ]]; then selection=${COMPOSE_PROFILES-onebot}; fi
+	if [[ $# -lt 2 ]]; then selection=${COMPOSE_PROFILES-onebot}; fi
 	select_services "$selection"
 	resolve_compose
-	local -a bot_services=()
+	lifecycle_docker_command=(docker)
+	declare -gA lifecycle_ids=()
+	lifecycle_targets
+	if [[ $action == down-all ]]; then
+		lifecycle_project_preflight || return $?
+	else
+		lifecycle_preflight "${lifecycle_services[@]}" || return $?
+	fi
+	local -a bot_services=() auxiliary_services=() diagnostic_services=()
 	local service
-	for service in "${services[@]}"; do [[ $service == telegram-bot-api ]] || bot_services+=("$service"); done
+	for service in "${services[@]}"; do
+		case $service in
+		kisara | kisara-dev | telegram | official) bot_services+=("$service") ;;
+		telegram-bot-api) ;;
+		*) auxiliary_services+=("$service") ;;
+		esac
+	done
+	for service in "${lifecycle_services[@]}"; do
+		[[ $service == bot ]] || diagnostic_services+=("$service")
+	done
 	case "${action}" in
 	up | start | deploy)
+		run_compose config --quiet
+		# Validate local prerequisites before switching any existing application.
+		if [[ " ${services[*]} " == *' telegram-bot-api '* ]]; then
+			[[ ${TELEGRAM_API_ID:-} =~ ^[1-9][0-9]*$ && ${TELEGRAM_API_HASH:-} =~ ^[[:xdigit:]]{32}$ ]] || die 'Set TELEGRAM_API_ID and TELEGRAM_API_HASH for the local Bot API server'
+			[[ ${TELEGRAM_API_BASE_URL:-https://api.telegram.org} == http://telegram-bot-api:8081 ]] || die 'Local deployment requires TELEGRAM_API_BASE_URL=http://telegram-bot-api:8081'
+		fi
+		local -a build_services=("${bot_services[@]}")
+		[[ " ${services[*]} " != *' telegram-bot-api '* ]] || build_services+=(telegram-bot-api)
+		[[ ${#build_services[@]} -eq 0 ]] || run_compose build "${build_services[@]}"
+		lifecycle_switch || return $?
 		export KISARA_HOST_UID="$(id -u)" KISARA_HOST_GID="$(id -g)"
 		if [[ " ${services[*]} " == *' telegram '* ]]; then
 			mkdir -p -- "${REPO_ROOT}/data/kisara/tgsetu"
@@ -121,31 +154,34 @@ main() {
 		if [[ ",${profiles[*]}," == *onebot* ]]; then
 			mkdir -p -- "${REPO_ROOT}/data/napcat/config" "${REPO_ROOT}/data/napcat/QQ" "${REPO_ROOT}/data/kisara/setu"
 			chmod 2770 -- "${REPO_ROOT}/data/kisara/setu"
-			if [[ " ${profiles[*]} " == *' onebot-dev '* ]]; then
-				run_compose stop kisara
-			else
-				run_compose stop kisara-dev
-			fi
 		fi
 		start_local_api
+		[[ ${#auxiliary_services[@]} -eq 0 ]] || run_compose up --no-build --detach "${auxiliary_services[@]}"
+		[[ ${#bot_services[@]} -gt 0 ]] || return 0
 		if [[ "${action}" == deploy ]]; then
-			run_compose up --build --detach "${bot_services[@]}"
+			run_compose up --no-build --force-recreate --no-deps --detach "${bot_services[@]}"
 		else
-			run_compose up --build "${bot_services[@]}"
+			run_compose up --no-build --force-recreate --no-deps "${bot_services[@]}"
 		fi
 		;;
-	stop | down) run_compose stop "${services[@]}" ;;
+	down)
+		for service in "${lifecycle_services[@]}"; do lifecycle_remove "$service" || return $?; done
+		;;
 	restart)
 		if [[ " ${services[*]} " == *' telegram-bot-api '* ]]; then
 			run_compose restart telegram-bot-api
 			wait_local_api
 		fi
-		run_compose restart "${bot_services[@]}"
+		[[ ${#auxiliary_services[@]} -eq 0 ]] || run_compose restart "${auxiliary_services[@]}"
+		[[ ${#bot_services[@]} -eq 0 ]] || run_compose restart "${bot_services[@]}"
 		;;
-	logs) run_compose logs --follow --tail "${KISARA_LOG_TAIL:-100}" "${services[@]}" ;;
-	ps | status) run_compose ps "${services[@]}" ;;
+	logs) run_compose logs --follow --tail "${KISARA_LOG_TAIL:-100}" "${diagnostic_services[@]}" ;;
+	ps | status) run_compose ps "${diagnostic_services[@]}" ;;
 	pull) run_compose pull --ignore-buildable "${services[@]}" ;;
-	down-all) run_compose down ;;
+	down-all)
+		# Scoped ID removal also covers verified old Official hako runtimes.
+		for service in "${!lifecycle_ids[@]}"; do lifecycle_remove "$service" || return $?; done
+		;;
 	*) usage; return 2 ;;
 	esac
 }

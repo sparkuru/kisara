@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def repository(tmp_path: Path, profiles: str) -> tuple:
     (tmp_path / "deploy").mkdir()
-    for name in ("engines.sh", "onebot.sh", "compose.yaml", "dotenv.sh"):
+    for name in ("engines.sh", "onebot.sh", "compose.yaml", "dotenv.sh", "lifecycle.sh"):
         shutil.copy2(ROOT / "deploy" / name, tmp_path / "deploy" / name)
     shutil.copy2(ROOT / "kisara.sh", tmp_path / "kisara.sh")
     (tmp_path / ".env").write_text("COMPOSE_PROFILES={}\n".format(profiles))
@@ -57,9 +57,13 @@ def calls(path: Path) -> list:
 def test_selected_engines_start_only_targets(tmp_path: Path, profiles: str, services: list) -> None:
     env, log = repository(tmp_path, profiles)
     subprocess.run([str(tmp_path / "kisara.sh"), "up"], env=env, check=True)
-    operation = calls(log)[-1]
-    assert operation[-len(services):] == services
-    assert "--detach" in operation and "--build" in operation
+    operations = [call for call in calls(log) if "up" in call]
+    selected = [name for call in operations for name in call[call.index("up") + 1:] if not name.startswith("-")]
+    assert set(selected) == set(services)
+    applications = [call for call in operations if "--force-recreate" in call]
+    assert applications and all("--detach" in call and "--no-build" in call and "--no-deps" in call for call in applications)
+    assert all("--force-recreate" not in call for call in operations
+               if "napcat" in call[call.index("up") + 1:] or "music" in call[call.index("up") + 1:])
     if profiles == "telegram":
         assert not (tmp_path / "data/napcat").exists()
         assert not any("napcat" in call or "kisara" in call[call.index("stop"):] for call in calls(log) if "stop" in call)
@@ -69,16 +73,21 @@ def test_selected_engines_start_only_targets(tmp_path: Path, profiles: str, serv
 def test_telegram_lifecycle_does_not_touch_qq(tmp_path: Path, action: str) -> None:
     env, log = repository(tmp_path, "onebot,telegram")
     subprocess.run([str(tmp_path / "kisara.sh"), action, "telegram"], env=env, check=True)
-    operation = calls(log)[-1]
-    assert operation[-1] == "telegram"
-    assert "napcat" not in operation and "kisara-dev" not in operation
-    assert "down" not in operation
+    operations = calls(log)
+    if action == "down":
+        assert any("label=com.docker.compose.service=telegram" in call for call in operations)
+        assert not any("stop" in call or "rm" in call for call in operations)
+    else:
+        assert operations[-1][-1] == "telegram"
+    assert not any("napcat" in call or "kisara-dev" in call for call in operations)
+    assert not any("down" in call for call in operations)
 
 
 def test_explicit_whole_project_down(tmp_path: Path) -> None:
     env, log = repository(tmp_path, "telegram")
     subprocess.run([str(tmp_path / "kisara.sh"), "down-all"], env=env, check=True)
-    assert calls(log)[-1][-1] == "down"
+    assert any("label=com.docker.compose.project=kisara" in call for call in calls(log))
+    assert not any("down" in call or "stop" in call or "rm" in call for call in calls(log))
 
 
 def test_conflicting_qq_ownership_rejected(tmp_path: Path) -> None:
@@ -103,10 +112,11 @@ def test_dotenv_profile_comments_and_spaces(tmp_path: Path, value: str) -> None:
     assert not (tmp_path / "data/napcat").exists()
 
 
-def test_legacy_onebot_stop_scoped(tmp_path: Path) -> None:
+def test_onebot_forwarder_down_preflights_shared_modes(tmp_path: Path) -> None:
     env, log = repository(tmp_path, "onebot,telegram")
     subprocess.run([str(tmp_path / "deploy/onebot.sh"), "down"], env=env, check=True)
-    assert calls(log)[-1][-4:] == ["stop", "kisara", "kisara-dev", "napcat"]
+    assert {item.split("=")[-1] for call in calls(log) for item in call if item.startswith("label=com.docker.compose.service=")} == {"napcat", "kisara", "kisara-dev"}
+    assert not any("stop" in call or "rm" in call for call in calls(log))
 
 
 def test_config_profile_and_secret_mapping_contract() -> None:
@@ -193,7 +203,8 @@ def test_ownership_fallback_does_not_mask_dotenv_gid(tmp_path: Path, entrypoint:
     with (tmp_path / ".env").open("a") as stream:
         stream.write("ONEBOT_SETU_GID=2345\nKISARA_SETU_GID=3456\n")
     subprocess.run([str(tmp_path / entrypoint), "up"], env=env, check=True)
-    assert calls(log)[-1][-2:] == ["napcat", "kisara"]
+    assert calls(log)[-1][-1] == "kisara"
+    assert any("up" in call and call[-1] == "napcat" for call in calls(log))
     exported = json.loads(ownership_log.read_text().splitlines()[-1])
     assert exported["KISARA_HOST_GID"] == str(os.getgid())
     assert exported["KISARA_SETU_GID"] == "3456"
@@ -252,6 +263,9 @@ def test_local_api_lifecycle_remains_selected_and_preserves_data(tmp_path: Path,
         health = next(index for index, call in enumerate(operations) if "inspect" in call)
         bot_restart = next(index for index, call in enumerate(operations) if "restart" in call and call[-1] == "telegram")
         assert api_restart < health < bot_restart
+    elif action == "down":
+        assert {item.split("=")[-1] for call in calls(log) for item in call if item.startswith("label=com.docker.compose.service=")} == {"telegram-bot-api", "telegram"}
+        assert not any("stop" in call or "rm" in call for call in calls(log))
     else:
         assert operation[-2:] == ["telegram-bot-api", "telegram"]
     assert "napcat" not in operation and "down" not in operation

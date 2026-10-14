@@ -1,146 +1,18 @@
 #!/usr/bin/env bash
+# Scoped OneBot forwarding entry; lifecycle implementation lives in engines.sh.
 set -Eeuo pipefail
 
-SCRIPT_NAME="${BASH_SOURCE[0]##*/}"
-DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
-COMPOSE_FILE="${DEPLOY_DIR}/compose.yaml"
-PROJECT_NAME="${COMPOSE_PROJECT_NAME:-kisara}"
-
-compose_command=()
-source "${REPO_ROOT}/deploy/dotenv.sh"
-
-usage() {
-	printf 'Usage: %s [up|dev|deploy|down|logs|ps|pull]\n' "${SCRIPT_NAME}" >&2
-	printf '       up and dev require a configured repository .env file.\n' >&2
-}
-
-die() {
-	printf '[%s] %s\n' "${SCRIPT_NAME}" "$*" >&2
-	exit 1
-}
-
-require_command() {
-	command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
-}
-
-resolve_compose() {
-	if docker compose version >/dev/null 2>&1; then
-		compose_command=(docker compose)
-		return 0
-	fi
-
-	if command -v docker-compose >/dev/null 2>&1; then
-		compose_command=(docker-compose)
-		return 0
-	fi
-
-	die "Docker Compose is required (docker compose or docker-compose)"
-}
-
-run_compose() {
-	(
-		cd "${REPO_ROOT}"
-		"${compose_command[@]}" \
-			--env-file "${REPO_ROOT}/.env" \
-			--project-name "${PROJECT_NAME}" \
-			--file "${COMPOSE_FILE}" \
-			"$@"
-	)
-}
-
-stop_service_if_present() {
-	local service_name=$1
-	local container_ids
-
-	container_ids=$(run_compose ps -q "${service_name}")
-	if [[ -n "${container_ids}" ]]; then
-		run_compose stop "${service_name}"
-	fi
-}
-
-prepare_data_directories() {
-	mkdir -p -- \
-		"${REPO_ROOT}/data/napcat/config" \
-		"${REPO_ROOT}/data/napcat/QQ" \
-		"${REPO_ROOT}/data/kisara/setu"
-	chmod 2770 -- "${REPO_ROOT}/data/kisara/setu"
-}
-
-start_stack() {
-	[[ -f "${REPO_ROOT}/.env" ]] || {
-		die "missing .env; copy .env.example and configure OneBot"
-	}
-
-	export KISARA_HOST_UID="$(id -u)" KISARA_HOST_GID="$(id -g)"
-
-	prepare_data_directories
-	stop_service_if_present kisara-dev
-	run_compose up --build "$@" napcat kisara
-}
-
-start_dev_stack() {
-	[[ -f "${REPO_ROOT}/.env" ]] || {
-		die "missing .env; copy .env.example and configure OneBot"
-	}
-
-	export KISARA_HOST_UID="$(id -u)" KISARA_HOST_GID="$(id -g)"
-
-	prepare_data_directories
-	stop_service_if_present kisara
-	run_compose up --build napcat kisara-dev
-}
-
 main() {
-	local command="${1:-up}"
-
-	[[ $# -le 1 ]] || die "expected at most one command"
-	if [[ "${command}" == --help || "${command}" == -h ]]; then
-		usage
-		return 0
-	fi
-	set -- "${command}"
-	DOTENV_KEYS=()
-	if [[ -f ${REPO_ROOT}/.env ]]; then dotenv_load "${REPO_ROOT}/.env" || return $?; fi
-	PROJECT_NAME="${COMPOSE_PROJECT_NAME:-kisara}"
-	require_command docker
-	resolve_compose
-
-	case "${command}" in
-	up | start)
-		[[ $# -eq 1 ]] || die "up accepts no additional arguments"
-		start_stack
-		;;
-	deploy)
-		start_stack --detach
-		;;
-	dev)
-		[[ $# -eq 1 ]] || die "dev accepts no additional arguments"
-		start_dev_stack
-		;;
-	down | stop)
-		[[ $# -eq 1 ]] || die "down accepts no additional arguments"
-		run_compose stop kisara kisara-dev napcat
-		;;
-	logs)
-		[[ $# -eq 1 ]] || die "logs accepts no additional arguments"
-		run_compose logs --follow --tail "${KISARA_LOG_TAIL:-100}" napcat kisara kisara-dev
-		;;
-	ps | status)
-		[[ $# -eq 1 ]] || die "ps accepts no additional arguments"
-		run_compose ps napcat kisara kisara-dev
-		;;
-	pull)
-		[[ $# -eq 1 ]] || die "pull accepts no additional arguments"
-		run_compose pull napcat
-		;;
+	local action=${1:-up} backend
+	[[ $# -le 1 ]] || { printf 'Expected at most one command.\n' >&2; return 2; }
+	backend="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd)/engines.sh"
+	case $action in
 	--help | -h)
-		usage
-		;;
-	*)
-		usage
-		return 1
-		;;
+		printf 'Usage: onebot.sh [up|start|dev|deploy|down|logs|ps|status|pull]\n' >&2
+		return 0 ;;
+	dev) exec "$backend" up onebot-dev ;;
+	up | start | deploy | down | logs | ps | status | pull) exec "$backend" "$action" onebot ;;
+	*) printf 'Unknown OneBot command.\n' >&2; return 2 ;;
 	esac
 }
 

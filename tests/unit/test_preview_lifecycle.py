@@ -29,6 +29,25 @@ def save(): state_path.write_text(json.dumps(state))
 def value(flag): return args[args.index(flag)+1]
 def services_after(operation):
     return [x for x in args[args.index(operation)+1:] if not x.startswith("-")]
+def container_key(identifier):
+    return next((key for key, facts in state["containers"].items() if facts.get("id", key) == identifier), identifier)
+def compose_files():
+    return [args[i+1] for i,x in enumerate(args) if x == "--file"]
+def build(name):
+    if os.environ.get("BUILD_FAIL"):
+        print("build secret=" + os.environ.get("ONEBOT_ACCESS_TOKEN", "fixture")); sys.exit(7)
+    if name not in state["images"]: state["images"].append(name)
+    if not os.environ.get("POSTINSTALL_FAIL") and name not in state["dependencies"]: state["dependencies"].append(name)
+    source = root / "src" / "example.py"
+    manifest = root / "pyproject.toml"
+    if not manifest.exists():
+        print("Missing pyproject.toml build input"); sys.exit(1)
+    state.setdefault("built_inputs", {})[name] = {
+        "source": source.read_text(), "manifest": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "api_source": (root / "deploy/telegram-bot-api.Dockerfile").read_text() if name == "telegram-bot-api" else None,
+    }
+    state.setdefault("image_versions", {})[name] = state.get("image_versions", {}).get(name, 0) + 1
+
 if "context" in args:
     if os.environ.get("NO_CONTEXT"): sys.exit(125)
     print(os.environ.get("ENDPOINT", "unix:///var/run/docker.sock")); sys.exit(0)
@@ -37,37 +56,61 @@ if "compose" in args or pathlib.Path(sys.argv[0]).name == "docker-compose":
     if "version" in args: sys.exit(1 if os.environ.get("OLD_COMPOSE") else 0)
     if "config" in args: sys.exit(int(os.environ.get("INVALID_COMPOSE", "0")))
     if "build" in args:
-        if os.environ.get("BUILD_FAIL"):
-            print("build secret=" + os.environ.get("ONEBOT_ACCESS_TOKEN", "fixture")); sys.exit(7)
-        for name in services_after("build"):
-            state["images"].append(name)
-            if not os.environ.get("POSTINSTALL_FAIL"): state["dependencies"].append(name)
-            state.setdefault("built_inputs", {})[name] = {
-                "source": (root / "src" / "example.py").read_text(),
-                "manifest": hashlib.sha256((root / "pyproject.toml").read_bytes()).hexdigest(),
-            }
+        for name in services_after("build"): build(name)
         save(); sys.exit(0)
     if "up" in args:
-        override = pathlib.Path(args[args.index("--file", args.index("--file")+1)+1]).read_text()
+        files = compose_files()
+        override = pathlib.Path(files[1]).read_text() if len(files) > 1 else ""
         for name in services_after("up"):
-            block = re.search(r"^  " + name + r":\n((?:    .*\n)*)", override, re.MULTILINE).group(1)
-            labels = {key: val.strip('"') for key, val in re.findall(r"      (hako\.[a-z]+): (.+)", block)}
+            if name in ("napcat", "music") and name not in state["images"]: state["images"].append(name)
+            if "--build" in args and name not in ("napcat", "music"): build(name)
+            block_match = re.search(r"^  " + name + r":\n((?:    .*\n)*)", override, re.MULTILINE)
+            block = block_match.group(1) if block_match else ""
+            labels = {"com.docker.compose.project": value("--project-name"), "com.docker.compose.service": name,
+                      "com.docker.compose.project.working_dir": str(pathlib.Path(files[0]).parent),
+                      "com.docker.compose.project.config_files": ",".join(files)}
+            image_match = re.search(r"    image: (.+)", block)
+            image = image_match.group(1) if image_match else "ordinary-" + name
             engine = "onebot" if name in ("kisara", "kisara-dev") else name
-            state["containers"][name] = {"labels": labels, "ready": not bool(os.environ.get("UNREADY")), "running": True,
-                "image_inputs": state.get("built_inputs", {}).get(name),
-                "settings": {"allowed": os.environ.get(engine.upper() + "_ALLOWED_USERS", ""),
-                             "public": os.environ.get(engine.upper() + "_PUBLIC_FEATURE", "tguid" if engine == "telegram" else "")}}
+            settings = {"allowed": os.environ.get(engine.upper() + "_ALLOWED_USERS", ""),
+                        "public": os.environ.get(engine.upper() + "_PUBLIC_FEATURE", "tguid" if engine == "telegram" else "")}
+            config = {"image": image, "version": state.get("image_versions", {}).get(name, 0),
+                      "preview": "KISARA_PREVIEW_READINESS" in block, "settings": settings,
+                      "port": os.environ.get("NAPCAT_WEBUI_PORT", "6099") if name == "napcat" else None}
+            old = state["containers"].get(name)
+            if old and old.get("config") == config and "--force-recreate" not in args:
+                old["running"] = True
+                old["ready"] = not bool(os.environ.get("UNREADY")) and (config["preview"] or name in ("napcat", "music", "telegram-bot-api"))
+                continue
+            generation = state.setdefault("generations", {}).get(name, 0) + 1
+            state["generations"][name] = generation
+            identifier = name if generation == 1 else name + "-" + str(generation)
+            state["containers"][name] = {"id": identifier, "labels": labels, "config": config,
+                "ready": not bool(os.environ.get("UNREADY")) and (config["preview"] or name in ("napcat", "music", "telegram-bot-api")),
+                "running": True, "image_inputs": state.get("built_inputs", {}).get(name), "settings": settings,
+                "toml": {str(path.relative_to(root)): path.read_text() for path in (root / "config" / engine).rglob("*.toml")}}
+            if os.environ.get("UP_FAIL"): break
         save(); sys.exit(int(os.environ.get("UP_FAIL", "0")))
+    if "ps" in args and "--quiet" in args:
+        name = args[-1]
+        if name in state["containers"]: print(state["containers"][name].get("id", name))
+    if "restart" in args:
+        for name in services_after("restart"):
+            if name in state["containers"]: state["containers"][name]["running"] = True
+        save()
     sys.exit(0)
 if "ps" in args:
-    filters = [args[i+1].removeprefix("label=") for i, x in enumerate(args) if x == "--filter"]
+    filters = [args[i+1] for i, x in enumerate(args) if x == "--filter"]
     for name, facts in state["containers"].items():
         selected = True
         for item in filters:
-            key, val = item.split("=",1)
-            actual = {"com.docker.compose.project": "kisara", "com.docker.compose.service": name}.get(key, facts["labels"].get(key))
+            if item.startswith("id="):
+                actual, val = facts.get("id", name), item[3:]
+            else:
+                key, val = item.removeprefix("label=").split("=", 1)
+                actual = facts["labels"].get(key)
             if actual != val: selected = False
-        if selected: print(name)
+        if selected: print(facts.get("id", name))
     sys.exit(0)
 if "inspect" in args:
     if "image" in args:
@@ -76,21 +119,22 @@ if "inspect" in args:
         name = match.group(1) if match else "napcat" if "napcat" in image else "music" if "ncm" in image else None
         if image == "python:3.12-slim": name = "hako"
         sys.exit(0 if name in state["images"] else 1)
-    name = args[-1]
+    name = container_key(args[-1])
     if name not in state["containers"]: sys.exit(1)
     facts = state["containers"][name]
     fmt = value("--format")
     if ".Config.Env" in fmt: print("official" if facts.get("engine") == "official" else "")
     elif ".State.Running" in fmt: print("true" if facts["running"] else "false")
+    elif ".State.Health.Status" in fmt: print("healthy" if facts["ready"] and not os.environ.get("API_UNREADY") else "unhealthy")
     elif ".State.Status" in fmt: print("running" if facts["running"] else "exited")
     else:
         keys = re.findall(r'\.Config.Labels "([^"]+)"', fmt)
-        if len(keys) == 3 and os.environ.get("FOLLOW_FOREIGN") == name:
+        if len(keys) == 7 and os.environ.get("FOLLOW_FOREIGN") == name:
             counter = root / (name + ".ownership-checks")
             checks = int(counter.read_text()) + 1 if counter.exists() else 1
             counter.write_text(str(checks))
-            if checks > 1:
-                print("foreign|preview.sh|" + name); sys.exit(0)
+            if checks > 2:
+                print("|".join("foreign" if key == "hako.repo" else facts["labels"].get(key, "") for key in keys)); sys.exit(0)
         print("|".join(facts["labels"].get(key, "") for key in keys))
     sys.exit(0)
 if "pull" in args:
@@ -114,7 +158,7 @@ if "run" in args:
     sys.exit(0)
 if "exec" in args:
     if os.environ.get("API_UNREADY") and "telegram-bot-api" in args: sys.exit(1)
-    name = args[args.index("exec")+1]
+    name = container_key(args[args.index("exec")+1])
     if name == "napcat":
         command_index = args.index("exec") + 2
         if args[command_index:command_index+2] != ["python3", "-c"]: sys.exit(127)
@@ -135,10 +179,10 @@ if "exec" in args:
         if os.environ.get("BOT_LISTENER"): print(os.environ["BOT_LISTENER"])
     sys.exit(0 if state["containers"].get(name, {}).get("ready", False) else 1)
 if "port" in args:
-    if args[-1] == "napcat": print("6099/tcp -> " + os.environ.get("PORT_MAPPING", "127.0.0.1:6099"))
+    if container_key(args[-1]) == "napcat": print("6099/tcp -> " + os.environ.get("PORT_MAPPING", "127.0.0.1:6099"))
     sys.exit(0)
 if "logs" in args:
-    name = args[-1]
+    name = container_key(args[-1])
     if "--follow" in args and os.environ.get("FOLLOW_CONTROLLED"):
         import time
         (root / (name + ".reader.pid")).write_text(str(os.getpid()))
@@ -176,11 +220,17 @@ if "logs" in args:
     print("No reply for private message user=111 chat=222")
     sys.exit(0)
 if "stop" in args:
-    name = args[-1]
-    if name in state["containers"]: state["containers"][name]["running"] = False
+    name = container_key(args[-1])
+    if os.environ.get("REMOVE_OUTPUT"):
+        print("switch-output token=" + os.environ.get("ONEBOT_ACCESS_TOKEN", "fixture"), flush=True)
+        print("switch-diagnostic token=" + os.environ.get("ONEBOT_ACCESS_TOKEN", "fixture"), file=sys.stderr, flush=True)
+    if os.environ.get("REMOVE_FAIL"): sys.exit(int(os.environ["REMOVE_FAIL"]))
+    if name in state["containers"]:
+        if state["containers"][name].get("auto_remove"): state["containers"].pop(name)
+        else: state["containers"][name]["running"] = False
     save(); sys.exit(0)
 if "rm" in args:
-    state["containers"].pop(args[-1], None); save(); sys.exit(0)
+    state["containers"].pop(container_key(args[-1]), None); save(); sys.exit(0)
 sys.exit(0)
 '''
 
@@ -188,7 +238,7 @@ sys.exit(0)
 def fixture(tmp_path: Path, profile: str = "onebot") -> tuple[dict, Path]:
     """Copy only preview inputs and use private recording fixtures."""
     (tmp_path / "deploy").mkdir()
-    for name in ("engines.sh", "onebot.sh", "compose.yaml", "Dockerfile", "dotenv.sh", "preview-runtime.sh",
+    for name in ("engines.sh", "onebot.sh", "lifecycle.sh", "compose.yaml", "Dockerfile", "dotenv.sh", "preview-runtime.sh",
                  "telegram-bot-api.Dockerfile", "telegram-bot-api-entrypoint.sh", "telegram-bot-api-probe.sh",
                  "preview-console.sh", "preview-deps.py", "preview-probe.py", "preview-listeners.js", "preview-constraints-py312.txt"):
         shutil.copy2(ROOT / "deploy" / name, tmp_path / "deploy" / name)
@@ -230,7 +280,7 @@ def save_state(tmp_path: Path, value: dict) -> None:
     (tmp_path / "state.json").write_text(json.dumps(value))
 
 
-@pytest.mark.parametrize("command", ["--help", "status", "stop", "down"])
+@pytest.mark.parametrize("command", ["--help", "status", "down"])
 def test_readonly_commands_never_prepare(tmp_path: Path, command: str) -> None:
     env, log = fixture(tmp_path)
     result = run(tmp_path, env, command)
@@ -240,7 +290,7 @@ def test_readonly_commands_never_prepare(tmp_path: Path, command: str) -> None:
         assert calls(log) == [] and result.stdout == ""
 
 
-def test_first_start_reuses_and_stop_preserves_data(tmp_path: Path) -> None:
+def test_explicit_start_recreates_apps_preserves_auxiliary_and_data(tmp_path: Path) -> None:
     env, log = fixture(tmp_path)
     original = (tmp_path / ".env").read_bytes()
     result = run(tmp_path, env, "start")
@@ -248,17 +298,23 @@ def test_first_start_reuses_and_stop_preserves_data(tmp_path: Path) -> None:
     assert "System is ready." in result.stdout and "Local only (preview host):" in result.stdout
     assert "http://127.0.0.1:6099/" in result.stdout and "Open:" not in result.stdout
     assert "secret-fixture" not in result.stdout + result.stderr
-    assert "--no-build" in next(call for call in calls(log) if "up" in call)
+    previous = state(tmp_path)["containers"]
     log.write_text("")
     assert run(tmp_path, env, "start").returncode == 0
-    assert not any(any(op in call for op in ("build", "pull", "run", "up")) for call in calls(log))
+    current = state(tmp_path)["containers"]
+    assert current["napcat"]["id"] == previous["napcat"]["id"]
+    assert current["kisara"]["id"] != previous["kisara"]["id"]
+    assert not any("build" in call or "pull" in call for call in calls(log))
+    stages = [call for call in calls(log) if "up" in call]
+    assert stages[0][-1] == "napcat" and "--force-recreate" not in stages[0]
+    assert stages[1][-1] == "kisara" and "--force-recreate" in stages[1] and "--no-deps" in stages[1]
     assert run(tmp_path, env, "status").stdout.startswith("System is ready.")
     sentinel = tmp_path / "data/kisara/setu/retained.bin"
     sentinel.write_bytes(b"retain")
     assert run(tmp_path, env, "down").returncode == 0
     assert state(tmp_path)["containers"] == {}
     assert sentinel.read_bytes() == b"retain" and (tmp_path / ".env").read_bytes() == original
-    assert run(tmp_path, env, "stop").returncode == 0
+    assert run(tmp_path, env, "down").returncode == 0
 
 
 def test_napcat_python_probes_preserve_compressed_ipv6_and_music_node(tmp_path: Path) -> None:
@@ -293,7 +349,7 @@ def test_prepares_only_missing_resources(tmp_path: Path, missing: str) -> None:
 
 
 @pytest.mark.parametrize("kind", ["unhealthy", "incomplete", "changed", "foreign"])
-def test_abnormal_existing_group_is_never_repaired(tmp_path: Path, kind: str) -> None:
+def test_existing_group_reconciles_only_on_explicit_start(tmp_path: Path, kind: str) -> None:
     env, log = fixture(tmp_path)
     assert run(tmp_path, env).returncode == 0
     value = state(tmp_path)
@@ -304,10 +360,20 @@ def test_abnormal_existing_group_is_never_repaired(tmp_path: Path, kind: str) ->
         with (tmp_path / ".env").open("a") as stream: stream.write("NAPCAT_WEBUI_PORT=6100\n")
     save_state(tmp_path, value)
     log.write_text("")
-    result = run(tmp_path, env)
-    assert result.returncode != 0 and "System is ready." not in result.stdout
+    status = run(tmp_path, env, "status")
     assert not any(any(op in call for op in ("up", "build", "pull", "stop", "rm")) for call in calls(log))
     assert state(tmp_path)["containers"] == value["containers"]
+    if kind != "changed": assert status.returncode != 0 and "System is ready." not in status.stdout
+    log.write_text("")
+    result = run(tmp_path, env)
+    if kind == "foreign":
+        assert result.returncode == 2 and "System is ready." not in result.stdout
+        assert not any(any(op in call for op in ("up", "build", "pull", "stop", "rm")) for call in calls(log))
+        assert state(tmp_path)["containers"] == value["containers"]
+    else:
+        assert result.returncode == 0, result.stderr
+        assert set(state(tmp_path)["containers"]) == {"napcat", "kisara"}
+        assert state(tmp_path)["containers"]["kisara"]["ready"]
 
 
 @pytest.mark.parametrize("flag,code", [("BUILD_FAIL", 7), ("POSTINSTALL_FAIL", 1), ("PULL_FAIL", 6)])
@@ -321,19 +387,24 @@ def test_preparation_failure_creates_no_group(tmp_path: Path, flag: str, code: i
 
 
 @pytest.mark.parametrize("flag", ["UNREADY", "UP_FAIL", "LOG_FAIL", "LOG_TIMEOUT"])
-def test_failed_start_diagnoses_before_owned_cleanup(tmp_path: Path, flag: str) -> None:
+def test_failed_start_retains_diagnostics_and_can_retry(tmp_path: Path, flag: str) -> None:
     env, log = fixture(tmp_path)
     env[flag] = "9" if flag == "UP_FAIL" else "1"
     env["UNREADY"] = "1"
     result = run(tmp_path, env)
     assert result.returncode == (9 if flag == "UP_FAIL" else 1)
-    assert "System is ready." not in result.stdout and state(tmp_path)["containers"] == {}
+    assert "System is ready." not in result.stdout and state(tmp_path)["containers"]
     recorded = calls(log)
-    assert max(i for i, call in enumerate(recorded) if "logs" in call) < min(i for i, call in enumerate(recorded) if "rm" in call)
+    assert any("logs" in call for call in recorded)
+    assert not any("stop" in call or "rm" in call for call in recorded)
     assert not any(word in result.stderr for word in ("secret-fixture", "123456789", "name:pass", "private-credential", "raw must never",
                                                      "diagnostic-message", "diagnostic-reply", "No reply for"))
     if flag not in {"LOG_FAIL", "LOG_TIMEOUT"}: assert "application import failed" in result.stderr
     assert (tmp_path / "data/kisara/setu").exists()
+    env.pop(flag, None)
+    env.pop("UNREADY", None)
+    assert run(tmp_path, env).returncode == 0
+    assert set(state(tmp_path)["containers"]) == {"napcat", "kisara"}
 
 
 def test_wildcard_candidates_are_complete_and_grouped(tmp_path: Path) -> None:
@@ -397,7 +468,7 @@ def test_official_uses_compose_image_and_credential_free_pinned_probe(tmp_path: 
     assert "official: outbound" in result.stdout and "Listeners:" not in result.stdout
     log.write_text("")
     assert run(tmp_path, env).returncode == 0
-    assert not any("run" in call for call in calls(log))
+    assert not any("build" in call or "pull" in call for call in calls(log))
 
 
 @pytest.mark.parametrize("flag,code", [("BUILD_FAIL", 7), ("POSTINSTALL_FAIL", 1)])
@@ -434,14 +505,21 @@ def test_readiness_probe_rejects_watcher_stale_and_wrong_engine(tmp_path: Path) 
         assert module.ready("onebot", marker) is False
 
 
-def test_build_prepares_without_start_and_refuses_live_group(tmp_path: Path) -> None:
+def test_build_existing_group_has_no_runtime_effects(tmp_path: Path) -> None:
     env, log = fixture(tmp_path, "telegram")
     assert run(tmp_path, env, "build").returncode == 0
     assert state(tmp_path)["containers"] == {} and not any("up" in call for call in calls(log))
     assert run(tmp_path, env).returncode == 0
+    previous = state(tmp_path)["containers"]
+    (tmp_path / "src/example.py").write_text("# rebuilt source\n")
     log.write_text("")
-    assert run(tmp_path, env, "build").returncode == 2
-    assert not any("build" in call for call in calls(log))
+    assert run(tmp_path, env, "build").returncode == 0
+    assert state(tmp_path)["containers"] == previous
+    assert any("build" in call for call in calls(log))
+    assert not any(any(op in call for op in ("up", "stop", "rm")) for call in calls(log))
+    assert run(tmp_path, env).returncode == 0
+    assert state(tmp_path)["containers"]["telegram"]["image_inputs"]["source"] == "# rebuilt source\n"
+    assert state(tmp_path)["containers"]["telegram"]["id"] != previous["telegram"]["id"]
 
 
 def test_offline_missing_resource_is_actionable(tmp_path: Path) -> None:
@@ -500,7 +578,7 @@ def test_failed_address_discovery_has_no_success(tmp_path: Path) -> None:
 
 def test_sourced_helpers_preserve_options_traps_and_output(tmp_path: Path) -> None:
     env, log = fixture(tmp_path)
-    result = subprocess.run(["bash", "-c", 'set -eu; before=$(set +o); trap "true" EXIT; old=$(trap -p); source "$1/deploy/dotenv.sh"; source "$1/deploy/preview-console.sh"; source "$1/deploy/preview-runtime.sh"; [[ "$before" == "$(set +o)" && "$old" == "$(trap -p)" ]]', "bash", str(tmp_path)], env=env, capture_output=True, text=True)
+    result = subprocess.run(["bash", "-c", 'set -eu; before=$(set +o); trap "true" EXIT; old=$(trap -p); source "$1/deploy/dotenv.sh"; source "$1/deploy/lifecycle.sh"; source "$1/deploy/preview-console.sh"; source "$1/deploy/preview-runtime.sh"; [[ "$before" == "$(set +o)" && "$old" == "$(trap -p)" ]]', "bash", str(tmp_path)], env=env, capture_output=True, text=True)
     assert result.returncode == 0 and result.stdout == "" and result.stderr == "" and calls(log) == []
 
 
@@ -535,14 +613,15 @@ def test_onebot_valid_token_with_example_like_prefix_is_preserved(tmp_path: Path
     assert "System is ready." in result.stdout
 
 
-def test_missing_fingerprint_input_blocks_preparation(tmp_path: Path) -> None:
+def test_missing_manifest_fails_actual_build(tmp_path: Path) -> None:
     """A missing manifest cannot be silently hashed as empty and start stale resources."""
     env, log = fixture(tmp_path, "telegram")
     (tmp_path / "pyproject.toml").unlink()
     result = run(tmp_path, env)
     assert result.returncode != 0 and "pyproject.toml" in result.stderr
     assert "System is ready." not in result.stdout and state(tmp_path)["containers"] == {}
-    assert not any(any(op in call for op in ("build", "pull", "run", "up")) for call in calls(log))
+    assert any("build" in call for call in calls(log))
+    assert not any("up" in call for call in calls(log))
 
 
 @pytest.mark.parametrize("remote", [False, True])
@@ -588,7 +667,8 @@ def test_inspection_or_redaction_failure_is_closed(tmp_path: Path, failure: str)
         binary.chmod(0o755)
     result = run(tmp_path, env)
     assert result.returncode == 1 and "System is ready." not in result.stdout
-    assert state(tmp_path)["containers"] == {}
+    assert state(tmp_path)["containers"]
+    assert not any("rm" in call or "stop" in call for call in calls(log))
     assert "secret-fixture" not in result.stdout + result.stderr
     if failure == "redaction":
         assert "Diagnostics suppressed" in result.stderr
@@ -617,37 +697,45 @@ def test_local_api_preview_is_internal_and_owned(tmp_path: Path) -> None:
     assert not any("telegram-bot-api" in call and "python" in call for call in operations)
     log.write_text("")
     assert run(tmp_path, env).returncode == 0
-    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+    assert not any("build" in call or "pull" in call for call in calls(log))
+    assert state(tmp_path)["containers"]["telegram-bot-api"]["id"] == "telegram-bot-api"
     sentinel = tmp_path / "data/kisara/tgsetu/retained.mp4"
     sentinel.write_bytes(b"retained")
-    assert run(tmp_path, env, "stop").returncode == 0
+    assert run(tmp_path, env, "down").returncode == 0
     assert state(tmp_path)["containers"] == {} and sentinel.read_bytes() == b"retained"
 
 
-def test_local_api_unready_rolls_back_owned_attempt_before_bot(tmp_path: Path) -> None:
+def test_local_api_unready_retains_api_and_prevents_bot(tmp_path: Path) -> None:
     env, log = fixture(tmp_path, "telegram")
     local_api_environment(env)
     env["API_UNREADY"] = "1"
     result = run(tmp_path, env)
     assert result.returncode == 1 and "System is ready." not in result.stdout
     assert not any("up" in call and call[-1] == "telegram" for call in calls(log))
-    assert state(tmp_path)["containers"] == {}
+    assert set(state(tmp_path)["containers"]) == {"telegram-bot-api"}
+    assert not any("rm" in call or "stop" in call for call in calls(log))
+    env.pop("API_UNREADY")
+    assert run(tmp_path, env).returncode == 0
     assert env["TELEGRAM_API_HASH"] not in result.stdout + result.stderr
 
 
-def test_local_api_source_change_requires_explicit_stop(tmp_path: Path) -> None:
+def test_local_api_build_and_start_apply_source_without_manual_down(tmp_path: Path) -> None:
     env, log = fixture(tmp_path, "telegram")
     local_api_environment(env)
     assert run(tmp_path, env).returncode == 0
+    previous = state(tmp_path)["containers"]
     with (tmp_path / "deploy/telegram-bot-api.Dockerfile").open("a") as stream:
         stream.write("\n# changed source\n")
     log.write_text("")
-    result = run(tmp_path, env)
-    assert result.returncode == 2 and "Configuration changed" in result.stderr
-    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+    assert run(tmp_path, env, "build").returncode == 0
+    assert state(tmp_path)["containers"] == previous
+    assert run(tmp_path, env).returncode == 0
+    current = state(tmp_path)["containers"]
+    assert current["telegram-bot-api"]["id"] != previous["telegram-bot-api"]["id"]
+    assert "changed source" in current["telegram-bot-api"]["image_inputs"]["api_source"]
 
 
-@pytest.mark.parametrize("command", ["status", "stop"])
+@pytest.mark.parametrize("command", ["status", "down"])
 def test_local_api_readonly_commands_need_no_credentials(tmp_path: Path, command: str) -> None:
     env, log = fixture(tmp_path, "telegram")
     env["TELEGRAM_LOCAL_MODE"] = "true"
@@ -727,7 +815,7 @@ def test_canonical_status_recognizes_stored_ownership_in_space_path(tmp_path: Pa
     assert result.returncode == 0, result.stderr
     assert "System is ready." in result.stdout
     assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
-    assert all(value["labels"]["hako.scope"] == "preview.sh" for value in state(root)["containers"].values())
+    assert all(value["labels"]["com.docker.compose.project.working_dir"] == str(root / "deploy") for value in state(root)["containers"].values())
 
 
 @pytest.mark.parametrize("engine,environment_profiles,dotenv_profiles,expected", [
@@ -823,9 +911,10 @@ def test_default_down_build_start_refreshes_all_selected_images_and_settings(
     for bot in bots:
         facts = current["containers"][bot]
         assert facts["image_inputs"] == built[bot]
-        assert facts["labels"]["hako.config"] != previous["containers"][bot]["labels"]["hako.config"]
-        assert facts["labels"]["hako.repo"] == str(tmp_path)
-        assert facts["labels"]["hako.scope"] == "preview.sh" and facts["labels"]["hako.service"] == bot
+        assert facts["id"] != previous["containers"][bot]["id"]
+        assert facts["labels"]["com.docker.compose.project.working_dir"] == str(tmp_path / "deploy")
+        assert facts["labels"]["com.docker.compose.service"] == bot
+        assert all(not key.startswith("hako.") for key in facts["labels"])
         engine = "onebot" if bot.startswith("kisara") else bot
         assert facts["settings"] == {"allowed": {"onebot": "101", "telegram": "202", "official": "303"}[engine],
                                      "public": {"onebot": "ping", "telegram": "", "official": "help"}[engine]}
@@ -852,15 +941,22 @@ def legacy_official(tmp_path: Path, *, owner: bool = True, engine: str = "offici
 
 
 @pytest.mark.parametrize("action", ["build", "start", "status"])
-def test_selected_official_refuses_legacy_hako_conflict(tmp_path: Path, action: str) -> None:
+def test_selected_official_manages_verified_legacy_hako(tmp_path: Path, action: str) -> None:
     env, log = fixture(tmp_path, "official")
     value = state(tmp_path)
     value["containers"]["bot"] = legacy_official(tmp_path)
     save_state(tmp_path, value)
     result = run(tmp_path, env, action)
-    assert result.returncode == 2 and "preview down official" in result.stderr
-    assert state(tmp_path) == value
-    assert not any(any(op in call for op in ("build", "pull", "run", "up", "stop", "rm")) for call in calls(log))
+    if action == "status":
+        assert result.returncode == 1 and "missing" in result.stderr
+        assert state(tmp_path) == value
+    elif action == "build":
+        assert result.returncode == 0, result.stderr
+        assert state(tmp_path)["containers"] == value["containers"]
+    else:
+        assert result.returncode == 0, result.stderr
+        assert set(state(tmp_path)["containers"]) == {"official"}
+    if action != "start": assert not any("up" in call or "stop" in call or "rm" in call for call in calls(log))
 
 
 def test_selected_official_down_removes_only_verified_legacy_runtime(tmp_path: Path) -> None:
@@ -897,7 +993,7 @@ def test_selected_official_preserves_foreign_and_unverified_legacy_bot(tmp_path:
     save_state(tmp_path, value)
     log.write_text("")
     result = run(tmp_path, env, "down")
-    assert result.returncode == 2 and "verified unique Official" in result.stderr
+    assert result.returncode == 2 and "unverifiable repository identity" in result.stderr
     assert state(tmp_path) == value and not any("stop" in call or "rm" in call for call in calls(log))
 
 
@@ -918,18 +1014,18 @@ def test_selected_failure_recovery_guidance_names_canonical_target(tmp_path: Pat
     env["UNREADY"] = "1"
     result = run(tmp_path, env, "start", "telegram")
     assert result.returncode == 1
-    assert "./kisara.sh preview stop telegram" in result.stderr
+    assert "preview down telegram" in result.stderr
     assert "./kisara.sh preview start telegram" in result.stderr
-    assert state(tmp_path)["containers"] == {}
+    assert set(state(tmp_path)["containers"]) == {"telegram"}
 
 
-def test_preview_up_alias_reuses_matching_explicit_target(tmp_path: Path) -> None:
-    """The historical up alias retains start's reuse and owned-lifecycle behavior."""
+def test_preview_up_alias_reconciles_explicit_target(tmp_path: Path) -> None:
+    """The up alias runs the same explicit application reconciliation as start."""
     env, log = fixture(tmp_path)
     assert run(tmp_path, env, "up", "telegram").returncode == 0
     log.write_text("")
     assert run(tmp_path, env, "up", "telegram").returncode == 0
-    assert not any(any(operation in call for operation in ("build", "pull", "run", "up")) for call in calls(log))
+    assert not any(any(operation in call for operation in ("build", "pull")) for call in calls(log))
 
 
 def test_explicit_foreign_group_failure_preserves_unselected_preview(tmp_path: Path) -> None:
@@ -942,7 +1038,7 @@ def test_explicit_foreign_group_failure_preserves_unselected_preview(tmp_path: P
     save_state(tmp_path, value)
     log.write_text("")
     result = run(tmp_path, env, "start", "telegram")
-    assert result.returncode == 2 and "not owned by preview" in result.stderr
+    assert result.returncode == 2 and "foreign or unverifiable repository identity" in result.stderr
     assert state(tmp_path)["containers"] == value["containers"]
     assert not any(any(operation in call for operation in ("build", "pull", "run", "up", "stop", "rm")) for call in calls(log))
 
@@ -1131,3 +1227,261 @@ def test_status_stream_failure_is_closed_and_reaps_other_bot(
         if process.poll() is None:
             process.send_signal(signal.SIGTERM)
             process.wait(timeout=5)
+
+
+def online(tmp_path: Path, env: dict, *arguments: str) -> subprocess.CompletedProcess:
+    """Run ordinary commands against the same isolated daemon fixture."""
+    return subprocess.run([str(tmp_path / "kisara.sh"), *arguments], cwd="/tmp", env=env,
+                          capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("entry", ["ordinary", "preview"])
+def test_down_removes_exited_ordinary_telegram_and_keeps_other_engine(tmp_path: Path, entry: str) -> None:
+    env, log = fixture(tmp_path, "telegram,official")
+    assert online(tmp_path, env, "up").returncode == 0
+    before = state(tmp_path)
+    before["containers"]["telegram"]["running"] = False
+    save_state(tmp_path, before)
+    retained = tmp_path / "data/kisara/tgsetu/retained.mp4"
+    retained.write_bytes(b"retained")
+    log.write_text("")
+    result = run(tmp_path, env, "down", "telegram") if entry == "preview" else online(tmp_path, env, "down", "telegram")
+    assert result.returncode == 0, result.stderr
+    assert state(tmp_path)["containers"] == {"official": before["containers"]["official"]}
+    assert retained.read_bytes() == b"retained"
+    assert not any("volume" in call or "--volumes" in call or "--remove-orphans" in call for call in calls(log))
+
+
+def test_ordinary_preview_roundtrip_refreshes_settings_and_toml_without_auxiliary_restart(tmp_path: Path) -> None:
+    env, log = fixture(tmp_path, "onebot,telegram")
+    assert online(tmp_path, env, "up").returncode == 0
+    initial = state(tmp_path)["containers"]
+    sentinel = tmp_path / "data/napcat/QQ/retained.bin"
+    sentinel.write_bytes(b"login")
+    assert not initial["telegram"]["config"]["preview"]
+    assert run(tmp_path, env, "status").returncode == 1
+    config = tmp_path / "config/telegram/features/ping/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("enabled = false\n")
+    with (tmp_path / ".env").open("a") as stream:
+        stream.write("TELEGRAM_ALLOWED_USERS=202\n")
+    assert run(tmp_path, env).returncode == 0
+    preview = state(tmp_path)["containers"]
+    assert preview["napcat"]["id"] == initial["napcat"]["id"]
+    assert preview["telegram"]["id"] != initial["telegram"]["id"]
+    assert preview["telegram"]["config"]["preview"] and preview["telegram"]["settings"]["allowed"] == "202"
+    assert preview["telegram"]["toml"][str(config.relative_to(tmp_path))] == "enabled = false\n"
+    config.write_text("enabled = true\n")
+    assert run(tmp_path, env).returncode == 0
+    refreshed = state(tmp_path)["containers"]
+    assert refreshed["napcat"]["id"] == initial["napcat"]["id"]
+    assert refreshed["telegram"]["id"] != preview["telegram"]["id"]
+    assert refreshed["telegram"]["toml"][str(config.relative_to(tmp_path))] == "enabled = true\n"
+    assert online(tmp_path, env, "up").returncode == 0
+    ordinary = state(tmp_path)["containers"]
+    assert ordinary["napcat"]["id"] == initial["napcat"]["id"]
+    assert ordinary["telegram"]["id"] != refreshed["telegram"]["id"]
+    assert not ordinary["telegram"]["config"]["preview"]
+    assert ordinary["telegram"]["toml"] == refreshed["telegram"]["toml"]
+    assert sentinel.read_bytes() == b"login"
+
+
+@pytest.mark.parametrize("fault", ["directory", "config", "substring", "basename", "repo", "service", "missing", "duplicate"])
+@pytest.mark.parametrize("entry", ["preview", "ordinary"])
+def test_foreign_collision_fails_before_any_peer_effect(tmp_path: Path, fault: str, entry: str) -> None:
+    env, log = fixture(tmp_path, "telegram,official")
+    assert run(tmp_path, env).returncode == 0
+    before = state(tmp_path)
+    labels = before["containers"]["official"]["labels"]
+    if fault == "directory": labels["com.docker.compose.project.working_dir"] = str(tmp_path / "other/deploy")
+    elif fault == "config": labels["com.docker.compose.project.config_files"] = str(tmp_path / "other/deploy/compose.yaml")
+    elif fault == "substring": labels["com.docker.compose.project.config_files"] = str(tmp_path / "deploy/compose.yaml.other")
+    elif fault == "basename": labels["com.docker.compose.project.config_files"] = "compose.yaml"
+    elif fault == "repo": labels["hako.repo"] = "/foreign"
+    elif fault == "service": labels["hako.service"] = "telegram"
+    elif fault == "missing": labels.pop("com.docker.compose.project.working_dir")
+    else:
+        before["containers"]["duplicate"] = dict(before["containers"]["official"], id="duplicate-id")
+    save_state(tmp_path, before)
+    log.write_text("")
+    result = run(tmp_path, env, "down") if entry == "preview" else online(tmp_path, env, "down")
+    assert result.returncode == 2, result.stderr
+    assert state(tmp_path) == before
+    assert not any(any(operation in call for operation in ("up", "build", "pull", "stop", "rm", "logs")) for call in calls(log))
+
+
+@pytest.mark.parametrize("contradiction", [None, "directory", "config", "repo"])
+def test_existing_preview_labels_are_accepted_only_without_contradictions(tmp_path: Path, contradiction: Optional[str]) -> None:
+    env, log = fixture(tmp_path, "telegram")
+    assert run(tmp_path, env).returncode == 0
+    before = state(tmp_path)
+    labels = before["containers"]["telegram"]["labels"]
+    labels.pop("com.docker.compose.project.working_dir")
+    labels.pop("com.docker.compose.project.config_files")
+    labels.update({"hako.repo": str(tmp_path), "hako.scope": "preview.sh", "hako.service": "telegram", "hako.config": "old"})
+    if contradiction == "directory": labels["com.docker.compose.project.working_dir"] = "/foreign/deploy"
+    elif contradiction == "config": labels["com.docker.compose.project.config_files"] = "/foreign/deploy/compose.yaml"
+    elif contradiction == "repo": labels["hako.repo"] = "/foreign"
+    save_state(tmp_path, before)
+    log.write_text("")
+    result = online(tmp_path, env, "down")
+    assert result.returncode == (2 if contradiction else 0), result.stderr
+    if contradiction:
+        assert state(tmp_path) == before
+        assert not any("stop" in call or "rm" in call for call in calls(log))
+    else: assert state(tmp_path)["containers"] == {}
+
+
+@pytest.mark.parametrize("entry", ["ordinary", "preview"])
+def test_qq_switch_preserves_gateway_and_unselected_bots_then_down_covers_modes(tmp_path: Path, entry: str) -> None:
+    env, log = fixture(tmp_path, "onebot,telegram")
+    assert run(tmp_path, env).returncode == 0
+    before = state(tmp_path)["containers"]
+    log.write_text("")
+    assert run(tmp_path, env, "build", "onebot-dev").returncode == 0
+    assert state(tmp_path)["containers"] == before
+    assert run(tmp_path, env, "status", "onebot-dev").returncode == 1
+    result = run(tmp_path, env, "start", "onebot-dev") if entry == "preview" else online(tmp_path, env, "up", "onebot-dev")
+    assert result.returncode == 0, result.stderr
+    after = state(tmp_path)["containers"]
+    assert set(after) == {"napcat", "kisara-dev", "telegram"}
+    assert after["napcat"]["id"] == before["napcat"]["id"] and after["telegram"] == before["telegram"]
+    result = run(tmp_path, env, "down", "onebot") if entry == "preview" else online(tmp_path, env, "down", "onebot")
+    assert result.returncode == 0, result.stderr
+    assert state(tmp_path)["containers"] == {"telegram": before["telegram"]}
+
+
+def test_requested_build_failure_keeps_existing_qq_mode(tmp_path: Path) -> None:
+    env, log = fixture(tmp_path)
+    assert run(tmp_path, env).returncode == 0
+    before = state(tmp_path)
+    log.write_text("")
+    env["BUILD_FAIL"] = "1"
+    result = online(tmp_path, env, "up", "onebot-dev")
+    assert result.returncode == 7
+    assert state(tmp_path) == before
+    assert not any("up" in call or "stop" in call or "rm" in call for call in calls(log))
+
+
+@pytest.mark.parametrize("entry", ["preview", "ordinary"])
+@pytest.mark.parametrize("failed", [False, True])
+def test_preview_captures_switch_output_without_changing_ordinary_output(
+        tmp_path: Path, entry: str, failed: bool) -> None:
+    """Only preview captures switch output, including failure diagnostics."""
+    env, log = fixture(tmp_path)
+    assert run(tmp_path, env).returncode == 0
+    previous = state(tmp_path)["containers"]
+    log.write_text("")
+    env["REMOVE_OUTPUT"] = "1"
+    if failed:
+        env["REMOVE_FAIL"] = "8"
+    result = (run(tmp_path, env, "start", "onebot-dev") if entry == "preview"
+              else online(tmp_path, env, "up", "onebot-dev"))
+    assert result.returncode == (8 if failed else 0), result.stderr
+    if entry == "preview":
+        assert "switch-output" not in result.stdout
+        assert "switch-diagnostic" not in result.stdout
+        assert "secret-fixture" not in result.stdout + result.stderr
+        if failed:
+            assert "switch-output token=[redacted]" in result.stderr
+            assert "switch-diagnostic token=[redacted]" in result.stderr
+    else:
+        assert "switch-output token=secret-fixture" in result.stdout
+        assert "switch-diagnostic token=secret-fixture" in result.stderr
+    if failed:
+        assert "System is ready." not in result.stdout
+        assert state(tmp_path)["containers"] == previous
+        assert not any("up" in call or "rm" in call for call in calls(log))
+    else:
+        assert set(state(tmp_path)["containers"]) == {"napcat", "kisara-dev"}
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+def test_down_all_preflights_entire_project(tmp_path: Path, foreign: bool) -> None:
+    env, log = fixture(tmp_path, "telegram,official")
+    assert run(tmp_path, env).returncode == 0
+    before = state(tmp_path)
+    before["containers"]["bot"] = dict(legacy_official(tmp_path), auto_remove=True)
+    if foreign: before["containers"]["official"]["labels"]["com.docker.compose.project.working_dir"] = "/foreign/deploy"
+    save_state(tmp_path, before)
+    sentinel = tmp_path / "data/kisara/tgsetu/retained.mp4"
+    sentinel.write_bytes(b"retain")
+    log.write_text("")
+    result = online(tmp_path, env, "down-all")
+    assert result.returncode == (2 if foreign else 0), result.stderr
+    if foreign:
+        assert state(tmp_path) == before
+        assert not any("stop" in call or "rm" in call for call in calls(log))
+    else:
+        assert state(tmp_path)["containers"] == {}
+        assert [call[-1] for call in calls(log) if "rm" in call] == [call[-1] for call in calls(log) if "stop" in call and call[-1] != "bot"]
+    assert sentinel.read_bytes() == b"retain"
+    assert not any("volume" in call or "--volumes" in call or "--remove-orphans" in call for call in calls(log))
+
+
+@pytest.mark.parametrize("action", ["logs", "ps", "status"])
+@pytest.mark.parametrize("foreign", [False, True])
+def test_onebot_forwarder_diagnostics_cover_dev_mode_without_effects(
+        tmp_path: Path, action: str, foreign: bool) -> None:
+    """The QQ helper retains dev diagnostics after common ownership preflight."""
+    env, log = fixture(tmp_path, "onebot-dev,telegram")
+    assert run(tmp_path, env).returncode == 0
+    previous = state(tmp_path)
+    if foreign:
+        previous["containers"]["kisara-dev"]["labels"]["com.docker.compose.project.working_dir"] = "/foreign/deploy"
+        save_state(tmp_path, previous)
+    log.write_text("")
+    result = subprocess.run([str(tmp_path / "deploy/onebot.sh"), action], cwd="/tmp", env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == (2 if foreign else 0), result.stderr
+    operations = calls(log)
+    if foreign:
+        assert not any("compose" in call and ("logs" in call or "ps" in call) for call in operations)
+    else:
+        diagnostic = next(call for call in operations if "compose" in call and
+                          ("logs" in call if action == "logs" else "ps" in call))
+        assert diagnostic[-3:] == ["napcat", "kisara", "kisara-dev"]
+    assert state(tmp_path) == previous
+    assert not any(any(operation in call for operation in ("up", "build", "run", "pull", "stop", "rm"))
+                   for call in operations)
+
+
+@pytest.mark.parametrize("entry", ["root", "preview", "engines", "onebot"])
+def test_stop_removed_from_all_lifecycle_entries(tmp_path: Path, entry: str) -> None:
+    env, log = fixture(tmp_path)
+    script = "kisara.sh" if entry in {"root", "preview"} else "deploy/" + entry + ".sh"
+    arguments = ["preview", "stop"] if entry == "preview" else ["stop"]
+    result = subprocess.run([str(tmp_path / script), *arguments], env=env, capture_output=True, text=True)
+    assert result.returncode == 2 and calls(log) == []
+
+
+def test_failed_app_start_retains_replacement_and_unselected_peer(tmp_path: Path) -> None:
+    env, log = fixture(tmp_path, "telegram,official")
+    assert run(tmp_path, env).returncode == 0
+    previous = state(tmp_path)["containers"]
+    log.write_text("")
+    env["UP_FAIL"] = "9"
+    result = run(tmp_path, env, "start", "telegram")
+    assert result.returncode == 9 and "System is ready." not in result.stdout
+    failed = state(tmp_path)["containers"]
+    assert failed["telegram"]["id"] != previous["telegram"]["id"]
+    assert failed["official"] == previous["official"]
+    assert not any("rm" in call or "stop" in call for call in calls(log))
+    env.pop("UP_FAIL")
+    assert run(tmp_path, env, "start", "telegram").returncode == 0
+    after = state(tmp_path)["containers"]
+    assert after["telegram"]["id"] != failed["telegram"]["id"]
+    assert after["official"] == previous["official"]
+
+
+def test_down_ignores_unrelated_build_and_readiness_inputs(tmp_path: Path) -> None:
+    env, log = fixture(tmp_path, "telegram")
+    assert run(tmp_path, env).returncode == 0
+    (tmp_path / "pyproject.toml").unlink()
+    (tmp_path / "deploy/preview-constraints-py312.txt").unlink()
+    env.update(KISARA_PREVIEW_TIMEOUT="invalid", KISARA_PREVIEW_IMAGE_PREFIX="invalid prefix", TELEGRAM_BOT_TOKEN="")
+    log.write_text("")
+    result = run(tmp_path, env, "down")
+    assert result.returncode == 0, result.stderr
+    assert state(tmp_path)["containers"] == {}
+    assert not any(any(operation in call for operation in ("up", "build", "pull", "run")) for call in calls(log))

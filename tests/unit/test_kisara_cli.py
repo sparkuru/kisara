@@ -58,7 +58,7 @@ def test_help_needs_no_backend_or_dotenv(tmp_path: Path, arguments: tuple) -> No
     assert "\x1b" not in result.stderr and not log.exists()
 
 
-@pytest.mark.parametrize("args", [("unknown",), ("console", "extra"), ("--help", "extra"),
+@pytest.mark.parametrize("args", [("unknown",), ("stop",), ("console", "extra"), ("--help", "extra"),
                                   ("up", "telegram", "extra"), ("up", "--detach"),
                                   ("up", "telegram,"), ("up", ""),
                                   ("up", "telegram,telegram"), ("up", "onebot,onebot-dev"),
@@ -71,7 +71,7 @@ def test_invalid_public_arguments_do_not_invoke_backends(tmp_path: Path, args: t
 
 
 @pytest.mark.parametrize("action,backend_action", [("up", "deploy"), ("down", "down"),
-                                                  ("stop", "stop"), ("restart", "restart"),
+                                                  ("restart", "restart"),
                                                   ("logs", "logs"), ("ps", "ps"),
                                                   ("status", "status"), ("pull", "pull")])
 def test_online_routes_keep_targets_and_detached_up(tmp_path: Path, action: str,

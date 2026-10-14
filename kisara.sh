@@ -23,10 +23,10 @@ usage() {
 	printf '  console                         Open the interactive bot console\n' >&2
 	printf '  test [pytest arguments...]      Run all tests, or selected tests\n' >&2
 	printf '\n%s\n' "$(style_text "$STYLE_OPTION" 'Online commands:')" >&2
-	printf '  preview [start|stop|down|status|build] [engine,...] [--verbose]\n' >&2
+	printf '  preview [start|down|status|build] [engine,...] [--verbose]\n' >&2
 	printf '  up [engine,...]                 Build/recreate in the background\n' >&2
-	printf '  down|stop|restart|logs|ps|status|pull [engine,...]\n' >&2
-	printf '  down-all                        Stop the whole Compose project\n' >&2
+	printf '  down|restart|logs|ps|status|pull [engine,...]\n' >&2
+	printf '  down-all                        Remove project containers, retain data\n' >&2
 	printf '\nEngines/profiles: onebot, onebot-dev, telegram, official, music\n' >&2
 	printf 'Omitted online targets use the configured selection. Preview defaults to start.\n' >&2
 	printf 'Offline commands do not load .env. Configure .env before online startup.\n' >&2
@@ -71,7 +71,7 @@ main() {
 		;;
 	test) ;;
 	preview) ;;
-	up | down | stop | restart | logs | ps | status | pull)
+	up | down | restart | logs | ps | status | pull)
 		[[ $# -le 1 ]] || { input_error 'expected at most one engine/profile list'; return 2; }
 		[[ $# -eq 0 ]] || validate_target "$1" || return $?
 		;;

@@ -39,14 +39,14 @@ preview_platform() {
 }
 
 preview_usage() {
-	preview_message title 2 'Usage: ./kisara.sh preview [start|stop|down|status|build] [engine-or-profile-list] [--verbose]'
+	preview_message title 2 'Usage: ./kisara.sh preview [start|down|status|build] [engine-or-profile-list] [--verbose]'
 	preview_message section 2 'Commands:'
 	printf '%s\n' \
 		'  start    Prepare only missing resources, start detached, wait for readiness.' \
 		'  status   Show readiness, then follow bot IO as platform | log (last 80 lines, credentials redacted).' \
 		'           Ctrl+C stops viewing only; bot containers keep running. Never build/install/start.' \
 		'  build    Explicit rebuild/preparation; never start the service group.' \
-		'  stop/down Stop and remove only owned preview containers; preserve volumes/data.' \
+		'  down     Stop and remove selected repository containers; preserve volumes/data.' \
 		'  Target   onebot, onebot-dev, telegram, official, music; comma-separated profiles supported.' \
 		'           Explicit target wins; omitted targets use COMPOSE_PROFILES (unset defaults to onebot).' \
 		'           KISARA_ENGINE is an application setting, not a preview selector.' \
@@ -57,11 +57,11 @@ preview_usage() {
 		'  cp .env.example .env (only if absent); edit selected engine credentials/access lists.' \
 		'  OneBot: ONEBOT_ALLOWED_USERS, ONEBOT_ACCESS_TOKEN, NAPCAT_WEBUI_TOKEN; log into NapCat.' \
 		'  Telegram: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS. Official: OFFICIAL_APP_ID/SECRET.' \
-		'  Required host tools: Bash 4.4+, Docker/Compose, timeout, sha256sum, sed, awk, mkfifo; ip for wildcard local publishing.' \
+		'  Required host tools: Bash 4.4+, Docker/Compose, timeout, sed, mkfifo; ip for wildcard local publishing.' \
 		'  Root .env is data; inherited environment wins by presence, including empty values.' \
 		'  First start may download missing images and pinned Python 3.12 packages; no host Python required.' \
 		'  KISARA_PREVIEW_OFFLINE=true forbids automatic build/pull/install; prepare explicitly when online.' \
-		'  Update selected bots: ./kisara.sh preview down; ./kisara.sh preview build; ./kisara.sh preview.' \
+		'  Update selected bots: ./kisara.sh preview build; ./kisara.sh preview. Down is optional cleanup.' \
 		'  Build always rebuilds selected application images, including Official; storage and Docker cache stay intact.' \
 		'  Loopback/SSH-tunnel and internal-only boundaries remain; bot engines have no inbound listener.' \
 		'  stdout contains a ready summary and status bot logs; help/progress/errors use stderr. NO_COLOR disables color.' >&2

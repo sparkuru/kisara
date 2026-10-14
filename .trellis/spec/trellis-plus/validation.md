@@ -108,17 +108,18 @@ when deterministic state/protocol tests establish the recovery contract.
 
 The 2026-10-11 user-approved interface routes kisara.sh preview through
 `deploy/engines.sh` and project-owned sourced helpers
-`deploy/dotenv.sh`, `deploy/preview-console.sh`, `deploy/preview-runtime.sh`.
-Ordinary deployment operations retain their explicit targeted service APIs;
-kisara.sh console/test remain offline. Preserve existing preview ownership
-labels (`hako.scope=preview.sh`) for already owned resources. This persisted
-identifier remains after deleting the preview.sh file; it is independent of
-the public executable name.
+`deploy/dotenv.sh`, `deploy/lifecycle.sh`, `deploy/preview-console.sh`,
+`deploy/preview-runtime.sh`. The 2026-10-13 approved follow-up shares repository
+identity/preflight/removal between ordinary deployment and preview; onebot.sh
+forwards scoped operations to engines. Console/test remain offline. Existing
+hako.scope=preview.sh identities remain recognizable; new Compose objects use
+generated repository source labels, without preview-exclusive/config/attempt
+labels. Public stop aliases are removed; down stops/removes objects, keeping data.
 
 ### First setup and commands
 
 Host requirements: Bash 4.4+, Docker with a reachable daemon, Compose plugin or
-legacy docker-compose, timeout, sha256sum, sed, awk, sort, find, mktemp, mkfifo, cat and id.
+legacy docker-compose, timeout, sed, mktemp, mkfifo, cat and id.
 Local wildcard publishing additionally requires ip. No host application Python
 or global SDK/browser installation is required. Python probes/install helpers
 run in the existing Python 3.12 images/wrapper.
@@ -132,12 +133,11 @@ list. Feature TOML retains its established engine-specific path and precedence.
 Never copy the example over an existing private file.
 
 ```bash
-./kisara.sh preview                 # same as start; prepare missing resources only
+./kisara.sh preview                 # prepare missing resources, refresh selected apps
 ./kisara.sh preview start --verbose # captured redacted details after each step
 ./kisara.sh preview status          # readiness, then continuous redacted bot logs
-./kisara.sh preview build           # explicit preparation/rebuild; stop an existing group first
-./kisara.sh preview stop            # preview-owned containers only, storage retained
-./kisara.sh preview down            # data-preserving stop alias
+./kisara.sh preview build           # explicit rebuild; running containers unchanged
+./kisara.sh preview down            # selected repository objects removed; data retained
 ./kisara.sh preview --help          # no dotenv loading or Docker operations
 ```
 
@@ -173,36 +173,44 @@ explicit targets override that default list. KISARA_ENGINE is not a preview
 selector. Every bot, including Official-only, uses its Compose-built image.
 HAKO_IMAGE remains an offline development-wrapper input.
 
-When no owned group exists, prepare a missing configured image, check selected
+On startup, prepare a missing configured image, check selected
 dependency versions/import entries, install the missing pinned runtime closure,
-repeat that check, then create the service group. Prepare containers publish no
+repeat that check, then reconcile the service group. Prepare containers publish no
 ports and receive no runtime credential environment. Use
 `deploy/preview-constraints-py312.txt` and `preview-deps.py`: exact observed Python
 3.12 distribution versions, selected engine closure and no-deps pip installation.
 No package manager, SDK extras or build backend is added just for preview.
 Constraints are not hash verification or a lock for all declared Python versions.
 
-Inspect existing ownership/configuration before preparation. A healthy matching
-group is reused; incomplete/unhealthy/config-changed groups require explicit
-data-preserving recovery. Configuration fingerprints include service inputs and
-relevant manifests/config files; dependency/image/source changes can require
-explicit stop/build/start. Dependency entry checks cannot establish every future
+Preflight all affected repository identities before effects. Accept ordinary
+or preview objects only with exact source identity; reject foreign/contradictory/
+duplicate candidates. Explicit startup reconciles partial/stopped groups and
+recreates selected apps to reload environment and same-path TOML. Auxiliary
+services use ordinary Compose reconciliation; local Bot API is ready before
+Telegram. No fingerprint/reuse/incomplete-group gate. Retain read-only QQ
+logs/ps/status across both verified application modes;
+exclude legacy hako identities from Compose service queries. Startup/restart
+remain selected-mode operations. Dependency entry checks cannot establish every future
 branch/lockfile/ABI or account capability; do not treat them as feature acceptance.
-Build/status/stop/down/help do not implicitly start services. Offline/no-install
+Build/status/down/help do not implicitly start services. Offline/no-install
 constraints take precedence; failures name the unavailable resource and supported
 explicit preparation instead of silently falling back to host execution.
 Start rejects missing/example OneBot access tokens before any Docker operation.
-Stop/down do not require host-address discovery; unavailable browser candidates
+Down does not require host-address discovery; unavailable browser candidates
 must never prevent data-preserving teardown of owned containers.
 
-For a code/settings update, down removes only selected owned containers; build
+For a code/settings update, down optionally removes selected repo objects; build
 explicitly rebuilds all selected application image tags using current source
 and manifests, including already-existing tags; the next start uses those tags
 with current runtime settings and engine config binds. Retain all persistent
-storage and normal Docker cache behavior. Auxiliary images follow existing
-missing-resource rules. Legacy Official hako.service=bot ownership remains
-recognizable for selected down; start/build reject that duplicate conflict.
-Non-preview containers require separately authorized conversion.
+storage and normal Docker cache behavior. Build works with existing containers
+without starting/stopping/removing them. Auxiliary images follow missing-resource
+rules. Legacy Official hako.service=bot ownership remains recognizable after
+runtime-engine verification: down/start can remove it, build leaves it intact.
+Ordinary/preview conversion uses the shared lifecycle, no manual Docker rm/labels.
+Explicit QQ startup switches its verified opposing app; QQ down covers both modes
+and NapCat, retaining other engines. Whole-project down-all preflights every
+project object before scoped removal, retaining networks and all persistent data.
 
 ### Readiness and console contract
 
@@ -291,24 +299,26 @@ defaults, firewall and host interfaces.
 ### Diagnostics, cleanup and evidence
 
 Detailed preparation output lives in owner-only /tmp logs, cleaned on exit.
-On terminal startup failure, verify repository/scope/service ownership before
+On terminal startup failure, verify common repository/source identity before
 reading only a bounded recent log tail (80 lines, 5-second timeout), then redact
 injected secrets, private account/access identifiers, authenticated URLs and bearer
 tokens before output. Failed reading/redaction never emits raw fallback logs,
-blocks cleanup or replaces the original status. Inspect diagnostics before
-removing only newly created owned resources; do not remove reused/unrelated
-containers or persistent storage, and never reset incompatible data automatically.
+blocks temporary/reader cleanup or replaces the original status. Retain selected
+created/recreated containers for diagnosis and direct startup retry. Remove the
+custom attempt-label/automatic container rollback path. Down is explicit object
+removal; never delete foreign containers, persistent storage or incompatible data.
 
 For lifecycle changes run focused deployment/preview fixtures and project checks,
-covering missing/prepared resources, reuse/abnormal existing group, failed build/
+covering missing/prepared resources, ordinary-preview-ordinary reconciliation,
+partial/stopped groups, failed build/
 install/recheck, invalid config, endpoint precedence/capabilities/remote, watcher
-failure, safe-log timeout/failure/ownership, output/address scopes and stop/data
+failure, safe-log timeout/failure/ownership, output/address scopes and down/data
 preservation. Status streaming fixtures must prove delayed lines arrive before
 EOF, target/ownership isolation, concurrent labeled bots, sanitization before
 emission, bounded scratch, reader/sanitizer failures and cleanup on parent-only
 INT/TERM without container mutations. Record actual commands/results in the task; stub evidence is not
 real Docker or cold-start evidence. Real isolated first-use/build/install/start,
-HTTP/protocol readiness, reuse/stop, default empty persistent-storage creation and
+HTTP/protocol readiness, reconciliation/down, default empty persistent-storage creation and
 retention, ignored/untracked data, uncached/network and real-device checks need
 their own execution authority and separate results. Do not exercise this profile
 against private dotenv/live bot instances to close a documentation or fixture gap.
