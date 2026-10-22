@@ -1,0 +1,7 @@
+{"file":".trellis/spec/trellis-plus/tgsetu.md","reason":"Telegram-only feature registration, authorization-before-effects, local Bot API cache ownership, and disabled/error contracts."}
+{"file":".trellis/spec/trellis-plus/engine-config.md","reason":"Selected Telegram config root, private TOML mount and Compose/direct-run path invariants."}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Native adapter/service boundaries and separation between Telegram and OneBot engines."}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Environment/TOML precedence, private credentials and persistent state/cache/archive boundaries."}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Required focused, cross-layer, deployment and live Telegram validation gates."}
+{"file":".trellis/tasks/10-10-telegram-tgsetu/research/implementation-boundary.md","reason":"Parent TgSetu gateway, local-only media and lifecycle implementation boundary."}
+{"file":".trellis/tasks/10-14-telegram-tgsetu-command-availability/research/onebot-telegram.md","reason":"Verified Telegram-OneBot implementations and explicit no-bridge boundary for this task."}

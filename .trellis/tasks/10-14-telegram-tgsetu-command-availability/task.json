@@ -1,0 +1,29 @@
+{
+  "id": "telegram-tgsetu-command-availability",
+  "name": "telegram-tgsetu-command-availability",
+  "title": "Telegram /tgsetu 命令不可用回归",
+  "description": "调查并修复 Telegram Bot 上 /tgsetu on 返回 This feature is unavailable，且 /help 未列出该命令的问题。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "kisara",
+  "assignee": "kisara",
+  "createdAt": "2026-10-14",
+  "completedAt": null,
+  "branch": "keiyaku-no-kisu",
+  "base_branch": "keiyaku-no-kisu",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "10-10-telegram-tgsetu",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "pause_status": "paused",
+    "pause_reason": "User requested Telegram implementation pause on 2026-10-22; my.telegram.org API application unavailable; offline implementation retained, live activation pending."
+  }
+}

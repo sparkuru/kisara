@@ -18,11 +18,15 @@
   "commit": "2782454b17ccebad628010f10c2131e89425f86a",
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "10-14-telegram-tgsetu-command-availability"
+  ],
   "parent": null,
   "relatedFiles": [],
   "notes": "2026-10-11 completion review: combined implementation 2782454 is merged into keiyaku-no-kisu; historical source branch feat/telegram-tgsetu was deleted after ancestry verification under the user's local-branch cleanup authorization. Final combined full Docker gate: 913 passed, 1 host-verified Git-dependent skip, 3 existing PTB warnings. Official API image/RO-cache smoke and scoped OneBot preview readiness/storage evidence remain valid. Keep in_progress: actual Telegram activation/endpoint migration and controlled account media retrieval, including a >20 MB file with verified digest, remain pending. No new account operation, service change or push performed. See validation.md and live-validation.md.",
   "meta": {
-    "delivery_authorization": "User approved the combined work commit and later authorized existing-task completion review, archival only where acceptance is met, all-local-branch integration and removal of other local branches. Implementation is merged; Telegram acceptance is still incomplete, so this task remains in_progress. No push or account/deployment operation is authorized by the cleanup request."
+    "delivery_authorization": "User approved the combined work commit and later authorized existing-task completion review, archival only where acceptance is met, all-local-branch integration and removal of other local branches. Implementation is merged; Telegram acceptance is still incomplete, so this task remains in_progress. No push or account/deployment operation is authorized by the cleanup request.",
+    "pause_status": "paused",
+    "pause_reason": "User requested Telegram implementation pause on 2026-10-22; my.telegram.org API application unavailable; no live cutover performed."
   }
 }

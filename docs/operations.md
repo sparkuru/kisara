@@ -764,6 +764,14 @@ TELEGRAM_API_ID=<your-api-id>
 TELEGRAM_API_HASH=<your-api-hash>
 ```
 
+`TELEGRAM_BOT_TOKEN` remains required by the Kisara Telegram process and is
+still the BotFather token used for Bot API requests. `TELEGRAM_API_ID` and
+`TELEGRAM_API_HASH` belong only to the local `telegram-bot-api` server; they do
+not replace or authenticate the bot token. Local mode is not offline: the
+official server still reaches Telegram's network, and it exposes the Telegram
+Bot API rather than OneBot. Telegram-OneBot bridges are a separate deployment
+option and are not installed or selected by this setup.
+
 The server uses its own internal Compose profile and no host port. Deployment
 and preview helpers select it only for local-mode Telegram, start/check it
 before Telegram, stage local-server restarts before restarting Telegram, and

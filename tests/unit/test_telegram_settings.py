@@ -262,3 +262,29 @@ def test_archive_startup_validation_and_native_injection(monkeypatch: object, tm
         router = injected["native_authorizer"].__self__
         assert router.router.eligible("tgsetu", "telegram")
         assert "/tgsetu" in router.router.help("telegram")
+
+
+def test_explicitly_disabled_archive_config_stays_out_of_effective_registry(
+        monkeypatch: object, tmp_path: Path) -> None:
+    """A present false TOML keeps startup and Telegram help inert."""
+    import kisara.bot.main as startup
+    from types import SimpleNamespace
+
+    prepare(monkeypatch, tmp_path)
+    config = tmp_path / "config/telegram/features/tgsetu/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text('enabled = false\nallowed_users = ["123"]\n')
+    constructed = []
+    captured = []
+    monkeypatch.setattr(startup, "TgSetu", lambda *args: constructed.append(args))
+
+    def create(*args: object, **kwargs: object) -> object:
+        captured.append((args, kwargs))
+        return SimpleNamespace(start=lambda: None, close=lambda: None)
+
+    monkeypatch.setattr(startup, "create_adapter", create)
+    assert startup.main() == 0
+    assert constructed == [] and captured[0][1] == {}
+    router = captured[0][0][1].__self__
+    assert not router.router.eligible("tgsetu", "telegram")
+    assert "/tgsetu" not in router.router.help("telegram")

@@ -28,6 +28,12 @@
   acceptance remain separate. The combined work commit is complete; the later
   cleanup request authorizes archival only for tasks with completed acceptance,
   local branch integration and removal, without new task creation or push.
+- pause decision: on 2026-10-22 the user requested that Telegram-related
+  implementation be paused because an application cannot currently be obtained
+  from my.telegram.org. Keep the completed offline implementation, tests,
+  research and pending live-acceptance records; do not perform the local API
+  cutover, cloud `logOut`, service restart or further Telegram implementation
+  until the user explicitly resumes it.
 
 ## Approved scoped work
 
@@ -146,7 +152,7 @@ parent/child relationship or serial execution is inferred.
 | --- | --- | --- | --- |
 | 1 | [Trellis Plus remediation](tasks/archive/2026-10/10-09-trellis-plus-gaps/task.json) | completed, archived | Work 6f8f043; archive fc0d64f; final full suite 643 passed; real preview acceptance remains unrun |
 | 2 | [Setu archive attachments](tasks/archive/2026-10/10-09-setu-archive-files/task.json) | completed, archived | Work c3e2f32 on keiyaku-no-kisu; user confirmed task acceptance passed on 2026-10-11; archive 10feef1; existing 308 focused/580 full passes and isolated native-byte/digest evidence retained |
-| 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | in_progress, implemented and merged; scoped QQ preview ready | Work 2782454 on keiyaku-no-kisu; final combined Docker suite 913 passed/1 host-verified Git skip; official image/RO-cache smoke passed; scoped OneBot preview ready with data retained; Telegram account/deployment acceptance pending, so not archived |
+| 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | paused at user request; implemented and merged | Work 2782454 on keiyaku-no-kisu; final combined Docker suite 913 passed/1 host-verified Git skip; official image/RO-cache smoke passed; scoped OneBot preview ready with data retained; Telegram account/deployment acceptance remains pending and is not archived |
 | 4 | [Preview status bot logs](tasks/archive/2026-10/10-11-preview-status-logs/task.json) | completed, archived | Work 2782454; archive 47ea1cc on keiyaku-no-kisu; all acceptance met; fresh 20-case focused gate passed; existing full913 passed/1 skipped and real read-only follow/interrupt smoke preserved bot/NapCat |
 | 5 | [Public features, /tguid and preview](tasks/10-12-telegram-tguid/task.json) | in_progress; implemented/checked, locally committed | Work 7da12cd authorized by “提交”; focused 237/independent combined 140 passed, final full Docker 1024 passed/1 skipped/3 existing warnings; no deployment/archive/push |
 | 6 | [Unified container lifecycle](tasks/10-13-container-lifecycle/task.json) | implemented/checked; locally committed | Work 6af84c6 authorized by “提交”; independent 70 passed, final full 1067 passed/1 existing skip/3 existing warnings; no live service change/archive/push |
@@ -254,8 +260,9 @@ parent/child relationship or serial execution is inferred.
   one Codex trailer. Status completed; active pointer cleared. Preserve the
   Setu task and all prior approvals; no merge or push was performed.
 - Next permitted action: retain the requested running QQ preview; Telegram's
-  separately scoped deployment/account acceptance remains pending. Its
-  [prepared acceptance](tasks/10-10-telegram-tgsetu/live-validation.md) is ready.
+  separately scoped deployment/account acceptance is paused. Its
+  [prepared acceptance](tasks/10-10-telegram-tgsetu/live-validation.md) remains
+  ready for a future explicit resume.
   Setu is accepted and archived; no further work or new task is inferred.
 
 ## Lifecycle maintenance

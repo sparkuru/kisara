@@ -1,0 +1,7 @@
+{"file":".trellis/spec/trellis-plus/tgsetu.md","reason":"Verify help/native-gating behavior, local cache confinement, archive invariants and no OneBot alias."}
+{"file":".trellis/spec/trellis-plus/engine-config.md","reason":"Verify the live effective config path and identical Compose/direct-run mount semantics."}
+{"file":".trellis/spec/trellis-plus/architecture.md","reason":"Verify no cross-engine routing, duplicate adapter owner or shared-service SDK violation."}
+{"file":".trellis/spec/trellis-plus/configuration-storage.md","reason":"Verify token/API credential scope and preservation of state, cache and archive data."}
+{"file":".trellis/spec/trellis-plus/validation.md","reason":"Verify exact command gates, live acceptance classification and redacted deployment diagnostics."}
+{"file":".trellis/tasks/10-10-telegram-tgsetu/validation.md","reason":"Compare existing parent local Bot API/deployment evidence and avoid regressing prior accepted behavior."}
+{"file":".trellis/tasks/10-14-telegram-tgsetu-command-availability/research/onebot-telegram.md","reason":"Verify research claims and ensure no Telegram-OneBot bridge is added to the local-only fix."}
