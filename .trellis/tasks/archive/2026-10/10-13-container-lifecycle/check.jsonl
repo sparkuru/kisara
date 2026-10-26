@@ -7,4 +7,4 @@
 {"file": ".trellis/spec/trellis-plus/engine-config.md", "reason": "Startup TOML loading and existing fingerprint claim"}
 {"file": ".trellis/spec/backend/index.md", "reason": "Applicable quality routing"}
 {"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Meaningful tests and complete quality gate"}
-{"file": ".trellis/tasks/10-13-container-lifecycle/research/lifecycle.md", "reason": "Source-backed common identity and reconciliation evidence"}
+{"file": ".trellis/tasks/archive/2026-10/10-13-container-lifecycle/research/lifecycle.md", "reason": "Source-backed common identity and reconciliation evidence"}
