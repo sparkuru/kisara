@@ -1,0 +1,29 @@
+{
+  "id": "telegram-startup-recovery",
+  "name": "telegram-startup-recovery",
+  "title": "Telegram 启动恢复与安全诊断",
+  "description": "诊断 Telegram 首次启动退出后重试成功的现象，修复短暂网络失败导致立即退出及错误分类缺失，保留凭据和轮询所有权边界。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "kisara",
+  "assignee": "kisara",
+  "createdAt": "2026-10-22",
+  "completedAt": "2026-10-26",
+  "branch": "keiyaku-no-kisu",
+  "base_branch": "keiyaku-no-kisu",
+  "worktree_path": null,
+  "commit": "2e477fb475fd8bd2dd448455517e18ece691ce28",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "2026-10-26: user authorized committing and archiving all five tasks identified as ready. Work 2e477fb475fd8bd2dd448455517e18ece691ce28 is on keiyaku-no-kisu; acceptance and independent review complete. See delivery.md.",
+  "meta": {
+    "delivery_authorization": "2026-10-26: 将可归档/提交归档的，全部归档/提交归档",
+    "archive_branch_validation": "Local delivery without a PR; branch and base_branch both record keiyaku-no-kisu. Preserve historical metadata and use the supported --skip-branch-validation archive option."
+  }
+}
