@@ -1,0 +1,29 @@
+{
+  "id": "telegram-tguid",
+  "name": "telegram-tguid",
+  "title": "平台公开功能、Telegram UID 与 preview 流程",
+  "description": "Per-engine public features and Telegram self-ID lookup, with user-requested preview build/start/log-source follow-up in the same task.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "kisara",
+  "assignee": "kisara",
+  "createdAt": "2026-10-12",
+  "completedAt": "2026-10-26",
+  "branch": "keiyaku-no-kisu",
+  "base_branch": "keiyaku-no-kisu",
+  "worktree_path": null,
+  "commit": "7da12cd14a523b56e4491349c40cfb949d0ef3a7",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Public-feature and user-approved preview follow-up implemented/independently checked and committed as 7da12cd after user requested 提交. Preview focused 237 passed/1 existing Git skip; independent combined 140 passed; full 1024 passed/1 existing Git skip/3 existing PTB warnings. No deployment/archive/push. See validation.md.\n2026-10-26: user authorized committing and archiving all five tasks identified as ready. Work 7da12cd14a523b56e4491349c40cfb949d0ef3a7 is on keiyaku-no-kisu; acceptance and independent review complete. See delivery.md.",
+  "meta": {
+    "delivery_authorization": "2026-10-26: 将可归档/提交归档的，全部归档/提交归档",
+    "archive_branch_validation": "Local delivery without a PR; branch and base_branch both record keiyaku-no-kisu. Preserve historical metadata and use the supported --skip-branch-validation archive option."
+  }
+}
