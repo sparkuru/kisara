@@ -156,6 +156,32 @@ def test_compose_public_features_unset_empty_and_engine_isolation(
     assert result.stdout == expected
 
 
+@pytest.mark.parametrize("service,engine", [("kisara", "onebot"), ("kisara-dev", "onebot"),
+                                           ("telegram", "telegram")])
+@pytest.mark.parametrize("configured", [None, "", "7"])
+@pytest.mark.parametrize("legacy", [None, "", "17"])
+def test_compose_news_retry_preserves_unset_empty_and_engine_isolation(
+    service: str, engine: str, configured: Optional[str], legacy: Optional[str],
+) -> None:
+    """Exercise the actual retry expression instead of only checking its spelling."""
+    text = (ROOT / "deploy/compose.yaml").read_text()
+    block = re.split(r"\n(?=  \S)", text.split("  " + service + ":\n", 1)[1], maxsplit=1)[0]
+    expression = re.search(r"^      KISARA_NEWS_PUSH_RETRY_SECONDS: (.+)$", block, re.MULTILINE).group(1)
+    environment = {"PATH": os.defpath}
+    other = "TELEGRAM" if engine == "onebot" else "ONEBOT"
+    environment[other + "_NEWS_PUSH_RETRY_SECONDS"] = "wrong-engine"
+    if legacy is not None:
+        environment["KISARA_NEWS_PUSH_RETRY_SECONDS"] = legacy
+    if configured is not None:
+        environment[engine.upper() + "_NEWS_PUSH_RETRY_SECONDS"] = configured
+    result = subprocess.run(["bash", "-c", 'printf "%s" "' + expression + '"'],
+                            env=environment, capture_output=True, text=True, check=True)
+    expected = configured if configured is not None else (
+        legacy if engine == "onebot" and legacy is not None else "60"
+    )
+    assert result.stdout == expected
+
+
 @pytest.mark.parametrize("service,engine", [("kisara", "onebot"),
                                             ("kisara-dev", "onebot"),
                                             ("telegram", "telegram"),

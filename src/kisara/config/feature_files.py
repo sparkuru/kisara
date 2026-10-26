@@ -18,7 +18,7 @@ FEATURE_KEYS = {
     "tarot": frozenset({"enabled", "spread_rate", "image_dir", "groups"}),
     "ping": frozenset({"enabled"}),
     "help": frozenset({"enabled"}),
-    "news": frozenset({"enabled", "push_enabled", "push_groups", "push_users", "push_time", "cache_days", "cache_dir", "font_paths"}),
+    "news": frozenset({"enabled", "push_enabled", "push_groups", "push_users", "push_time", "push_retry_seconds", "cache_days", "cache_dir", "font_paths"}),
     "source": frozenset({"api_key"}),
     "music": frozenset({"enabled", "api_url"}),
     "love": frozenset({"api_key"}),

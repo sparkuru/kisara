@@ -6,5 +6,6 @@ push_enabled = true
 push_users = []
 push_groups = []
 push_time = "10:30" # UTC+8; today-only catch-up after restart
+push_retry_seconds = 60 # Positive integer; longer Telegram retry-after still wins.
 cache_days = 7
 cache_dir = "/app/state/daily-news"

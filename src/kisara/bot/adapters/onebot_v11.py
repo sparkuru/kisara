@@ -82,6 +82,7 @@ class OneBotV11Adapter:
         self._news_push_users = tuple(sorted(settings.news_push_users))
         self._news_push_hour = settings.news_push_hour
         self._news_push_minute = settings.news_push_minute
+        self._news_push_retry_seconds = settings.news_push_retry_seconds
         self._allowed_users = settings.allowed_users
         self._allowed_groups = settings.allowed_groups
         self._groups_enabled = settings.groups_enabled
@@ -566,8 +567,8 @@ class OneBotV11Adapter:
                         except Exception:
                             _log.exception("Daily brief private send failed")
             except Exception:
-                _log.exception("Daily brief is unavailable; retrying later")
-            await asyncio.sleep(900 if pending or pending_users else max(
+                _log.exception("Daily brief is unavailable; retrying in %ss", self._news_push_retry_seconds)
+            await asyncio.sleep(self._news_push_retry_seconds if pending or pending_users else max(
                 1.0, (due + timedelta(days=1) - datetime.now(zone)).total_seconds()
             ))
 

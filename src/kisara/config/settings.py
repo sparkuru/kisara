@@ -79,6 +79,7 @@ class Settings:
     telegram_api_base_url: str = DEFAULT_TELEGRAM_API_BASE_URL
     telegram_local_mode: bool = False
     public_features: FrozenSet[str] = frozenset()
+    news_push_retry_seconds: int = 60
 
     @property
     def config_root(self) -> Path:
@@ -230,6 +231,15 @@ class Settings:
         news_time = string(news_file, "push_time",
                            lambda: environment.get("KISARA_NEWS_PUSH_TIME", "10:30").strip(), "news")
         news_push_hour, news_push_minute = _parse_clock_time(news_time, "news.push_time")
+        if "push_retry_seconds" in news_file:
+            news_push_retry_seconds = news_file["push_retry_seconds"]
+        else:
+            try:
+                news_push_retry_seconds = int(environment.get("KISARA_NEWS_PUSH_RETRY_SECONDS", "60"))
+            except ValueError as error:
+                raise ConfigurationError("news.push_retry_seconds must be a positive integer.") from error
+        if type(news_push_retry_seconds) is not int or news_push_retry_seconds <= 0:
+            raise ConfigurationError("news.push_retry_seconds must be a positive integer.")
         news_cache_days = news_file.get("cache_days", 7)
         if type(news_cache_days) is not int or not 1 <= news_cache_days <= 3650:
             raise ConfigurationError("news.cache_days must be an integer from 1 to 3650.")
@@ -255,6 +265,7 @@ class Settings:
             "news_push_users": news_push_users,
             "news_push_hour": news_push_hour,
             "news_push_minute": news_push_minute,
+            "news_push_retry_seconds": news_push_retry_seconds,
             "news_cache_days": news_cache_days,
             "news_cache_dir": news_cache_dir,
             "news_font_paths": news_font_paths,
@@ -351,7 +362,7 @@ def _engine_environment(source: Mapping[str, str], engine: str) -> Mapping[str, 
         "INSTANCE_ID", "ALLOWED_USERS", "ADMIN_USERS", "GROUPS_ENABLED", "PUBLIC_FEATURE",
         "ALLOWED_GROUPS", "PING_ENABLED", "HELP_ENABLED", "MUSIC_ENABLED",
         "NEWS_ENABLED", "NEWS_PUSH_ENABLED", "MUSIC_API_URL", "NEWS_PUSH_USERS",
-        "NEWS_PUSH_GROUPS", "NEWS_PUSH_TIME", "NEWS_CACHE_DIR", "STATE_DIR",
+        "NEWS_PUSH_GROUPS", "NEWS_PUSH_TIME", "NEWS_PUSH_RETRY_SECONDS", "NEWS_CACHE_DIR", "STATE_DIR",
     )
     if engine == "onebot":
         suffixes += (

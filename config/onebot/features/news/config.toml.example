@@ -7,6 +7,7 @@ push_groups = []
 # Example: [ "123456789" ]
 push_users = []
 push_time = "10:30" # Shared by groups and users; UTC+8, HH:MM
+push_retry_seconds = 60 # Positive integer; scheduled failures retry after this delay.
 cache_days = 7
 # cache_dir = "data/daily-news" # Default outside Docker; Docker uses /app/state/daily-news.
 # First CJK-capable font wins; bundled Noto CJK fonts are always fallbacks.

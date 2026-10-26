@@ -159,6 +159,8 @@ if "run" in args:
 if "exec" in args:
     if os.environ.get("API_UNREADY") and "telegram-bot-api" in args: sys.exit(1)
     name = container_key(args[args.index("exec")+1])
+    if os.environ.get("READINESS_CONTROLLED") and name in ("kisara", "kisara-dev", "telegram", "official"):
+        if not (root / (name + ".ready")).exists(): sys.exit(1)
     if name == "napcat":
         command_index = args.index("exec") + 2
         if args[command_index:command_index+2] != ["python3", "-c"]: sys.exit(127)
@@ -195,6 +197,10 @@ if "logs" in args:
         print("No reply for private message user=111 chat=222", flush=True)
         print("Sent private text chat=222 message=333 part=1/1: pong", flush=True)
         print("QR █ secret", flush=True)
+        if os.environ.get("FOLLOW_LOCALIZED"):
+            print("\u6536\u5230\u6d88\u606f " + name + " token=fixture-token", flush=True)
+            print("QR \u2580 secret", flush=True)
+            print("QR \u2584 secret", flush=True)
         print("user_id=hidden-user chat=hidden-chat app_id=hidden-app", flush=True)
         print("group user=987654321 chat=-1009876543210 message=87654321: order 246810 at 2026-10-11", flush=True)
         print("api_hash=" + "a" * 32 + " api_id=12345", flush=True)
@@ -206,6 +212,11 @@ if "logs" in args:
         print("fresh " + name + " token=fixture-token", flush=True)
         print("Received private message user=111 chat=222: /ping", flush=True)
         print("Sent private text chat=222 message=444 part=1/1: pong", flush=True)
+        if os.environ.get("FOLLOW_LOCALIZED"):
+            print("\u53d1\u9001\u6d88\u606f " + name + " token=fixture-token", flush=True)
+            while not (root / (name + ".release-next")).exists(): time.sleep(0.02)
+            print("\u518d\u6b21\u53d1\u9001\u6d88\u606f " + name + " token=fixture-token", flush=True)
+            print("second-end " + name, flush=True)
         while True: time.sleep(0.02)
     if os.environ.get("LOG_FAIL"): print("raw must never be emitted"); sys.exit(4)
     if os.environ.get("LOG_TIMEOUT"): import time; time.sleep(10)
@@ -363,7 +374,11 @@ def test_existing_group_reconciles_only_on_explicit_start(tmp_path: Path, kind: 
     status = run(tmp_path, env, "status")
     assert not any(any(op in call for op in ("up", "build", "pull", "stop", "rm")) for call in calls(log))
     assert state(tmp_path)["containers"] == value["containers"]
-    if kind != "changed": assert status.returncode != 0 and "System is ready." not in status.stdout
+    if kind == "unhealthy":
+        assert status.returncode == 0 and "System is ready." not in status.stdout
+        assert "[warn]" in status.stderr and "Following onebot logs" in status.stderr
+    elif kind != "changed":
+        assert status.returncode != 0 and "System is ready." not in status.stdout
     log.write_text("")
     result = run(tmp_path, env)
     if kind == "foreign":
@@ -1073,6 +1088,133 @@ def child_processes(pid: int) -> set[int]:
     return children | {descendant for child in children for descendant in child_processes(child)}
 
 
+@pytest.mark.parametrize("ready", [False, True])
+@pytest.mark.parametrize("termination", [signal.SIGINT, signal.SIGTERM])
+def test_start_streams_during_readiness_and_cancels_without_diagnostic_dump(
+    tmp_path: Path, ready: bool, termination: int
+) -> None:
+    """Bare preview displays delayed logs before readiness and stays attached afterwards."""
+    env, log = fixture(tmp_path, "onebot,telegram")
+    env.update(FOLLOW_CONTROLLED="1", FOLLOW_LOCALIZED="1", READINESS_CONTROLLED="1", KISARA_PREVIEW_TIMEOUT="30")
+    stdout, stderr = tmp_path / "start.stdout", tmp_path / "start.stderr"
+    with stdout.open("w") as out, stderr.open("w") as err:
+        process = subprocess.Popen([str(tmp_path / "kisara.sh"), "preview"], env=env, cwd="/tmp",
+                                   stdout=out, stderr=err, start_new_session=True)
+    try:
+        for name in ("napcat", "kisara", "telegram"):
+            wait_output(stdout, "history-end " + name, process)
+        assert "System is ready." not in stdout.read_text()
+        before = state(tmp_path)
+        for name in ("napcat", "kisara", "telegram"):
+            (tmp_path / (name + ".release")).touch()
+        for name in ("napcat", "kisara", "telegram"):
+            platform = "telegram" if name == "telegram" else "onebot"
+            wait_output(stdout, platform + " | fresh " + name + " token=[redacted]", process)
+        assert "System is ready." not in stdout.read_text()
+        if ready:
+            for name in ("kisara", "telegram"):
+                (tmp_path / (name + ".ready")).touch()
+            wait_output(stdout, "System is ready.", process)
+            for name in ("napcat", "kisara", "telegram"):
+                (tmp_path / (name + ".release-next")).touch()
+            for name in ("napcat", "kisara", "telegram"):
+                platform = "telegram" if name == "telegram" else "onebot"
+                wait_output(stdout, platform + " | second-end " + name, process)
+                expected = platform + " | \u518d\u6b21\u53d1\u9001\u6d88\u606f " + name + " token=[redacted]"
+                assert expected in stdout.read_text()
+        assert process.poll() is None
+        descendants = child_processes(process.pid)
+        process.send_signal(termination)
+        assert process.wait(timeout=8) == (130 if termination == signal.SIGINT else 143)
+        assert_readers_reaped(tmp_path)
+        assert all(not Path("/proc", str(pid)).exists() for pid in descendants)
+        assert state(tmp_path) == before
+        assert "Recent bounded diagnostics" not in stderr.read_text()
+        assert not any("logs" in call and "--follow" not in call for call in calls(log))
+        assert not any("stop" in call or "rm" in call for call in calls(log))
+        combined = stdout.read_text() + stderr.read_text()
+        assert "fixture-token" not in combined and "private-credential" not in combined
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            process.wait(timeout=8)
+
+
+def test_unready_status_follows_logs_without_mutating_services(tmp_path: Path) -> None:
+    """Read-only status warns about readiness while its owned log readers stay attached."""
+    env, log = fixture(tmp_path, "telegram,official")
+    assert run(tmp_path, env).returncode == 0
+    before = state(tmp_path)
+    log.write_text("")
+    env.update(FOLLOW_CONTROLLED="1", READINESS_CONTROLLED="1")
+    stdout, stderr = tmp_path / "status.stdout", tmp_path / "status.stderr"
+    with stdout.open("w") as out, stderr.open("w") as err:
+        process = subprocess.Popen([str(tmp_path / "kisara.sh"), "preview", "status"], env=env,
+                                   stdout=out, stderr=err, start_new_session=True)
+    try:
+        for name in ("telegram", "official"):
+            wait_output(stdout, "history-end " + name, process)
+            (tmp_path / (name + ".release")).touch()
+            wait_output(stdout, name + " | fresh " + name + " token=[redacted]", process)
+        assert "not ready" in stderr.read_text() and "[warn]" in stderr.read_text()
+        assert "System is ready." not in stdout.read_text()
+        assert "Recent bounded diagnostics" not in stderr.read_text()
+        process.send_signal(signal.SIGINT)
+        assert process.wait(timeout=8) == 130
+        assert_readers_reaped(tmp_path)
+        assert state(tmp_path) == before
+        assert not any(any(op in call for op in ("build", "pull", "run", "up", "stop", "rm")) for call in calls(log))
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            process.wait(timeout=8)
+
+
+@pytest.mark.parametrize("failure", ["reader", "sanitizer"])
+def test_start_stream_failure_surfaces_while_readiness_pending(tmp_path: Path, failure: str) -> None:
+    """An unready startup cannot defer a failed reader/sanitizer to its readiness timeout."""
+    env, log = fixture(tmp_path, "telegram,official")
+    env.update(FOLLOW_CONTROLLED="1", READINESS_CONTROLLED="1", KISARA_PREVIEW_TIMEOUT="60")
+    if failure == "reader":
+        env["FOLLOW_ERROR"] = "telegram"
+    else:
+        binary = tmp_path / "bin/sed"
+        binary.write_text('#!/bin/bash\nif [[ $1 != -u ]]; then exec /usr/bin/sed "$@"; fi\n'
+                          'if [[ -p /proc/self/fd/0 ]]; then IFS= read -r line; exit 9; fi\nexit 0\n')
+        binary.chmod(0o755)
+    stdout, stderr = tmp_path / "start.stdout", tmp_path / "start.stderr"
+    with stdout.open("w") as out, stderr.open("w") as err:
+        process = subprocess.Popen([str(tmp_path / "kisara.sh"), "preview"], env=env,
+                                   stdout=out, stderr=err, start_new_session=True)
+    try:
+        if failure == "reader":
+            wait_output(stdout, "history-end telegram", process)
+            (tmp_path / "telegram.release").touch()
+        assert process.wait(timeout=12) == 1
+        assert_readers_reaped(tmp_path)
+        combined = stdout.read_text() + stderr.read_text()
+        assert "System is ready." not in combined and "redaction failed" in combined
+        assert "Recent bounded diagnostics" in combined
+        assert "fixture-token" not in combined and "private-credential" not in combined
+        assert not any("stop" in call or "rm" in call for call in calls(log))
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            process.wait(timeout=8)
+
+
+def test_start_timeout_retains_auxiliary_diagnostics_after_live_view(tmp_path: Path) -> None:
+    """Actual startup failure still includes auxiliary diagnostics after bot logs started."""
+    env, log = fixture(tmp_path, "telegram,music")
+    env.update(UNREADY="1", KISARA_PREVIEW_TIMEOUT="2")
+    result = run(tmp_path, env)
+    assert result.returncode == 1 and "System is ready." not in result.stdout
+    assert "Following telegram logs" in result.stderr
+    assert "Recent bounded diagnostics for telegram" in result.stderr
+    assert "Recent bounded diagnostics for music" in result.stderr
+    assert not any("stop" in call or "rm" in call for call in calls(log))
+
+
 @pytest.mark.parametrize("target,expected", [
     (None, ["napcat", "kisara"]), ("onebot-dev", ["napcat", "kisara-dev"]),
     ("telegram", ["telegram"]), ("official", ["official"]),
@@ -1171,6 +1313,50 @@ def test_ready_auxiliary_status_does_not_request_bot_logs(tmp_path: Path) -> Non
     assert not any("logs" in call for call in calls(log))
 
 
+@pytest.mark.parametrize("log_locale", ["C", "POSIX", "C.UTF-8"])
+def test_status_keeps_delayed_unicode_logs_in_each_locale(tmp_path: Path, log_locale: str) -> None:
+    """QR suppression must preserve complete UTF-8 lines in byte-oriented locales."""
+    env, log = fixture(tmp_path, "onebot,telegram")
+    assert run(tmp_path, env, "start").returncode == 0
+    original = state(tmp_path)
+    log.write_text("")
+    env.update(LC_ALL=log_locale, FOLLOW_CONTROLLED="1", FOLLOW_LOCALIZED="1")
+    stdout = tmp_path / "follow.stdout"
+    stderr = tmp_path / "follow.stderr"
+    with stdout.open("w") as out, stderr.open("w") as err:
+        process = subprocess.Popen(
+            [str(tmp_path / "kisara.sh"), "preview", "status"], env=env,
+            stdout=out, stderr=err, start_new_session=True,
+        )
+    try:
+        for phase, message in (("release", "\u53d1\u9001\u6d88\u606f"),
+                               ("release-next", "\u518d\u6b21\u53d1\u9001\u6d88\u606f")):
+            for name in ("napcat", "kisara", "telegram"):
+                display = "telegram" if name == "telegram" else "onebot"
+                wait_output(stdout, display + " | history-end " + name, process)
+                (tmp_path / (name + "." + phase)).touch()
+                sentinel = "fresh " if phase == "release" else "second-end "
+                wait_output(stdout, display + " | " + sentinel + name, process)
+                expected = display + " | " + message + " " + name + " token=[redacted]"
+                output = wait_output(stdout, expected, process)
+                assert display + " | \u6536\u5230\u6d88\u606f " + name + " token=[redacted]" in output
+                assert process.poll() is None
+        combined = stdout.read_text() + stderr.read_text()
+        assert "QR " not in combined and "fixture-token" not in combined
+        assert "System is ready." in combined
+        descendants = child_processes(process.pid)
+        process.send_signal(signal.SIGTERM)
+        assert process.wait(timeout=5) == 143
+        assert_readers_reaped(tmp_path)
+        assert all(not Path("/proc", str(pid)).exists() for pid in descendants)
+        assert state(tmp_path) == original
+        assert not any(any(op in call for op in ("build", "pull", "run", "up", "stop", "rm")) for call in calls(log))
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+            process.wait(timeout=5)
+
+
 def test_status_rechecks_ownership_before_log_reader(tmp_path: Path) -> None:
     """Readiness cannot authorize logs after the container's ownership changes."""
     env, log = fixture(tmp_path, "telegram")
@@ -1259,7 +1445,9 @@ def test_ordinary_preview_roundtrip_refreshes_settings_and_toml_without_auxiliar
     sentinel = tmp_path / "data/napcat/QQ/retained.bin"
     sentinel.write_bytes(b"login")
     assert not initial["telegram"]["config"]["preview"]
-    assert run(tmp_path, env, "status").returncode == 1
+    status = run(tmp_path, env, "status")
+    assert status.returncode == 0 and "System is ready." not in status.stdout
+    assert "[warn]" in status.stderr and "Following telegram logs" in status.stderr
     config = tmp_path / "config/telegram/features/ping/config.toml"
     config.parent.mkdir(parents=True)
     config.write_text("enabled = false\n")

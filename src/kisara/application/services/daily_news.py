@@ -43,8 +43,11 @@ disable scheduled push. The connected-session adapter loop creates one payload
 per pending iteration and records confirmed sends in separate deliveries and
 private_deliveries tables in KISARA_STATE_DIR/news_delivery.sqlite3 (Compose
 /app/state on kisara_state). Existing group records remain valid. Both tables
-retain 30 days of completion history. Failed or unrecorded sends retry after
-15 minutes; a late connection catches up today only, with no historical backfill.
+retain 30 days of completion history. Generation failures and failed or unrecorded
+sends retry after push_retry_seconds (default 60 seconds); a late connection
+catches up today only, with no historical backfill. Explicit feature TOML wins
+over ONEBOT_NEWS_PUSH_RETRY_SECONDS (or generic KISARA_NEWS_PUSH_RETRY_SECONDS).
+The retry setting must be a positive integer and is independent of HTTP timeouts.
 Disconnect cancels the loop; reconnect checks durable state before sending.
 Successfully sending a labeled yesterday brief completes today's scheduled
 delivery; it is not pushed again after publication. Manual /news can retrieve
@@ -55,8 +58,9 @@ recipient. Ordinary /news requests do not need a scheduled subscription.
 
 Telegram scheduling is owned by application/services/news_push.py and a separate
 telegram_news.sqlite3 journal: claimed, confirmed, retry, rejected and uncertain.
-Known generation/transient rejection failures retry after 15 minutes (or longer
-retry-after); unknown sends, cancelled claims and failed completion writes never
+Known generation/transient rejection failures use the same push_retry_seconds
+setting (or TELEGRAM_NEWS_PUSH_RETRY_SECONDS), extended by longer retry-after;
+unknown sends, cancelled claims and failed completion writes never
 auto-replay. Restart converts unfinished claims to uncertain. Telegram targets
 use allowed positive user and negative chat ID strings, in separate config/state
 mounts; its manual and scheduled switches remain independent.

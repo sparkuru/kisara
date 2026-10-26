@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Preview status scope and project contracts"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Preview status scope and project contracts"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Preview status scope and project contracts"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Preview status scope and project contracts"}
+{"file": ".trellis/spec/trellis-plus/cli-entrypoints.md", "reason": "Preview status scope and project contracts"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Validation and test conventions"}
+{"file": ".trellis/tasks/10-22-preview-status-streaming/readiness-diagnosis.md", "reason": "User-confirmed diagnostic path and before-fix reproduction"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Parent-owned reader setup/wait extraction"}

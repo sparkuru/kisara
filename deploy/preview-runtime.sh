@@ -39,7 +39,8 @@ preview_redact_values() {
 		-e 's#[Bb]earer[[:space:]]+[^[:space:]"\x27,;]+#Bearer [redacted]#g'
 		-e 's#(https?://api.telegram.org/bot)[^/[:space:]]+#\1[redacted]#g'
 		-e 's#([?&](token|access_token|secret|password|key|code)=)[^&[:space:]]+#\1[redacted]#Ig'
-		-e '/[▀▄█]/d'
+		# Match whole UTF-8 symbols even when sed uses a byte-oriented locale.
+		-e '/▀|▄|█/d'
 		-e 's/[[:cntrl:]]//g'
 	)
 	if [[ $identifiers != show ]]; then
@@ -86,9 +87,9 @@ preview_stop_readers() {
 	preview_log_pids=()
 }
 
-preview_follow_logs() {
-	local service id pid status remaining
-	local -a targets=("${services[@]}") pending=() preview_secrets=() preview_filters=()
+preview_start_log_readers() {
+	local service id
+	local -a targets=("${services[@]}") preview_secrets=() preview_filters=()
 	preview_redact_values show
 	for service in "${targets[@]}"; do
 		case $service in napcat | kisara | kisara-dev | telegram | official | bot) ;; *) continue ;; esac
@@ -109,21 +110,38 @@ preview_follow_logs() {
 		preview_log_pids+=("$!")
 		preview_log_lines "$service" <"${preview_tmp}/$service.safe" 2>/dev/null &
 		preview_log_pids+=("$!")
+		preview_logs_started=true
 	done
+	return 0
+}
+
+preview_check_log_readers() {
+	local pid status=0
+	local -a pending=()
+	for pid in "${preview_log_pids[@]}"; do
+		if kill -0 "$pid" 2>/dev/null; then
+			pending+=("$pid")
+		else
+			wait "$pid" || status=$?
+		fi
+	done
+	preview_log_pids=("${pending[@]}")
+	if [[ $status -ne 0 ]]; then
+		preview_error 'Bot log stream/redaction failed; check Docker logs access and sed support. Viewing stopped; containers unchanged.'
+		return 1
+	fi
+}
+
+preview_wait_log_readers() {
+	local status
 	while [[ ${#preview_log_pids[@]} -gt 0 ]]; do
+		preview_check_log_readers || return 1
+		[[ ${#preview_log_pids[@]} -gt 0 ]] || break
 		status=0
 		wait -n || status=$?
-		remaining=0 pending=()
-		for pid in "${preview_log_pids[@]}"; do
-			if kill -0 "$pid" 2>/dev/null; then
-				pending+=("$pid")
-			else
-				wait "$pid" || remaining=$?
-			fi
-		done
-		preview_log_pids=("${pending[@]}")
+		preview_check_log_readers || return 1
 		# wait -n can report no jobs when a finite stream finished before the wait.
-		if [[ $remaining -ne 0 || ( $status -ne 0 && $status -ne 127 ) ]]; then
+		if [[ $status -ne 0 && $status -ne 127 ]]; then
 			preview_error 'Bot log stream/redaction failed; check Docker logs access and sed support. Viewing stopped; containers unchanged.'
 			return 1
 		fi
@@ -391,6 +409,7 @@ preview_ready_one() {
 preview_wait() {
 	local service deadline=$((SECONDS + ${KISARA_PREVIEW_TIMEOUT:-90})) ready
 	while true; do
+		preview_check_log_readers || return 1
 		ready=true
 		for service in "${!preview_ids[@]}"; do
 			if ! preview_ready_one "$service" "${preview_ids[$service]}"; then
@@ -399,9 +418,14 @@ preview_wait() {
 				break
 			fi
 		done
+		preview_check_log_readers || return 1
 		[[ $ready != true ]] || return 0
 		if [[ $preview_action == status || $SECONDS -ge $deadline ]]; then
-			preview_error "Service $preview_failed_service is not ready; inspect credentials/login/network/application errors. Retry ./kisara.sh preview start $preview_target after correcting the cause, or use preview down $preview_target to remove containers with data retained."
+			if [[ $preview_action == status ]]; then
+				preview_warn "Service $preview_failed_service is not ready; following existing bot logs when available. Inspect credentials/login/network/application errors; status does not repair services."
+			else
+				preview_error "Service $preview_failed_service is not ready; inspect credentials/login/network/application errors. Retry ./kisara.sh preview start $preview_target after correcting the cause, or use preview down $preview_target to remove containers with data retained."
+			fi
 			if [[ " ${services[*]} " == *' napcat '* ]]; then
 				preview_error 'NapCat readiness requires an available WebUI and OneBot socket. Login may need its WebUI/SSH tunnel. Stored login data is retained; resolve the unavailable endpoint before retrying.'
 			fi
@@ -430,7 +454,8 @@ preview_cleanup() {
 	local -a targets=("${services[@]}")
 	trap - EXIT INT TERM
 	preview_stop_readers
-	if [[ $original_status -ne 0 && ${preview_started:-false} == true ]]; then
+	if [[ $original_status -ne 0 && ${preview_started:-false} == true &&
+		! ( ${preview_cancelled:-false} == true && ${preview_logs_started:-false} == true ) ]]; then
 		# Capture IDs even when Compose failed after creating a partial group.
 		for service in "${targets[@]}"; do
 			id=$(preview_find "$service" 2>/dev/null) || continue
@@ -598,7 +623,7 @@ preview_valid_selection() {
 
 preview_run() {
 	preview_action=start preview_verbose=false
-	local arg action_seen=false target_seen=false service selection explicit_target=''
+	local arg action_seen=false target_seen=false service selection explicit_target='' readiness_status
 	for arg in "$@"; do
 		case $arg in
 		--help | -h) preview_usage; return 0 ;;
@@ -634,14 +659,17 @@ preview_run() {
 	for arg in docker timeout sed mktemp cat id; do
 		command -v "$arg" >/dev/null 2>&1 || { preview_error "Required host command: $arg"; return 127; }
 	done
-	[[ $preview_action != status ]] || command -v mkfifo >/dev/null 2>&1 || { preview_error 'Required host command: mkfifo'; return 127; }
+	if [[ $preview_action == start || $preview_action == status ]]; then
+		command -v mkfifo >/dev/null 2>&1 || { preview_error 'Required host command: mkfifo'; return 127; }
+	fi
 	preview_tmp=$(mktemp -d /tmp/kisara-preview.XXXXXXXXXX)
 	preview_started=false
+	preview_logs_started=false preview_cancelled=false
 	preview_log_pids=()
 	declare -gA preview_ids=() preview_images=() lifecycle_ids=()
 	trap preview_cleanup EXIT
-	trap 'exit 130' INT
-	trap 'exit 143' TERM
+	trap 'preview_cancelled=true; exit 130' INT
+	trap 'preview_cancelled=true; exit 143' TERM
 	preview_endpoint || return $?
 	if [[ $preview_action == start && " ${services[*]} " == *' napcat '* && ( ${NAPCAT_WEBUI_BIND:-127.0.0.1} == 0.0.0.0 || ${NAPCAT_WEBUI_BIND:-127.0.0.1} == '::' ) ]]; then preview_addresses || return $?; fi
 	# Use host fallback inputs, leaving explicit dotenv UID/GID values intact.
@@ -662,9 +690,12 @@ preview_run() {
 		;;
 	status)
 		preview_collect || return $?
-		preview_wait || { preview_diagnostics; return 1; }
-		preview_summary || return $?
-		preview_follow_logs
+		readiness_status=0
+		preview_wait || readiness_status=$?
+		if [[ $readiness_status -eq 0 ]]; then preview_summary || return $?; fi
+		preview_start_log_readers || return $?
+		if [[ $readiness_status -ne 0 && $preview_logs_started != true ]]; then preview_diagnostics; return 1; fi
+		preview_wait_log_readers
 		;;
 	build)
 		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error 'Explicit build is disabled by offline mode; disable it only when downloads are permitted.'; return 2; }
@@ -673,9 +704,11 @@ preview_run() {
 	start)
 		preview_prepare || return $?
 		preview_start_group || return $?
+		preview_start_log_readers || return $?
 		preview_wait || return 1
 		preview_summary || return $?
 		preview_started=false
+		preview_wait_log_readers
 		;;
 	esac
 }

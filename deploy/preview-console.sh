@@ -29,6 +29,7 @@ preview_message() {
 
 preview_log() { preview_message log 2 "[log] $*"; }
 preview_error() { preview_message error 2 "[error] $*"; }
+preview_warn() { preview_message warn 2 "[warn] $*"; }
 
 preview_platform() {
 	case $1 in
@@ -42,9 +43,12 @@ preview_usage() {
 	preview_message title 2 'Usage: ./kisara.sh preview [start|down|status|build] [engine-or-profile-list] [--verbose]'
 	preview_message section 2 'Commands:'
 	printf '%s\n' \
-		'  start    Prepare only missing resources, start detached, wait for readiness.' \
-		'  status   Show readiness, then follow bot IO as platform | log (last 80 lines, credentials redacted).' \
-		'           Ctrl+C stops viewing only; bot containers keep running. Never build/install/start.' \
+		'  start    Prepare missing resources, start services, stream bot logs while waiting for readiness.' \
+		'           Show the ready summary after real checks pass, then keep following logs.' \
+		'  status   Show current readiness (warn if unready), then follow bot IO as platform | log.' \
+		'           Status never builds, installs or starts services.' \
+		'           Both views show the last 80 lines and fresh logs, with credentials redacted.' \
+		'           Ctrl+C stops viewing only; bot containers keep running.' \
 		'  build    Explicit rebuild/preparation; never start the service group.' \
 		'  down     Stop and remove selected repository containers; preserve volumes/data.' \
 		'  Target   onebot, onebot-dev, telegram, official, music; comma-separated profiles supported.' \
@@ -64,7 +68,7 @@ preview_usage() {
 		'  Update selected bots: ./kisara.sh preview build; ./kisara.sh preview. Down is optional cleanup.' \
 		'  Build always rebuilds selected application images, including Official; storage and Docker cache stay intact.' \
 		'  Loopback/SSH-tunnel and internal-only boundaries remain; bot engines have no inbound listener.' \
-		'  stdout contains a ready summary and status bot logs; help/progress/errors use stderr. NO_COLOR disables color.' >&2
+		'  stdout contains bot logs and truthful ready summaries; help/progress/errors use stderr. NO_COLOR disables color.' >&2
 }
 
 preview_section() {

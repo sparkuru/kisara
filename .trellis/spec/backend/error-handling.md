@@ -77,3 +77,66 @@ outcomes; `tests/unit/test_public_services.py` and
 Wrong: return raw provider payloads or token-bearing URLs in exceptions.
 Correct: report bounded operational context and a safe message, preserving
 error causality only where diagnostics remain private and appropriate.
+
+## Telegram startup network recovery
+
+### 1. Scope and trigger
+
+The adapter owns bounded recovery of initialization/getMe and polling-bootstrap
+requests before the normal running polling loop exists. A generic process exit
+does not identify the historical request failure; do not infer a real incident's
+cause from failed-then-successful startup logs alone.
+
+### 2. Signatures
+
+`TelegramAdapter._start_application() -> Optional[Application]` owns attempts;
+`_wait_startup_retry(delay: int) -> bool` returns whether shutdown was requested.
+`ManagedPollingBot.initialization_cleanup_failed` reports uncertain partial-init
+cleanup without reading private SDK state.
+
+### 3. Contracts
+
+Allow three total startup attempts with interruptible 1-second and 2-second
+backoff. Retry SDK `NetworkError` except `BadRequest`, which subclasses it.
+Preserve the SDK's public error boundary: it can wrap request-provider failures
+as NetworkError; do not log their raw causes. Recreate the SDK bot, request
+clients and application after successful cleanup; partial initialization may
+already have closed requests while SDK initialization flags remain set.
+Keep `bootstrap_retries=0` to avoid nested retry policies, and
+`drop_pending_updates=False`. Stop requests prevent further attempts. Only the
+successful attempt starts application workers; running polling, sends and worker
+failures do not enter this startup retry loop.
+
+### 4. Validation and error matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Initialization/bootstrap transport failure, attempts remain | Safe phase/category log; close owned resources; bounded backoff and fresh attempt |
+| Third transport failure | Nonzero exit; no further attempt |
+| InvalidToken, Conflict, Forbidden, BadRequest or RetryAfter | Explicit failure; no startup network retry |
+| Programming/application-start or later worker failure | Explicit failure; no startup retry |
+| Failed request/poller cleanup | Preserve safe original failure classification; abort retry |
+| Stop/cancel during backoff or startup | No further startup attempt or false ready state; close owned resources |
+
+### 5. Good, base and bad cases
+
+Good: a failed getMe followed by a successful fresh-client attempt recovers in
+one adapter start. Base: normal startup succeeds once without delay. Bad:
+retrying BadRequest as transport failure, reusing closed clients, or publishing
+ready before application startup and a successful poll.
+
+### 6. Tests required
+
+Use the pinned SDK protocol fixture in `tests/integration/test_telegram_protocol.py`
+to cover getMe/deleteWebhook recovery, exact attempt/delay bounds, fresh client
+cleanup ordering, nonretryable subclasses, stop/cancel, cleanup failure and no
+false readiness. Startup tests in `tests/unit/test_telegram_settings.py` verify
+nonzero process status and safe exception category without token-bearing text.
+Keep existing adapter/readiness suites and the full Docker regression gate.
+
+### 7. Wrong versus correct
+
+Wrong: retry the entire adapter runtime, reuse a failed initialized SDK object,
+or print a traceback to recover diagnostic detail. Correct: retry only startup
+transport operations after verified cleanup and emit controlled phase names
+plus exception categories. Keep SDK request/exception log suppression active.

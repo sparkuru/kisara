@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared policy discovery"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Orchestration and delivery"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Scoped implementation and preservation"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "TOML precedence and engine-owned environment"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Feature assembly and implementation documentation"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Focused and full offline gates"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Python and test commands"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Retry and failure boundaries"}

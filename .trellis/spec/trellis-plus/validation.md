@@ -249,12 +249,16 @@ their actual readiness and state that absence in Notes; never invent a listener
 to satisfy the reference renderer's generic minimum-listener guard.
 
 Progress/help/errors go to stderr; captured preparation details appear only on
-terminal failure or explicit verbose, after redaction. Ready status also follows
-bot logs without verbose. Semantic colors use the destination TTY and
-respect NO_COLOR/TERM=dumb; URL text stays plain. Ready status uses the same
-summary; an unready status returns actual failure/state with no ready banner.
+terminal failure or explicit verbose, after redaction. Start and status also
+follow bot logs without verbose. Start attaches readers after container startup
+and before bounded readiness waiting; it emits the real summary after readiness
+and remains attached. Semantic colors use the destination TTY and respect
+NO_COLOR/TERM=dumb; URL text stays plain. Ready status uses the same summary;
+unready status warns and follows existing owned selected bots with no ready
+banner or service mutation. Missing/foreign groups retain explicit failure;
+auxiliary-only groups remain finite with truthful success/failure reporting.
 
-After ready status's summary, follow the last 80 lines and subsequent new lines
+During startup and after status's readiness report, follow the last 80 lines and subsequent new lines
 from selected owned application bots (`kisara`, `kisara-dev`, `telegram`,
 `official`) and the selected OneBot group's `napcat` gateway,
 which owns QQ receive/send logs. Verify ownership before reading, label mixed
@@ -262,12 +266,12 @@ output using `platform | log`, and omit Music/local Bot API streams. Map
 napcat/kisara/kisara-dev to onebot, telegram to telegram and official to official
 in both prefixes and follow hints. Preserve unique service IDs for FIFOs/readers
 so both OneBot streams survive their shared display label.
-Status retains receive/reply/no-reply message previews already emitted by the bot,
+Start/status viewing retains receive/reply/no-reply message previews already emitted by the bot,
 and shows user/chat/account IDs, bot names and ordinary numbers, while still
 redacting credentials. Account and access-list configuration values are not
-credentials in this status stream. Captured diagnostics retain identifier
+credentials in these live streams. Captured diagnostics retain identifier
 redaction. The Telegram adapter's message-summary opt-in remains required;
-status never enables application logging.
+neither start nor status enables application logging.
 Failure diagnostics continue suppressing incoming/reply/no-reply message lines.
 Auxiliary-only selection returns after the summary. Redact each line before
 display, flush promptly, and keep memory/scratch bounded independently of log history. Never
@@ -275,8 +279,13 @@ wait for the stream to end to release safe output or emit raw fallback errors.
 INT/TERM stops and reaps only this invocation's readers/helpers, returns 130/143
 and leaves containers/data intact. Reader or sanitizer failures must be explicit,
 nonzero and reap other owned readers. Following has no total runtime timeout;
-it does not continuously check readiness or restart services/readers. Absent or
-unready status retains the existing bounded diagnostics and nonzero exit.
+after startup it does not continuously check readiness or restart services/readers.
+Real reader EOF ends viewing. Reader setup must execute in the parent shell so
+the invocation owns every helper PID; startup readiness checks must also detect
+reader/sanitizer failure promptly and before printing a ready summary. INT/TERM
+during active viewing must not append a redundant bounded diagnostic dump.
+Genuine startup timeout/failure, including auxiliary failure information, keeps
+the existing bounded diagnostics and nonzero result.
 
 Resolve effective Docker endpoint first: explicit DOCKER_CONTEXT precedes
 DOCKER_HOST, host-only uses that endpoint, otherwise inspect current context with
@@ -313,10 +322,14 @@ covering missing/prepared resources, ordinary-preview-ordinary reconciliation,
 partial/stopped groups, failed build/
 install/recheck, invalid config, endpoint precedence/capabilities/remote, watcher
 failure, safe-log timeout/failure/ownership, output/address scopes and down/data
-preservation. Status streaming fixtures must prove delayed lines arrive before
+preservation. Start/status streaming fixtures must prove delayed lines arrive before
 EOF, target/ownership isolation, concurrent labeled bots, sanitization before
 emission, bounded scratch, reader/sanitizer failures and cleanup on parent-only
-INT/TERM without container mutations. Record actual commands/results in the task; stub evidence is not
+INT/TERM without container mutations. Cover startup logs before readiness and
+interrupt, transition to the truthful summary and continued viewing, unready
+status with live readers, and reader failure during readiness. INT/TERM viewing
+must not release a bulk diagnostic dump; preserve genuine startup timeout and
+auxiliary-failure diagnostics. Record actual commands/results in the task; stub evidence is not
 real Docker or cold-start evidence. Real isolated first-use/build/install/start,
 HTTP/protocol readiness, reconciliation/down, default empty persistent-storage creation and
 retention, ignored/untracked data, uncached/network and real-device checks need

@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import io
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -138,7 +139,7 @@ def test_private_push_waits_until_shared_due_time_and_catches_up_today(
         sleep=sleep, get_running_loop=asyncio.get_running_loop,
     ))
     asyncio.run(adapter._run_daily_news())
-    assert sleeps == ([1, 900] if hour == 10 and minute == 29 else [900])
+    assert sleeps == ([1, 60] if hour == 10 and minute == 29 else [60])
     assert len(factory_calls) == 1
     assert calls == [("send_private_msg", {
         "user_id": 123, "message": [
@@ -209,7 +210,7 @@ def test_mixed_targets_share_content_and_retry_only_failures(
         ("send_group_msg", 456, "iteration-2"),
         ("send_private_msg", 123, "iteration-2"),
     ]
-    assert sleeps == [900, 900, 82800]
+    assert sleeps == [60, 60, 84480]
     assert store.was_sent("2026-09-27", "456")
     assert store.was_private_sent("2026-09-27", "123")
 
@@ -221,7 +222,7 @@ def test_mixed_targets_share_content_and_retry_only_failures(
 
     async def stop_sleep(seconds: float) -> None:
         """A restarted scheduler waits until tomorrow without regenerating content."""
-        assert seconds == 82800
+        assert seconds == 84480
         restarted.close()
 
     monkeypatch.setattr(onebot_v11.asyncio, "sleep", stop_sleep)
@@ -231,8 +232,9 @@ def test_mixed_targets_share_content_and_retry_only_failures(
     assert len(calls) == 6
 
 
+@pytest.mark.parametrize("retry_seconds", [None, 7])
 def test_failed_factory_retries_without_recording_recipients(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, retry_seconds: Any,
 ) -> None:
     """Provider failure leaves every target pending for the next recheck."""
     store = NewsDeliveryStore(str(tmp_path))
@@ -246,7 +248,10 @@ def test_failed_factory_retries_without_recording_recipients(
             raise RuntimeError("simulated provider failure")
         return OutgoingMessage("news")
 
-    adapter = OneBotV11Adapter(_settings(tmp_path), lambda event: None,
+    settings = _settings(tmp_path)
+    if retry_seconds is not None:
+        settings = replace(settings, news_push_retry_seconds=retry_seconds)
+    adapter = OneBotV11Adapter(settings, lambda event: None,
                               daily_news_factory=factory, delivery_store=store)
 
     async def request(action: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -256,7 +261,7 @@ def test_failed_factory_retries_without_recording_recipients(
 
     async def sleep(seconds: float) -> None:
         """Retry once after the normal interval."""
-        assert seconds == 900
+        assert seconds == (60 if retry_seconds is None else retry_seconds)
         if len(attempts) == 1:
             assert not calls and not store.was_private_sent("2026-09-27", "123")
         else:
@@ -333,7 +338,7 @@ def test_labeled_fallback_completes_delivery_without_resend_after_publication(
 
     async def sleep(seconds: float) -> None:
         """Stop after the first successful push iteration."""
-        assert seconds == 900
+        assert seconds == 60
         adapter.close()
 
     monkeypatch.setattr(adapter, "_request", request)

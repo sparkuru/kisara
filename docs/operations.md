@@ -127,6 +127,11 @@ The existing QQ runtime paths are:
    an empty or invalid profile list is an error. KISARA_ENGINE is not a preview selector.
    Comma-separated profile targets select a Compose group.
 
+   Once the selected containers start, preview immediately follows their
+   sanitized bot logs while checking readiness. It prints the ready summary
+   only when checks pass, then keeps following. Press Ctrl+C to finish viewing;
+   the containers keep running. Use `down` for explicit removal.
+
 4. Stop the selected bots and remove their containers with data retained:
 
    ```bash
@@ -158,8 +163,9 @@ replacement. Build leaves it untouched; status reports a missing Compose bot
 until explicit startup. Foreign containers are never adopted or removed automatically.
 
 The Kisara bot process does not expose a public application HTTP port.
-Preview start returns after bounded readiness and prints one summary using actual
-service listeners/published mappings. Outbound-only engines have no browser URL.
+Preview start streams bot logs during bounded readiness checks, prints one
+summary using actual service listeners/published mappings after success, and
+keeps following logs. Outbound-only engines have no browser URL.
 Loopback NapCat access and SSH tunneling remain the default; wildcard addresses
 are candidates, not proof of access from another device. Initial NapCat login
 and external gateway/network readiness may require user action; failed startup
@@ -172,6 +178,9 @@ and base configuration file identify ordinary containers; previously stored
 preview labels remain recognized. Foreign or unverifiable source identity fails
 before any selected container is changed. No manual label edits or Docker rm
 steps are needed for switching:
+
+Leave an attached preview view with Ctrl+C before running the next lifecycle
+command.
 
 ```bash
 ./kisara.sh preview start telegram
@@ -193,9 +202,11 @@ rejects empty/example access tokens before preparation. Telegram preview becomes
 ready only after a successful poll while its application is running.
 
 Preview help/status/down do not build, install or start services; verbose
-preparation details are captured then redacted. After successful readiness,
-`./kisara.sh preview status` shows the selected bot's last 80 log lines and
+preparation details are captured then redacted. `./kisara.sh preview status`
+reports current readiness, shows the selected bot's last 80 log lines and
 continuously follows new lines, with credentials redacted before display.
+When selected owned bots exist but are not ready yet, it warns and follows
+their logs without printing a ready banner or changing the containers.
 User/chat/account IDs, bot names and ordinary numbers remain visible.
 Receive/reply/no-reply summaries retain their message previews;
 each line uses a `platform | log` prefix: NapCat and either OneBot application
@@ -205,11 +216,14 @@ hints use the same platform names. Telegram message
 summaries still require `TELEGRAM_MESSAGE_LOG_ENABLED=true` in the bot's startup
 configuration. Use `./kisara.sh preview status telegram` for an explicit engine.
 OneBot selections also follow their owned NapCat gateway, which emits QQ
-receive/send records. Music and the local Bot API are omitted from successful
-status log following.
-Press Ctrl+C to stop viewing; the bot keeps running. Unready status retains
-bounded failure diagnostics and exits with failure. Log-following errors also
-exit with an error; status does not monitor or restart the bot.
+receive/send records. Music and the local Bot API are omitted from live
+log following.
+Press Ctrl+C to stop viewing; the bot keeps running and viewing cancellation
+does not print another batch of diagnostic logs. Missing or foreign groups
+still fail explicitly; auxiliary-only selection has no bot stream and remains
+finite. A genuine log-stream EOF ends viewing, and log-following errors exit
+with an error; status does not repair or restart the bot or its log readers.
+Startup readiness timeout/failure still returns an error with bounded diagnostics.
 For deployment logs use `./kisara.sh logs`; for one-off commands use `./hako`.
 
 NapCat readiness and socket inspection use the existing container Python3
@@ -404,6 +418,7 @@ as strings:
 push_groups = []
 push_users = ["123456789", "987654321"]
 push_time = "10:30"
+push_retry_seconds = 60
 ```
 
 Add each personal recipient to `ONEBOT_ALLOWED_USERS` in `.env`. Numbers must
@@ -414,16 +429,25 @@ in UTC+8 (default 10:30), and scheduled push requires the OneBot engine.
 An empty `push_users` disables private push; an empty `push_groups` disables
 group push. Without the TOML key, `ONEBOT_NEWS_PUSH_USERS` provides a
 comma-separated fallback; explicit TOML values, including `[]`, take precedence.
-Restart Kisara through the normal deployment path after configuration changes;
-the running process does not reload feature configuration.
+`push_retry_seconds` is a positive integer, default `60`. Explicit TOML wins
+over `ONEBOT_NEWS_PUSH_RETRY_SECONDS`, then the legacy runtime
+`KISARA_NEWS_PUSH_RETRY_SECONDS`, then the default. Invalid or empty configured
+values fail startup. It controls scheduled generation/delivery retry waiting,
+independently of the HTTP request timeout or manual `/news` requests.
+The running process does not reload feature configuration. Apply TOML changes
+with a targeted Kisara restart; `.env` changes require container recreation.
+Deploying this source change first requires rebuilding/recreating the selected
+application, for example `./kisara.sh preview build onebot`, followed by
+`./kisara.sh preview start onebot`. Preview remains attached; Ctrl+C ends viewing.
 
 The connection owns one news loop. At the due time it sends the same dated
 text and image to pending groups and users. It records only confirmed successes
 in `news_delivery.sqlite3` under `KISARA_STATE_DIR` (Compose `/app/state` in
 `kisara_state`). Group `deliveries` and `private_deliveries` are separate, so
 equal user/group numbers do not collide. Initialization preserves old group
-records; completion writes prune both tables beyond 30 days. Failed or
-unrecorded targets retry after 15 minutes without resending recorded successes.
+records; completion writes prune both tables beyond 30 days. Generation failures
+and failed or unrecorded targets retry after `push_retry_seconds`, measured
+after the operation finishes, without resending recorded successes.
 Successfully sending the labeled yesterday brief counts as today's completed
 delivery. It does not trigger a second scheduled push after publication;
 request `/news` manually to retrieve updated content.
@@ -843,6 +867,15 @@ reachability. Default `push_time` is `10:30` UTC+8 (environment fallback
 `TELEGRAM_NEWS_PUSH_TIME`). Empty targets or `push_enabled=false` create no
 scheduler. Manual news and scheduled news are independent.
 
+Set `push_retry_seconds = 60` in
+`config/telegram/features/news/config.toml` to configure its positive integer
+retry interval. If omitted, `TELEGRAM_NEWS_PUSH_RETRY_SECONDS` supplies the
+deployment value (default `60`); direct runtime also accepts
+`KISARA_NEWS_PUSH_RETRY_SECONDS`. Explicit TOML wins and invalid/empty values
+fail startup. Telegram does not inherit OneBot's deployment value. Rebuild and
+recreate the Telegram application to deploy this source change; later TOML
+changes need a targeted restart, and environment changes need recreation.
+
 Each send is one captioned PNG document, generated once per pending pass.
 Today's uncompleted work catches up after startup; older days are never
 backfilled. A confirmed warned publication-delay fallback completes the day's
@@ -850,7 +883,11 @@ push; `/news` can later fetch newly published content. The private journal
 `/app/state/telegram_news.sqlite3` separates day/kind/target and retains 30 days.
 A short transaction claims before sending; confirmed receipts checkpoint the
 returned message ID. Known transient rejection or generation failure retries
-after 15 minutes, extended for longer Telegram retry-after. Known forbidden/bad
+after `push_retry_seconds` from failure completion, extended for longer Telegram
+retry-after. Polling can add up to the smaller of 30 seconds and the configured
+interval before eligible work is checked again. Existing journal retry deadlines
+are retained across configuration changes; new failures use the new interval.
+Known forbidden/bad
 target rejections stop for that day. Unknown network results remain uncertain
 and are not automatically resent. Restart turns unfinished claims into uncertain;
 a failed local completion write retains its claim, avoiding an automatic replay.

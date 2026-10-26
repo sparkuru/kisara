@@ -229,6 +229,70 @@ Apply TOML changes through a targeted bot restart. Apply `.env` container
 environment changes through targeted recreation (`./kisara.sh up telegram`);
 Compose restart retains the previous container environment.
 
+## Scheduled-news retry interval
+
+### 1. Scope / trigger
+
+The OneBot and Telegram scheduled-news retry policy is configurable. Manual news,
+HTTP request timeouts, and adapter connection/startup retries are separate.
+
+### 2. Signatures
+
+`Settings.news_push_retry_seconds: int = 60` is appended to preserve positional
+constructor compatibility. Inject it into the existing OneBot news loop and
+`TelegramNewsPush` through its trailing optional `retry_seconds` argument.
+There is no journal schema change.
+
+### 3. Contracts
+
+Use news feature TOML `push_retry_seconds = 60`. Precedence is explicit TOML,
+selected engine `ONEBOT_NEWS_PUSH_RETRY_SECONDS` or
+`TELEGRAM_NEWS_PUSH_RETRY_SECONDS`, generic runtime
+`KISARA_NEWS_PUSH_RETRY_SECONDS`, then60. Load the fallback only when TOML omits
+the key. Require a positive integer; reject booleans/fractions/non-numeric or
+empty values rather than coercing them or starting a tight retry loop.
+
+Compose wires the field for OneBot, onebot-dev and Telegram. OneBot retains
+unset-only legacy fallback; explicit empty input must reach startup validation.
+Telegram deployment must not inherit another engine's retry configuration.
+Retry waits/deadlines start after failure completion. Telegram longer server
+retry-after wins; its polling supports configured intervals below30 seconds.
+Confirmed recipients are skipped, permanent rejections stop for the day and
+unknown sends remain uncertain. Existing OneBot checkpoint limitations remain.
+Existing Telegram persisted retry deadlines are not rewritten on configuration
+changes; new failures use the current interval. Waits remain cancellable.
+
+### 4. Validation and error matrix
+
+| Input/state | Required behavior |
+| --- | --- |
+| Setting absent | Retry interval60 seconds |
+| Valid explicit TOML, invalid lower-priority env | TOML wins without evaluating invalid fallback |
+| Zero, negative, bool, fractional, empty or malformed configured value | Startup ConfigurationError |
+| Other engine's environment present | No selected-engine override |
+| Telegram retry-after exceeds configured interval | Longer server wait wins |
+| Confirmed/permanent/uncertain Telegram delivery | No automatic replay |
+
+### 5. Good/base/bad cases
+
+Good: set OneBot `push_retry_seconds = 120` and retry a failed fetch after that
+delay without resending confirmed recipients. Base: omitted setting uses60.
+Bad: apply a60-second network retry to every Telegram send exception.
+
+### 6. Tests required
+
+Assert default/custom retry and failure-to-recovery timing, strict validation,
+lazy TOML precedence, selected namespace isolation, actual Compose interpolation
+and adapter injection. Preserve cancellation/day-boundary and delivery-state
+coverage, including longer server waits and no premature resend.
+
+### 7. Wrong versus correct
+
+Wrong: calculate a retry deadline before a slow fetch/send or leave a fixed
+30-second poll making short configured intervals ineffective. Correct: measure
+after failure, bound polling by the configured retry interval, and keep all
+existing journal/confirmation protections.
+
 ## Storage contracts
 
 | Data | Runtime/host location | Compose location and lifetime |
@@ -292,8 +356,9 @@ group recipients. States are pending, claimed, retry, rejected, confirmed, and
 uncertain. Claim is atomic before sending. Startup changes leftover claimed rows
 to uncertain. Only a confirmed remote receipt advances claimed to confirmed.
 Unknown outcomes and local completion failures never become new work. Known
-transient rejection or generation failure retries after 15 minutes or a longer
-server retry-after; permanent rejection stops for that day. Retention uses the
+transient rejection or generation failure retries after configured
+`news.push_retry_seconds` (default60) or a longer server retry-after; permanent
+rejection stops for that day. Retention uses the
 current day minus 30 days. Catch-up is for today only. A successfully sent warned
 publication-delay fallback completes today's scheduled send.
 
@@ -586,7 +651,7 @@ and supports repeated opening of the same database.
 | Either target kind on official engine | Startup `ConfigurationError` |
 | Both target lists empty | No scheduled news task |
 | User and group have identical numeric ID | Independent completion in their respective tables |
-| Known send failure | No completion record; continue other recipients and retry after 900 seconds |
+| Known send failure | No completion record; continue other recipients and retry after configured `push_retry_seconds` (default60) |
 | Remote result unknown or send succeeds before local checkpoint failure | Preserve existing retry semantics and possible duplicate limitation; do not promise exactly-once delivery |
 | Disconnect | Cancel and await news task before starting another session's task |
 

@@ -14,6 +14,8 @@ The 2026-10-12 approved follow-up selects all COMPOSE_PROFILES bots, rebuilds
 selected application images explicitly and displays platform log names.
 The 2026-10-13 approved lifecycle task unifies ordinary and preview management,
 retains down only, and removes bespoke fingerprint/reuse/rollback policy.
+On 2026-10-22 the user approved live logs during preview startup, attached
+viewing after readiness, and warning-plus-follow for unready existing bot groups.
 
 ## 2. Signatures
 
@@ -103,19 +105,34 @@ its existing foreground Compose output. No attempt-label or custom container rol
 temporary logs/readers still clean up. Status never reconciles or repairs missing,
 stopped, partial or uninstrumented services and never emits a false ready banner.
 
-Ready `preview status` shows the existing summary, then follows the last 80
-lines and new logs from selected owned application bots, without `--verbose`.
+Preview start opens the existing sanitized last80/live bot stream as soon as
+selected containers are started/collected, while bounded readiness checks run.
+Print the existing ready summary only after true readiness, then keep following.
+Ready `preview status` prints the summary and follows the same stream without
+`--verbose`. Unready status warns and follows the existing owned selected bots
+without a ready banner or automatic service changes; readiness alone must not
+select a finite diagnostic dump instead of viewing.
 Display napcat/kisara/kisara-dev as onebot, telegram as telegram and official
 as official in both follow hints and `platform | log` prefixes. Keep both
 OneBot streams and use distinct actual service identifiers for FIFO/readers,
 ownership and cleanup. Redact credentials on each line before display
-and avoid unbounded raw log storage. Do not follow auxiliary services on successful status.
-Status preserves user/chat/account IDs, bot names and ordinary numbers; captured
+and avoid unbounded raw log storage. Match QR block symbols as complete symbols
+(for example, `/▀|▄|█/d`), not a multibyte bracket class: under `LC_ALL=C` or
+`POSIX`, `/[▀▄█]/d` also matches bytes in ordinary Chinese text and silently
+drops receive/send lines. Preserve non-QR UTF-8 log lines in both byte and UTF-8
+locales. Do not follow Music or local Bot API streams; include the owned NapCat gateway.
+Both views preserve user/chat/account IDs, bot names and ordinary numbers; captured
 failure/verbose diagnostics retain identifier redaction.
 Ctrl+C/TERM exits 130/143 and reaps only this command's readers; containers and
 data remain intact. Reader/sanitizer failures are explicit nonzero errors with
-no raw fallback. Auxiliary-only status ends after its summary; absent/unready
-status keeps existing nonzero reporting and bounded failure diagnostics.
+no raw fallback. Auxiliary-only status is finite, with a ready summary or actual
+failure diagnostics. Missing/foreign groups still fail explicitly. Real stream
+EOF ends viewing; no automatic reader reconnect is introduced. Reader setup
+must run in the parent shell so cleanup owns all PIDs. Check reader failures
+during startup readiness as well as during attached viewing; do not print ready
+after a sanitizer/reader failure. INT/TERM while viewing skips the redundant bulk
+diagnostic dump; genuine startup timeout/failure keeps bounded diagnostics,
+including auxiliary information. Require mkfifo for start and status.
 
 Recognize existing hako.scope=preview.sh identities. Selected Official down
 can clean up the legacy same-repository/scope hako.service=bot container while
@@ -158,9 +175,12 @@ dependency is introduced.
 | Partial/stopped/config-changed group on start | Reconcile directly; fresh application startup |
 | Failed startup | Nonzero, retained containers/logs, direct retry supported |
 | Ready preview status with bot | Summary, last 80 lines, then continuous redacted logs |
+| Bare/start preview while bots remain unready | Immediate safe bot logs during bounded checks; real summary after readiness, then continued following |
+| Unready status with owned selected bots | Warning and continuous safe logs, no ready banner or runtime mutation |
 | Mixed ready preview bots | Concurrent platform labels; NapCat and app both onebot with separate readers |
-| Ctrl+C/TERM during status | Exit 130/143; readers reaped, containers/data retained |
+| Ctrl+C/TERM during start/status viewing | Exit 130/143; readers reaped, containers/data retained; no redundant diagnostic dump |
 | Status reader/sanitizer failure | Explicit nonzero error, no raw fallback, readers reaped |
+| Reader/sanitizer failure during startup readiness | Prompt nonzero failure and cleanup; no ready banner or masked timeout |
 | Existing labeled preview | New command recognizes ownership and preserves data |
 | Stopped ordinary same-repo container | Either entry can down/recreate; no manual rm/label changes |
 | Foreign same-project/service collision | Refuse before effects, even when names match |
@@ -175,7 +195,8 @@ preview start telegram overrides an inherited OneBot selection.
 COMPOSE_PROFILES=onebot,telegram,official starts every listed bot regardless of
 KISARA_ENGINE. Base: bare help does nothing to services and unset profiles
 default to onebot.
-Ready preview status keeps displaying new safe bot logs until Ctrl+C.
+Bare preview displays safe bot logs before readiness and remains attached after
+its summary. Status of an unready owned bot warns and still displays fresh logs.
 Bad: load .env for tests, guess ownership from names, or give root scripts
 separate Docker lifecycle implementations. Existing onebot.sh forwards scoped
 commands through engines instead of keeping another lifecycle implementation.
@@ -202,6 +223,13 @@ ownership by assigning every object a project/service based on its dictionary
 key. Run focused suites then full kisara.sh test regression;
 cover delayed lines before EOF, redaction while attached, selected mixed bots,
 stream failures and parent-only INT/TERM cleanup without lifecycle mutations;
+also cover unready startup output before interrupt, readiness transition and
+continued viewing, unready-status following, stream failure during readiness,
+and cancellation without a bulk diagnostic dump. Preserve genuine timeout and
+auxiliary diagnostic coverage;
+include repeated delayed Chinese/mixed UTF-8 lines under C, POSIX and UTF-8
+locales, with ASCII sentinels and actual QR symbols to distinguish dropped lines
+from a stopped reader;
 syntax-check changed Bash and use ShellCheck/shfmt only when available.
 
 ## 7. Wrong versus correct
@@ -221,3 +249,9 @@ map distinct service identities only at log presentation.
 Wrong: reuse a config fingerprint/attempt label to block updates or delete failed
 startup containers automatically. Correct: explicit Compose startup applies
 desired state, reports real readiness failures and retains objects for diagnosis.
+Wrong: treat any visible log text or an application polling-ready INFO message
+as proof that continuous preview following was reached. Correct: distinguish
+`Recent bounded diagnostics` from `Following ... logs`, observe actual exit
+status, and reproduce ready, starting and unready command states before closing
+a streaming defect. A ready-only or finite-log fixture cannot prove startup
+output visibility or sustained following.

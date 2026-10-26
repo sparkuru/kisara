@@ -131,7 +131,7 @@ def test_telegram_outer_startup_error_is_sanitized(monkeypatch: object, tmp_path
             pass
     monkeypatch.setattr(startup, "create_adapter", lambda *args: Adapter())
     assert startup.main() == 1
-    assert "SECRET" not in caplog.text and "Telegram stopped unexpectedly" in caplog.text
+    assert "SECRET" not in caplog.text and "Telegram stopped unexpectedly (RuntimeError)" in caplog.text
 
 
 

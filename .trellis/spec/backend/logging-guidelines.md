@@ -29,6 +29,12 @@ task exception containing the token. Cleanup continues through SDK failures.
 `ManagedPollingBot.initialize()` closes its owned request clients through public
 `request.shutdown()` if initialization fails or is cancelled; Application's
 shutdown can otherwise return before closing partially initialized clients.
+Startup failures report a controlled phase (`initialize`, `polling_bootstrap`
+or `application_start`) and exception type/category, with an attempt count for
+retryable phases. The process-level Telegram failure also retains the exception
+type. Never format the exception value, response body or chained traceback to
+add detail. The bounded startup retry/cleanup contract is recorded in
+[error handling](error-handling.md#telegram-startup-network-recovery).
 
 ## Existing levels and examples
 

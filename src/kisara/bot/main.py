@@ -202,9 +202,10 @@ def main() -> int:
     except KeyboardInterrupt:
         _log.info("Stopping Kisara")
         return 130
-    except Exception:
+    except Exception as error:
         if settings.engine == "telegram":
-            _log.error("Telegram stopped unexpectedly; verify credentials, network and single poller ownership")
+            _log.error("Telegram stopped unexpectedly (%s); verify credentials, network and single poller ownership",
+                       type(error).__name__)
         else:
             _log.exception("Kisara stopped unexpectedly")
         return 1

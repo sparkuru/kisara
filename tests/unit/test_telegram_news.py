@@ -3,11 +3,14 @@
 import asyncio
 import sqlite3
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from kisara.application.services.news_push import DeliveryRejected, TelegramNewsPush
+from kisara.application.services import news_push
 from kisara.bot.contracts import Attachment, OutgoingMessage
 from kisara.infrastructure.persistence.telegram_news import TelegramNewsStore
 
@@ -49,8 +52,8 @@ def test_known_failure_versus_uncertain(tmp_path: object, failure: Exception, st
     asyncio.run(runner.deliver_due())
     assert store.status(DAY, "private", "123") == status
     assert store.status(DAY, "group", "-456") == "confirmed"
-    assert not store.claim(DAY, "private", "123", 999)
-    assert store.claim(DAY, "private", "123", 1000) == (status == "retry")
+    assert not store.claim(DAY, "private", "123", 159)
+    assert store.claim(DAY, "private", "123", 160) == (status == "retry")
 
 
 def test_server_retry_after(tmp_path: object) -> None:
@@ -138,3 +141,98 @@ def test_midnight_generation_never_sends_previous_day_work(tmp_path: object) -> 
     assert send.await_count == 0
     assert store.status(DAY, "private", "123") == "rejected"
     assert store.status(DAY, "group", "-456") is None
+
+
+@pytest.mark.parametrize("retry_seconds", [None, 7])
+def test_generation_retry_waits_from_failure_and_recovers_once(
+    tmp_path: Path, retry_seconds: object,
+) -> None:
+    """A slow failed generation waits the whole interval before safe recovery."""
+    stamp = [100.0]
+    attempts = []
+    send = AsyncMock(return_value="99")
+    store = TelegramNewsStore(str(tmp_path))
+
+    def factory() -> OutgoingMessage:
+        """Model ten seconds spent failing before a successful second pass."""
+        attempts.append(stamp[0])
+        if len(attempts) == 1:
+            stamp[0] += 10
+            raise TimeoutError("synthetic handshake timeout")
+        return OutgoingMessage("recovered news")
+
+    options = {} if retry_seconds is None else {"retry_seconds": retry_seconds}
+    runner = TelegramNewsPush(
+        (("private", "123"), ("group", "-456")), 10, 30, factory, send, store,
+        clock=lambda: NOW, timestamp=lambda: stamp[0], **options,
+    )
+    asyncio.run(runner.deliver_due())
+    deadline = 110 + (60 if retry_seconds is None else retry_seconds)
+    stamp[0] = deadline - 1
+    asyncio.run(runner.deliver_due())
+    assert attempts == [100] and send.await_count == 0
+    stamp[0] = deadline
+    asyncio.run(runner.deliver_due())
+    assert attempts == [100, deadline] and send.await_count == 2
+    assert store.status(DAY, "private", "123") == "confirmed"
+    assert store.status(DAY, "group", "-456") == "confirmed"
+    asyncio.run(runner.deliver_due())
+    assert len(attempts) == 2 and send.await_count == 2
+
+
+@pytest.mark.parametrize("retry_after", [3, 2000])
+def test_rejection_retry_respects_failure_completion_and_longer_server_wait(
+    tmp_path: Path, retry_after: int,
+) -> None:
+    """Server and configured delays are both measured after the failed send."""
+    stamp = [100.0]
+    attempts = []
+    store = TelegramNewsStore(str(tmp_path))
+
+    async def send(target: str, content: OutgoingMessage) -> str:
+        """Fail once after fifteen seconds, then confirm the retry."""
+        attempts.append(stamp[0])
+        if len(attempts) == 1:
+            stamp[0] += 15
+            raise DeliveryRejected(retry_after=retry_after)
+        return "99"
+
+    runner = TelegramNewsPush(
+        (("private", "123"),), 10, 30, lambda: OutgoingMessage("news"), send, store,
+        clock=lambda: NOW, timestamp=lambda: stamp[0], retry_seconds=7,
+    )
+    asyncio.run(runner.deliver_due())
+    deadline = 115 + max(7, retry_after)
+    stamp[0] = deadline - 1
+    asyncio.run(runner.deliver_due())
+    assert attempts == [100]
+    stamp[0] = deadline
+    asyncio.run(runner.deliver_due())
+    assert attempts == [100, deadline]
+
+
+def test_short_retry_interval_controls_owned_loop_and_cancellation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A sub-thirty-second retry is not hidden behind the old polling cadence."""
+    sleeps = []
+    send = AsyncMock(return_value="99")
+    store = TelegramNewsStore(str(tmp_path))
+    runner = TelegramNewsPush(
+        (("private", "123"),), 10, 30, lambda: OutgoingMessage("news"), send, store,
+        clock=lambda: NOW, timestamp=lambda: 100, retry_seconds=7,
+    )
+
+    async def sleep(seconds: float) -> None:
+        """Cancel the owned wait without waiting on a real wall clock."""
+        sleeps.append(seconds)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(news_push, "asyncio", SimpleNamespace(
+        sleep=sleep, get_running_loop=asyncio.get_running_loop,
+        CancelledError=asyncio.CancelledError,
+    ))
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(runner.run())
+    assert sleeps == [7]
+    assert store.status(DAY, "private", "123") == "confirmed"

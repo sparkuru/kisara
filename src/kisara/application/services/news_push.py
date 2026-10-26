@@ -1,8 +1,9 @@
 """Telegram scheduled news through a narrow send gateway and durable claims.
 
 Today's UTC+8 brief is generated off the loop once per pending pass. Generation
-failures and known transient rejections retry after 15 minutes (or longer server
-retry-after). Permanent rejections stop for the day. Unknown sends, cancellation
+failures and known transient rejections retry after push_retry_seconds (default
+60 seconds, extended by longer server retry-after). Permanent rejections stop
+for the day. Unknown sends, cancellation
 and failed completion writes preserve claim evidence and never auto-resend.
 """
 
@@ -38,7 +39,8 @@ class TelegramNewsPush:
                  send: Callable[[str, OutgoingMessage], Awaitable[str]],
                  store: TelegramNewsStore,
                  clock: Callable[[], datetime] = lambda: datetime.now(CHINA_TIME),
-                 timestamp: Callable[[], float] = time.time) -> None:
+                 timestamp: Callable[[], float] = time.time,
+                 retry_seconds: int = 60) -> None:
         self._targets = targets
         self._hour = hour
         self._minute = minute
@@ -47,12 +49,13 @@ class TelegramNewsPush:
         self._store = store
         self._clock = clock
         self._timestamp = timestamp
+        self._retry_seconds = retry_seconds
 
     async def run(self) -> None:
         """Catch up today only, with cancellation owned by the adapter."""
         while True:
             await self.deliver_due()
-            await asyncio.sleep(30)
+            await asyncio.sleep(min(30, self._retry_seconds))
 
     async def deliver_due(self) -> None:
         """Claim before any send and checkpoint each target independently."""
@@ -70,7 +73,7 @@ class TelegramNewsPush:
             if not self._store.claim(day, kind, target, stamp):
                 continue
             if generation_failed:
-                self._store.reject(day, kind, target, stamp + 900)
+                self._store.reject(day, kind, target, self._timestamp() + self._retry_seconds)
                 continue
             if content is None:
                 try:
@@ -79,8 +82,8 @@ class TelegramNewsPush:
                     raise
                 except Exception:
                     generation_failed = True
-                    self._store.reject(day, kind, target, stamp + 900)
-                    _log.warning("News generation failed; retry scheduled")
+                    self._store.reject(day, kind, target, self._timestamp() + self._retry_seconds)
+                    _log.warning("News generation failed; retry scheduled in %ss", self._retry_seconds)
                     continue
             if self._clock().astimezone(CHINA_TIME).date() != now.date():
                 self._store.reject(day, kind, target, 0, permanent=True)
@@ -90,7 +93,8 @@ class TelegramNewsPush:
             except asyncio.CancelledError:
                 raise
             except DeliveryRejected as error:
-                self._store.reject(day, kind, target, stamp + max(900, error.retry_after), error.permanent)
+                self._store.reject(day, kind, target,
+                                   self._timestamp() + max(self._retry_seconds, error.retry_after), error.permanent)
                 _log.warning("Telegram news delivery rejected (%s)", "permanent" if error.permanent else "retryable")
             except Exception:
                 self._store.uncertain(day, kind, target)

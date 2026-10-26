@@ -11,6 +11,9 @@ shared dispatcher. Owned scheduler cancellation precedes SDK stop/shutdown;
 blocking services run in an executor. SDK errors are logged as safe categories.
 Explicit opt-in message summaries disclose only authorized conversations, with
 redacted, escaped previews and confirmed text/document sends.
+Startup initialization and polling bootstrap allow up to three total attempts
+for transport failures, with interruptible 1/2-second delays and fresh clients after safe cleanup.
+Credential, ownership, API rejection and application/worker failures stay fatal.
 """
 
 import asyncio
@@ -24,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
 from telegram import ReplyParameters
-from telegram.error import BadRequest, Conflict, Forbidden, InvalidToken, RetryAfter, TelegramError
+from telegram.error import BadRequest, Conflict, Forbidden, InvalidToken, NetworkError, RetryAfter, TelegramError
 from telegram.ext import Application, ExtBot, MessageHandler as SDKMessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -214,7 +217,7 @@ def message_preview(text: str, token: Optional[str], limit: int = 120) -> str:
 class ManagedPollingBot(ExtBot):
     """Report fatal revoked-token polling through the public ExtBot extension seam."""
 
-    __slots__ = ("_fatal_callback", "_owned_requests", "_polling_callback")
+    __slots__ = ("_fatal_callback", "_owned_requests", "_polling_callback", "initialization_cleanup_failed")
 
     def __init__(self, token: str, fatal_callback: Callable[[], None],
                  polling_callback: Optional[Callable[[], None]] = None,
@@ -230,6 +233,7 @@ class ManagedPollingBot(ExtBot):
         object.__setattr__(self, "_owned_requests", (request, updates_request))
         object.__setattr__(self, "_fatal_callback", fatal_callback)
         object.__setattr__(self, "_polling_callback", polling_callback)
+        object.__setattr__(self, "initialization_cleanup_failed", False)
 
     async def initialize(self) -> None:
         """Close clients when initialization fails before SDK ownership is established."""
@@ -240,6 +244,7 @@ class ManagedPollingBot(ExtBot):
             results = await asyncio.gather(*(request.shutdown() for request in self._owned_requests),
                                            return_exceptions=True)
             if any(isinstance(result, BaseException) for result in results):
+                object.__setattr__(self, "initialization_cleanup_failed", True)
                 _log.warning("Telegram request cleanup failed during initialization")
             raise
 
@@ -311,25 +316,25 @@ class TelegramAdapter:
             self._loop.add_signal_handler(name, self._stop_event.set)
         application = None
         try:
-            bot = ManagedPollingBot(self._settings.telegram_token, self._fatal_polling_error,
-                                    self._polling_succeeded,
-                                    api_base_url=self._settings.telegram_api_base_url,
-                                    local_mode=self._settings.telegram_local_mode)
-            application = (Application.builder().bot(bot)
-                           .update_queue(asyncio.Queue(maxsize=128)).concurrent_updates(False).build())
-            self._application = application
-            application.add_handler(SDKMessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Document.ALL)
-                                                       & ~filters.UpdateType.EDITED_MESSAGE, self._on_update))
-            application.add_error_handler(self._on_error)
-            self._status = "starting"
-            await application.initialize()
-            await application.updater.start_polling(timeout=25, bootstrap_retries=0,
-                                                    drop_pending_updates=False,
-                                                    error_callback=self._polling_error)
+            application = await self._start_application()
+            if application is None:
+                return
+            if self._stop_event.is_set():
+                if self._fatal_polling:
+                    raise RuntimeError("Telegram polling stopped during startup")
+                return
             if self._tgsetu is not None:
                 self._notice_pending = OrderedDict()
                 self._notice_event = asyncio.Event()
-            await application.start()
+            try:
+                await application.start()
+            except Exception as error:
+                _log.error("Telegram startup failed phase=application_start category=%s", type(error).__name__)
+                raise
+            if self._stop_event.is_set():
+                if self._fatal_polling:
+                    raise RuntimeError("Telegram polling stopped during startup")
+                return
             self._status = "running"
             _log.info("Telegram polling ready")
             if self._tgsetu is not None:
@@ -341,7 +346,8 @@ class TelegramAdapter:
                 if targets:
                     scheduler = TelegramNewsPush(targets, self._settings.news_push_hour,
                                                  self._settings.news_push_minute, self._factory,
-                                                 self._send_news, self._store)
+                                                 self._send_news, self._store,
+                                                 retry_seconds=self._settings.news_push_retry_seconds)
                     self._scheduler_task = asyncio.create_task(self._run_scheduler(scheduler))
             await self._stop_event.wait()
             if self._fatal_archive:
@@ -367,6 +373,58 @@ class TelegramAdapter:
                 for name in (signal.SIGINT, signal.SIGTERM):
                     self._loop.remove_signal_handler(name)
                 self._status = "stopped"
+
+    async def _start_application(self) -> Optional[Application]:
+        """Own failed startup attempts; replace clients only after verified cleanup."""
+        self._status = "starting"
+        for attempt in range(1, 4):
+            if self._stop_event.is_set():
+                return None
+            bot = ManagedPollingBot(self._settings.telegram_token, self._fatal_polling_error,
+                                    self._polling_succeeded,
+                                    api_base_url=self._settings.telegram_api_base_url,
+                                    local_mode=self._settings.telegram_local_mode)
+            application = (Application.builder().bot(bot)
+                           .update_queue(asyncio.Queue(maxsize=128)).concurrent_updates(False).build())
+            self._application = application
+            application.add_handler(SDKMessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Document.ALL)
+                                                       & ~filters.UpdateType.EDITED_MESSAGE, self._on_update))
+            application.add_error_handler(self._on_error)
+            phase = "initialize"
+            try:
+                await application.initialize()
+                if self._stop_event.is_set():
+                    return application
+                phase = "polling_bootstrap"
+                await application.updater.start_polling(timeout=25, bootstrap_retries=0,
+                                                        drop_pending_updates=False,
+                                                        error_callback=self._polling_error)
+                return application
+            except BaseException as error:
+                publish_readiness(self.engine, False)
+                _log.warning("Telegram startup failed phase=%s category=%s attempt=%s/3",
+                             phase, type(error).__name__, attempt)
+                cleanup_ok = not bot.initialization_cleanup_failed
+                try:
+                    await self._shutdown(application)
+                except Exception:
+                    cleanup_ok = False
+                self._application = None
+                retryable = isinstance(error, NetworkError) and not isinstance(error, BadRequest)
+                if not cleanup_ok or not retryable or attempt == 3 or self._stop_event.is_set():
+                    raise
+                _log.warning("Telegram startup retry in %s seconds", attempt)
+                if await self._wait_startup_retry(attempt):
+                    return None
+        return None
+
+    async def _wait_startup_retry(self, delay: int) -> bool:
+        """Let close/signals/cancellation interrupt startup backoff."""
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+            return True
+        except asyncio.TimeoutError:
+            return self._stop_event.is_set()
 
     async def _shutdown(self, application: Application) -> None:
         """Continue cleanup when a failed poll task raises during updater.stop()."""
