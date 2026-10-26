@@ -752,3 +752,41 @@ User authorized local delivery with 提交. Committed validated lifecycle code/t
 ### Next Steps
 
 - Retain the active task without archive; no push, merge or deployment performed.
+
+
+## Session 23: Deliver and archive five completed tasks
+<!-- trellis-session: v=2 fp=a53e312ee6b5a823 -->
+
+**Date**: 2026-10-26
+**Task**: Deliver and archive five completed tasks
+**Branch**: `keiyaku-no-kisu`
+
+### Summary
+
+User authorized local delivery of three checked changes and archival of all five ready tasks. Created work commit 2e477fb and five scoped archive commits; retained two paused TgSetu tasks without live operations.
+
+### Main Changes
+
+- Committed preview streaming, Telegram startup recovery and configurable scheduled-news retry with existing plans, review evidence and shared specs.
+- Archived telegram-tguid, container-lifecycle, preview-status-streaming, telegram-startup-recovery and news-push-retry; recorded work/archive hashes and corrected archived context references.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7da12cd` | feat(bot): add public commands and refresh preview workflow |
+| `6af84c6` | fix(deploy): unify container lifecycle |
+| `2e477fb` | fix(bot): recover startup, stream preview logs and retry news |
+
+### Testing
+
+- [OK] Reused recorded independent full gates: 1024/1067/1115/1107/1179 passes with one existing skip and three existing warnings; no full suite rerun during archival.
+- [OK] Delivery-time Bash syntax, tracked/new-file whitespace and all five archived context manifests passed. Verified completed task states, work ancestry, archive commit scope and one Codex trailer per archive.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Only the two paused TgSetu parent/child tasks remain; resume their pending local Bot API/account acceptance only after explicit user direction.

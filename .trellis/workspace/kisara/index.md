@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
-- **Last Active**: 2026-10-14
+- **Total Sessions**: 23
+- **Last Active**: 2026-10-26
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~754 | Active |
+| `journal-1.md` | ~792 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-10-26 | Deliver and archive five completed tasks | `7da12cd`, `6af84c6`, `2e477fb` | `keiyaku-no-kisu` |
 | 22 | 2026-10-14 | Commit unified container lifecycle | `6af84c646c07c069d8f35f77308e509b401b29ee` | `feat/container-lifecycle` |
 | 21 | 2026-10-13 | Unified ordinary and preview container lifecycle | - | `feat/container-lifecycle` |
 | 20 | 2026-10-13 | Commit public commands and preview workflow | `7da12cd14a523b56e4491349c40cfb949d0ef3a7` | `keiyaku-no-kisu` |

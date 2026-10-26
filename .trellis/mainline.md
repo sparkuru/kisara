@@ -1,5 +1,21 @@
 # Trellis Mainline
 
+## Ready-task delivery and archival — 2026-10-26
+
+The user requested “将可归档/提交归档的，全部归档/提交归档”, authorizing
+local delivery of the three checked pending changes and archival of all five
+ready tasks. Combined work commit `2e477fb` includes preview streaming,
+Telegram startup recovery and configurable scheduled-news retry, with their
+plans, review evidence and shared contracts. The task map below records each
+archive commit and destination. Earlier commit/archive exclusions in retained
+planning and validation history are superseded only for these five tasks.
+
+The two TgSetu parent/child tasks remain paused and active, with their pending
+local Bot API/account acceptance unchanged. No new task, deployment, live
+service/account operation or push was performed. Existing full-regression
+records were reused; this archival session verified Bash syntax, whitespace,
+all five archived context manifests, task state, local ancestry and attribution.
+
 ## Current initiative
 
 - title: Telegram /tgsetu native archive
@@ -38,10 +54,10 @@
 ## Approved scoped work
 
 - title: Per-engine public command features and Telegram /tguid
-- task: [telegram-tguid](tasks/10-12-telegram-tguid/task.json)
-- source: [PRD](tasks/10-12-telegram-tguid/prd.md),
-  [design](tasks/10-12-telegram-tguid/design.md),
-  [implementation plan](tasks/10-12-telegram-tguid/implement.md).
+- task: [telegram-tguid](tasks/archive/2026-10/10-12-telegram-tguid/task.json)
+- source: [PRD](tasks/archive/2026-10/10-12-telegram-tguid/prd.md),
+  [design](tasks/archive/2026-10/10-12-telegram-tguid/design.md),
+  [implementation plan](tasks/archive/2026-10/10-12-telegram-tguid/implement.md).
 - decisions: on 2026-10-12 the user requested public-feature lists across bot
   engines, chose `.env`, retained the group master switch, then approved the
   final planning summary with “开始”. Implementation/checking is authorized.
@@ -49,10 +65,10 @@
   default tguid and otherwise empty defaults, explicit-empty clearing, public
   ordinary command routing and source-UID reply. Existing native permissions,
   live services, private values and unrelated task acceptance stay intact.
-- state: implementation and independent check complete, committed as 7da12cd
-  after the user's “提交” instruction. Original public-feature
+- state: completed and archived as 6214a28 on 2026-10-26; work commit 7da12cd
+  is on keiyaku-no-kisu. The user authorized archival of all ready tasks. Original public-feature
   offline Docker gate: 997 passed, 1 missing-Git skip, 3 existing PTB warnings;
-  [validation](tasks/10-12-telegram-tguid/validation.md). Only missing dotenv keys
+  [validation](tasks/archive/2026-10/10-12-telegram-tguid/validation.md). Only missing dotenv keys
   were appended after seven scratch preservation/refusal cases passed.
 - follow-up: the user requested current-source/settings preview rebuild,
   no-target startup for the COMPOSE_PROFILES list, and platform log labels.
@@ -62,22 +78,22 @@
   complete. Fresh combined full Docker gate: 1024 passed, 1 missing-Git skip,
   3 existing PTB warnings; preview focused 237 and independent combined 140 passed.
   Earlier 997-pass evidence covers only the public-feature scope.
-- boundaries: local delivery commits are authorized; no automatic enrollment,
-  account operation, deployment, archive or push. The existing native-archive initiative and its
+- boundaries: local delivery and archival are authorized; no automatic enrollment,
+  account operation, deployment or push. The existing native-archive initiative and its
   separate account acceptance above remain unchanged.
 - proposed follow-up: after an ownership refusal on the stopped ordinary
   Telegram container, the user highlighted redundant lifecycle guards.
   The user requested a new fix task, now tracked as
-  [container-lifecycle](tasks/10-13-container-lifecycle/prd.md). No service
+  [container-lifecycle](tasks/archive/2026-10/10-13-container-lifecycle/prd.md). No service
   conversion was performed.
 
 ## Approved lifecycle fix
 
-- task: [container-lifecycle](tasks/10-13-container-lifecycle/task.json)
-- source: [PRD](tasks/10-13-container-lifecycle/prd.md),
-  [design](tasks/10-13-container-lifecycle/design.md),
-  [implementation plan](tasks/10-13-container-lifecycle/implement.md),
-  [research](tasks/10-13-container-lifecycle/research/lifecycle.md).
+- task: [container-lifecycle](tasks/archive/2026-10/10-13-container-lifecycle/task.json)
+- source: [PRD](tasks/archive/2026-10/10-13-container-lifecycle/prd.md),
+  [design](tasks/archive/2026-10/10-13-container-lifecycle/design.md),
+  [implementation plan](tasks/archive/2026-10/10-13-container-lifecycle/implement.md),
+  [research](tasks/archive/2026-10/10-13-container-lifecycle/research/lifecycle.md).
 - owner decisions: on 2026-10-13 the user requested task creation and a fix for
   the redundant deployment/preview guards, then explicitly chose to merge
   stop/down and retain down only (stop and remove objects, persistent data kept).
@@ -91,14 +107,99 @@
 - state: final summary approved with “开始”; implementation, independent review
   and spec synchronization complete on feat/container-lifecycle. The user's
   2026-10-14 “提交” instruction authorized local delivery; work commit is 6af84c6.
+  Completed and archived as 671f6e1 on 2026-10-26 under the ready-task cleanup request.
   Independent gate 70 passed; final full Docker gate 1067 passed, 1 existing
   missing-Git skip, 3 existing PTB warnings. Bash/whitespace checks and both
-  context manifests pass; [validation](tasks/10-13-container-lifecycle/validation.md)
+  context manifests pass; [validation](tasks/archive/2026-10/10-13-container-lifecycle/validation.md)
   records intermediate fixes, exact checks and offline evidence limits.
 - boundaries: preserve prior work, all stored data, bot/native/public permissions
   and foreign project isolation. Local delivery commits are authorized. No
-  private dotenv changes, live operation, archive/push or generic repository
-  lock audit in this new task.
+  private dotenv changes, live operation, push or generic repository lock audit.
+  The 2026-10-26 request authorized local archival.
+
+## Approved preview status fix
+
+- task: [preview-status-streaming](tasks/archive/2026-10/10-22-preview-status-streaming/task.json)
+- source and acceptance: [PRD](tasks/archive/2026-10/10-22-preview-status-streaming/prd.md).
+- owner decisions: on 2026-10-22 the user requested a new task to restore
+  continuous `./kisara.sh preview status` output, then approved the final
+  planning summary with “同意”. Implementation/checking is authorized.
+- scope: reproduce and minimally repair the existing log stream; retain
+  credential redaction, platform labels, bounded storage and signal cleanup.
+- state: the user reopened acceptance after bare preview waited until Ctrl+C
+  and status printed logs then exited. The diagnostic marker and actual-CLI
+  fixtures established readiness-gated diagnostics; earlier locale-only checks
+  did not cover those paths. The user approved the revised final summary with
+  “确认”. Startup now streams during readiness and remains attached afterward;
+  unready status warns and follows. Viewing interruption skips duplicate
+  diagnostics while genuine startup failures retain bounded diagnostics.
+  New regressions: 8 failed before / 8 passed after; focused gate: 289 passed,
+  1 existing skip; strengthened post-ready output: 4 passed. Independent full
+  regression: 1115 passed, 1 existing skip, 3 existing PTB warnings. Independent
+  review found no actionable production defect. Work committed as 2e477fb and
+  task completed/archived as 44dcd31 on 2026-10-26.
+  Controlled read-only unready status held for 12 seconds
+  with unchanged three-container identities/state. QR filtering also preserves
+  Chinese logs in C/POSIX and UTF-8 locales. See
+  [validation](tasks/archive/2026-10/10-22-preview-status-streaming/validation.md) for current
+  readiness-path evidence and separately scoped historical locale results.
+- boundaries: no private dotenv value inspection, live service changes, account
+  messages or push. Local delivery and archival were authorized on 2026-10-26;
+  Telegram deployment/account work stays paused.
+
+## Approved Telegram startup recovery
+
+- task: [telegram-startup-recovery](tasks/archive/2026-10/10-22-telegram-startup-recovery/task.json)
+- source: [PRD](tasks/archive/2026-10/10-22-telegram-startup-recovery/prd.md),
+  [design](tasks/archive/2026-10/10-22-telegram-startup-recovery/design.md),
+  [execution plan](tasks/archive/2026-10/10-22-telegram-startup-recovery/implement.md).
+- user request: on 2026-10-22 the user supplied one failed Telegram startup
+  followed by polling-ready logs and requested a fix. This narrowly resumes
+  startup diagnosis/repair; TgSetu deployment/account work stays paused. The
+  user approved the final planning summary with “可以”.
+- evidence: startup has no network retry and the process boundary discards safe
+  exception classification. The supplied logs cannot recover the actual prior
+  exception; no private runtime or live account operation was inspected.
+- approved scope: three total startup attempts for transient network failures,
+  interruptible 1/2-second backoff, safe phase/category diagnostics, cleanup
+  before retry, and no retry for credential/ownership/bad-request failures.
+- state: PRD/design/execution plan and both context manifests prepared and
+  validated; implementation and independent review passed. The original getMe
+  and deleteWebhook transport-failure fixtures failed before the correction;
+  focused gate passed 173 tests and independent full regression passed 1107
+  tests, with 1 existing skip and 3 existing PTB warnings. See
+  [validation](tasks/archive/2026-10/10-22-telegram-startup-recovery/validation.md). Commit approval
+  was granted on 2026-10-26: work committed as 2e477fb and task completed/archived
+  as a2b17f3. This task did not rebuild or change live images/containers, and
+  deployment of the Telegram application changes is unverified.
+- boundaries: preserve preview streaming work and prior commit boundaries;
+  no live restart, endpoint/proxy change, cloud logOut or local API cutover.
+
+## Scheduled news retry configuration
+
+- task: [news-push-retry](tasks/archive/2026-10/10-26-news-push-retry/task.json)
+- source: [PRD](tasks/archive/2026-10/10-26-news-push-retry/prd.md),
+  [design](tasks/archive/2026-10/10-26-news-push-retry/design.md),
+  [execution plan](tasks/archive/2026-10/10-26-news-push-retry/implement.md).
+- user request: on 2026-10-26 the user requested automatic scheduled-news retry
+  after about60 seconds and then required a configurable seconds value.
+- scope: replace the existing15-minute retry interval with a positive integer
+  setting, default60, for OneBot and Telegram scheduled news. Reuse per-engine
+  TOML/environment precedence, delivery checkpoints and Telegram longer
+  retry-after/permanent/uncertain guards. Manual news and HTTP retry are unchanged.
+- state: implementation and focused regression passed386 tests with one existing
+  skip in20.97 seconds. Selected new regressions failed23/passed8 before the
+  implementation and passed31 afterward. Independent source review found no
+  actionable production defect; full offline regression passed1179 tests with
+  one existing skip and three existing PTB warnings in560.36 seconds, exit0.
+  Both eight-entry task context manifests validated (large spec explicitly read
+  after native truncation); examples/docs/specs updated. All acceptance criteria
+  met; work committed as 2e477fb and task completed/archived as 6cd1c1e on
+  2026-10-26. Live deployment remains unperformed. See
+  [independent check](tasks/archive/2026-10/10-26-news-push-retry/check-evidence.md).
+- boundaries: preview and Telegram startup work were delivered together in the
+  authorized 2e477fb commit. No live service mutation, account/provider operation,
+  private configuration rewrite, schema/dependency change or push.
 
 ## Previous initiative
 
@@ -154,8 +255,11 @@ parent/child relationship or serial execution is inferred.
 | 2 | [Setu archive attachments](tasks/archive/2026-10/10-09-setu-archive-files/task.json) | completed, archived | Work c3e2f32 on keiyaku-no-kisu; user confirmed task acceptance passed on 2026-10-11; archive 10feef1; existing 308 focused/580 full passes and isolated native-byte/digest evidence retained |
 | 3 | [Telegram /tgsetu, configuration roots and command entry](tasks/10-10-telegram-tgsetu/task.json) | paused at user request; implemented and merged | Work 2782454 on keiyaku-no-kisu; final combined Docker suite 913 passed/1 host-verified Git skip; official image/RO-cache smoke passed; scoped OneBot preview ready with data retained; Telegram account/deployment acceptance remains pending and is not archived |
 | 4 | [Preview status bot logs](tasks/archive/2026-10/10-11-preview-status-logs/task.json) | completed, archived | Work 2782454; archive 47ea1cc on keiyaku-no-kisu; all acceptance met; fresh 20-case focused gate passed; existing full913 passed/1 skipped and real read-only follow/interrupt smoke preserved bot/NapCat |
-| 5 | [Public features, /tguid and preview](tasks/10-12-telegram-tguid/task.json) | in_progress; implemented/checked, locally committed | Work 7da12cd authorized by “提交”; focused 237/independent combined 140 passed, final full Docker 1024 passed/1 skipped/3 existing warnings; no deployment/archive/push |
-| 6 | [Unified container lifecycle](tasks/10-13-container-lifecycle/task.json) | implemented/checked; locally committed | Work 6af84c6 authorized by “提交”; independent 70 passed, final full 1067 passed/1 existing skip/3 existing warnings; no live service change/archive/push |
+| 5 | [Public features, /tguid and preview](tasks/archive/2026-10/10-12-telegram-tguid/task.json) | completed, archived | Work 7da12cd; archive 6214a28; independent combined 140 and full 1024 passed/1 existing skip/3 existing warnings; no deployment/push |
+| 6 | [Unified container lifecycle](tasks/archive/2026-10/10-13-container-lifecycle/task.json) | completed, archived | Work 6af84c6; archive 671f6e1; independent 70 and full 1067 passed/1 existing skip/3 existing warnings; no live operation/push |
+| 7 | [Preview status continuous output](tasks/archive/2026-10/10-22-preview-status-streaming/task.json) | completed, archived | Work 2e477fb; archive 44dcd31; actual readiness regressions 8 failed before/8 passed after; 289 focused and 1115 full passes/1 existing skip/3 existing warnings; strengthened post-ready cases 4 passed |
+| 8 | [Telegram startup recovery](tasks/archive/2026-10/10-22-telegram-startup-recovery/task.json) | completed, archived | Work 2e477fb; archive a2b17f3; bounded startup recovery and safe categories verified; 173 focused and 1107 full passes/1 existing skip/3 existing warnings; no live operation |
+| 9 | [Configurable scheduled news retry](tasks/archive/2026-10/10-26-news-push-retry/task.json) | completed, archived | Work 2e477fb; archive 6cd1c1e; 386 focused and 1179 independent full passes/1 existing skip/3 existing warnings; default/configurable retry and delivery-state protections verified; no live deployment |
 
 ## Evidence and decisions
 
