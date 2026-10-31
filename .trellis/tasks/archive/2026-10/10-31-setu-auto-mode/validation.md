@@ -112,3 +112,8 @@ because source and tests have not changed since the verified implementation.
 
 Local delivery uses a work commit, task archive and session-record commit.
 No deployment, live-service restart or push is authorized or performed.
+
+Work commit: `3caa750c5f196edc0d07b11539215de8e0631e83` (`feat(setu): add automatic merged-forward saving`)
+on `feat/setu-auto-mode`. This branch was created from the previously checked-out
+`feat/export-linked-video` branch at `b1dbc95`; task metadata preserves that
+base and records the new feature branch, without bypassing archive validation.
