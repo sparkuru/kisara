@@ -26,12 +26,12 @@
   Video export retains its own acceptance and delivery record.
   This delivery performed no push, merge or service/account operation.
 
-## Approved Bilibili video export — 2026-10-26
+## Completed Bilibili video export — 2026-10-31
 
-- Task: [export-linked-video](tasks/10-26-export-linked-video/task.json),
-  [requirements](tasks/10-26-export-linked-video/prd.md),
-  [design](tasks/10-26-export-linked-video/design.md),
-  [execution plan](tasks/10-26-export-linked-video/implement.md).
+- Task: [export-linked-video](tasks/archive/2026-10/10-26-export-linked-video/task.json),
+  [requirements](tasks/archive/2026-10/10-26-export-linked-video/prd.md),
+  [design](tasks/archive/2026-10/10-26-export-linked-video/design.md),
+  [execution plan](tasks/archive/2026-10/10-26-export-linked-video/implement.md).
 - Owner decisions: explicitly requested task creation and use of recent
   preview examples, approved Bilibili-only first scope, supplied a temporary
   session file for use, then approved the final planning summary with “开始”.
@@ -39,8 +39,9 @@
   session-aware highest available quality, complete MP4/native video return,
   preserved image export/auth boundaries, bounded temporary transport and
   targeted OneBot/NapCat preview verification preserving login/state.
-- State: implemented and independently checked on `feat/export-linked-video`;
-  full Docker gate1254 passed/1 missing-Git skip/3 existing SDK warnings.
+- State: completed and archived on `feat/export-linked-video`; work commit
+  `bb228b3`, archive commit `c7a3332`. Initial full Docker
+  gate1254 passed/1 missing-Git skip/3 existing SDK warnings.
   The skipped ignore fixture was verified separately. Real extractor/download/
   merge probes produced complete1080p30 audio/video for both supplied source
   videos; final-image source comparison and complete decoding passed.
@@ -57,7 +58,7 @@
   closing the prior native return gate, and explicitly authorized commit/archive.
   All ACs are closed; this is user-reported acceptance, without newly collected
   receipt IDs or playback measurements. See
-  [evidence](tasks/10-26-export-linked-video/validation.md).
+  [evidence](tasks/archive/2026-10/10-26-export-linked-video/validation.md).
 - Delivery boundaries: no other providers/engines, playlist expansion, per-user
   credential management, unrelated Telegram work or push. The separate QQ
   terminal-QR task has its own completed delivery above.
@@ -322,7 +323,7 @@ parent/child relationship or serial execution is inferred.
 | 7 | [Preview status continuous output](tasks/archive/2026-10/10-22-preview-status-streaming/task.json) | completed, archived | Work 2e477fb; archive 44dcd31; actual readiness regressions 8 failed before/8 passed after; 289 focused and 1115 full passes/1 existing skip/3 existing warnings; strengthened post-ready cases 4 passed |
 | 8 | [Telegram startup recovery](tasks/archive/2026-10/10-22-telegram-startup-recovery/task.json) | completed, archived | Work 2e477fb; archive a2b17f3; bounded startup recovery and safe categories verified; 173 focused and 1107 full passes/1 existing skip/3 existing warnings; no live operation |
 | 9 | [Configurable scheduled news retry](tasks/archive/2026-10/10-26-news-push-retry/task.json) | completed, archived | Work 2e477fb; archive 6cd1c1e; 386 focused and 1179 independent full passes/1 existing skip/3 existing warnings; default/configurable retry and delivery-state protections verified; no live deployment |
-| 10 | [Quoted Bilibili video export](tasks/10-26-export-linked-video/task.json) | accepted; delivery authorized | Branch feat/export-linked-video; full regression and real1080p30 MP4/decoding/shared-volume checks passed; user confirmed native QQ return on 2026-10-31 and authorized commit/archive; separate QQ terminal-QR work excluded |
+| 10 | [Quoted Bilibili video export](tasks/archive/2026-10/10-26-export-linked-video/task.json) | completed, archived | Work bb228b3; archive c7a3332; final video/OneBot focus209 passed; unchanged-source full1316 passed/7 skips/3 existing warnings; real MP4/decoding/shared-volume checks and owner QQ native-return acceptance complete; no push |
 
 ## Evidence and decisions
 

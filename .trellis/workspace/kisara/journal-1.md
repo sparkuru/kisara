@@ -792,6 +792,41 @@ User authorized local delivery of three checked changes and archival of all five
 - Only the two paused TgSetu parent/child tasks remain; resume their pending local Bot API/account acceptance only after explicit user direction.
 
 
+## Session 24: Bilibili video export implementation and account-gated acceptance
+<!-- trellis-session: v=2 fp=e6def57f643cb345 -->
+
+**Date**: 2026-10-26
+**Task**: Bilibili video export implementation and account-gated acceptance
+**Branch**: `feat/export-linked-video`
+
+### Summary
+
+Implemented quoted OneBot Bilibili MP4 export, independent full gate passed, real downloads and decoding verified; targeted preview is waiting for QQ re-login before native acceptance.
+
+### Main Changes
+
+- Added source-aware native video export, optional private session wiring, bounded subprocess and dedicated shared spool while preserving image export and strict permissions.
+- Independent review fixed stdout EOF deadline and asynchronous native receipt certainty; updated executable video-export spec and task evidence.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Full Docker gate: 1254 passed, 1 missing-Git skip independently reproduced with synthetic ignore fixtures, 3 existing PTB warnings.
+- [OK] Real sample anonymous/session downloads, MP4 merge/full decoding, final image 63-file hash comparison and NapCat-first isolated volume UID/read access passed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Re-login QQ through existing NapCat WebUI, verify OneBot readiness, then run the prepared task live probe to send both user samples and confirm native receipts/client playback.
+- Keep task in_progress; no commit/archive/push or unrelated Telegram work is authorized.
+
+
 ## Session 25: QQ login PNG in existing logs
 <!-- trellis-session: v=2 fp=75e145fd677fb556 -->
 
@@ -914,6 +949,28 @@ Owner accepted terminal QQ login flow and authorized local delivery. Committed e
 | Hash | Message |
 |------|---------|
 | `bc74135` | feat(onebot): render login QR PNGs in attached logs |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 29: Deliver and archive Bilibili video export
+<!-- trellis-session: v=2 fp=21f6fced75b7d803 -->
+
+**Date**: 2026-10-31
+**Task**: Deliver and archive Bilibili video export
+**Branch**: `feat/export-linked-video`
+
+### Summary
+
+Owner confirmed QQ native return and authorized local delivery. Committed quoted Bilibili MP4 export as bb228b3, archived as c7a3332 with Codex attribution, and closed all ACs. Final video/OneBot focus209 passed; unchanged-source full1316/7 skips/3 existing warnings reused. Preserved separately delivered QQ task; no push or service/account operation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb228b3` | feat(export): support quoted Bilibili videos |
 
 ### Status
 

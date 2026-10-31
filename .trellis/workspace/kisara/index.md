@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 27
+- **Total Sessions**: 29
 - **Last Active**: 2026-10-31
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~920 | Active |
+| `journal-1.md` | ~977 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,10 +29,12 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 29 | 2026-10-31 | Deliver and archive Bilibili video export | `bb228b3` | `feat/export-linked-video` |
 | 28 | 2026-10-31 | Deliver and archive QQ login terminal QR | `bc74135` | `feat/export-linked-video` |
 | 27 | 2026-10-26 | Repair QQ PNG reader runtime acceptance | - | `feat/export-linked-video` |
 | 26 | 2026-10-26 | Fix preview ANSI collation and redaction ordering | - | `feat/export-linked-video` |
 | 25 | 2026-10-26 | QQ login PNG in existing logs | - | `feat/export-linked-video` |
+| 24 | 2026-10-26 | Bilibili video export implementation and account-gated acceptance | - | `feat/export-linked-video` |
 | 23 | 2026-10-26 | Deliver and archive five completed tasks | `7da12cd`, `6af84c6`, `2e477fb` | `keiyaku-no-kisu` |
 | 22 | 2026-10-14 | Commit unified container lifecycle | `6af84c646c07c069d8f35f77308e509b401b29ee` | `feat/container-lifecycle` |
 | 21 | 2026-10-13 | Unified ordinary and preview container lifecycle | - | `feat/container-lifecycle` |
