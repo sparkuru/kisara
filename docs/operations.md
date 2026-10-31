@@ -499,6 +499,24 @@ save mode; a name already occupied by different content produces
 reused. Timestamp suffixing applies only to these archive file attachments;
 images, videos, audio, and other files retain their existing rules.
 
+In an authorized OneBot private chat, `/setu on` enables automatic saving of
+subsequent merged forwards. Each received forward is a separate batch: the bot
+quotes that source with `正在保存以上 …`, saves without another confirmation,
+then quotes the same source with the actual archive result. `/setu off` stops
+automatic acceptance of later forwards; an already accepted save finishes.
+The setting is isolated by bot instance and user and lives only in memory:
+a WebSocket reconnect retains it, but a bot process restart resets it to off.
+Repeated on/off commands are harmless. Existing global and Setu user allowlists
+still apply; group messages and standalone images/videos/audio/files do not
+acquire automatic saving. Empty or unexpandable forwards report no savable
+attachments rather than a successful save.
+
+Manual quoted saving and confirmation work in either mode. An explicit normal
+`/setu` request still asks for confirmation even while automatic mode is on.
+Automatic partial failures use the same result-quote retry as 直接保存: quote
+the failure result with 保存 to retry unfinished items, including after
+`/setu off`. Successful files and ordinary batch expiry/recovery remain intact.
+
 For an ordinary file, send it as a file message in an authorized private chat,
 then quote that message with `/setu` and confirm the prompt, or quote it with
 直接保存. Plain file messages without a quoted save command do not auto-save.

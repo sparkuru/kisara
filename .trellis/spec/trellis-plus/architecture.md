@@ -92,8 +92,17 @@ ordinary file message, then
 a confirmation quoting the bot's prompt before expiry (default 60 seconds).
 Configured direct confirmation words (default 直接保存) skip the question and
 save immediately. Cancellation words have no workflow behavior.
-Unconfirmed media is not downloaded.
-Plain images and unsolicited forwards do not trigger archive replies.
+The authorized private commands `/setu on` and `/setu off` control automatic
+handling of newly received merged forwards. Activation is scoped to bot instance
+and user in service memory: default off, reset on process restart, retained on
+transport reconnect. While on, each received forward uses the existing direct
+save/notice/result/retry path, quoting that incoming message without an extra
+confirmation. Off stops later automatic acceptance; already accepted batches
+and all manual workflows remain available. Keep existing conversation ordering.
+Unconfirmed manual media is not downloaded; automatic forward consent comes
+from explicit activation. Standalone images/videos/audio/files do not acquire
+automatic saving, and unsolicited forwards remain ignored when mode is off.
+See [Setu contracts](setu-storage.md) for source identity and notice/retry rules.
 Image export has a separate authorization gate, precedes archive handling, and
 returns original bytes as file attachments without archive persistence.
 Linked Bilibili video export shares the strict native gate and source-aware
@@ -285,8 +294,8 @@ remain effective; the prompt describes the configured timeout.
 
 Good: quote a forward with 直接保存, receive a start notice then one result, then quote that result
 with 保存 to retry a failed file. Base: quote a forward with /setu, then quote
-the question with 保存 within 60 seconds. Bad: save an unquoted forward or use
-a global latest-batch fallback for an unrelated quote.
+the question with 保存 within 60 seconds. Bad: save an unquoted forward while
+automatic mode is off, or use a global latest-batch fallback for an unrelated quote.
 
 ### Required tests
 
@@ -305,6 +314,7 @@ Wrong: hard-code direct words only in the adapter, or skip state claiming when
 saving directly. Correct: share trigger recognition through Setu and reuse
 the durable batch claim/checkpoint/result flow.
 
-Wrong: quote the original forward or bot prompt in the final result. Correct:
-pass the current user command ID into the save result callback, while keeping
-the stored bot result ID as the retry selection target for direct failures.
+For manual saves, wrong: quote the original forward or bot prompt in the final
+result. Correct: pass the current user command ID into the save result callback,
+while keeping the stored bot result ID as the retry selection target for direct
+failures. Automatic saves use the incoming forward as their triggering message.

@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared feature and delivery policy"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Context loading delegation and delivery boundaries"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Scope and preservation contracts"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Docker checks and residual human review"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Native routing authorization and Setu contracts"}
+{"file": ".trellis/spec/trellis-plus/setu-storage.md", "reason": "Existing notice source identity retry and file contracts"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline routing"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavioral tests and coding standards"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Native errors and failed-item recovery"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse source claim and saving without duplication"}
+{"file": ".trellis/tasks/10-31-setu-auto-mode/research/current-behavior.md", "reason": "Inspected entry points and confirmed memory-only lifetime"}

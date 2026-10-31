@@ -114,6 +114,29 @@ all five archived context manifests, task state, local ancestry and attribution.
   cutover, cloud `logOut`, service restart or further Telegram implementation
   until the user explicitly resumes it.
 
+## Approved Setu automatic-mode work
+
+- task: [setu-auto-mode](tasks/10-31-setu-auto-mode/task.json).
+- source: [PRD](tasks/10-31-setu-auto-mode/prd.md),
+  [design](tasks/10-31-setu-auto-mode/design.md),
+  [execution plan](tasks/10-31-setu-auto-mode/implement.md).
+- owner decisions: on 2026-10-31 the user requested task creation for
+  `/setu on` / `/setu off`, selected activation resetting after process restart
+  with “重启关闭吧”, and approved the final planning summary with “开始”.
+- scope: per-user/instance memory activation for authorized OneBot private
+  merged forwards, existing quoted start/result feedback and failed-item retry,
+  default-off and restart-off behavior, and preserved manual archive flows.
+- state: implementation, independent review and owner acceptance complete;
+  user reported “验收通过；可以提交” on 2026-10-31 and authorized local delivery.
+  Focused Setu/protocol gate: 276 passed. Full run:
+  1342 passed, 7 skipped, one unrelated preview process-cleanup assertion failed;
+  exact isolated retry passed (1 passed). Full run is not wholly green; no
+  deployment code was changed. [Evidence](tasks/10-31-setu-auto-mode/validation.md).
+- boundaries: local work commit and normal archive/session record are now
+  authorized. No Telegram/group/standalone-media expansion, schema changes,
+  live service operations, deployment or push. This task does not resume the
+  paused TgSetu account/deployment work.
+
 ## Approved scoped work
 
 - title: Per-engine public command features and Telegram /tguid

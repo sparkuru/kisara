@@ -5,6 +5,11 @@
 Private OneBot setu accepts commands quoting merged forwards or ordinary file
 messages. Both global and feature allowlists precede quoted lookup/download;
 unquoted/unsolicited files and plain image/video quotes do not start Setu.
+Authorized `/setu on` enables automatic saving of newly received merged forwards
+for that user and bot instance. `/setu off` disables this mode. Activation is
+memory-only, defaults off, resets on process restart, and survives transport
+reconnect with the same service. Ordinary manual source/confirmation behavior
+remains available in either mode; standalone media is not accepted automatically.
 The ordinary-file entry reuses the same confirmation/direct-save, source
 deduplication, counts, result quote, placement, and failed-item retry contracts.
 Prompt wording describes a message rather than calling every source a forward.
@@ -23,6 +28,14 @@ remaining_bytes: int) -> Dict[str, object]` consumes existing `kind`, `name`,
 and `file` metadata. It returns the actual `path`, byte `size`, and `sha256`
 for the existing Setu checkpoint/retry flow. No new config key, protocol API,
 SQLite column, or archive tool dependency is needed.
+
+`Setu.handle(event: MessageEvent, gateway: SetuGateway) -> bool` recognizes
+the exact commands `/setu on` and `/setu off` after existing whitespace/case
+normalization and feature authorization. Repeating a command returns the
+resulting mode without changing any archive batch. Automatic state is keyed by
+`(event.instance_id, event.sender_id)` inside the service, never in SQLite or
+private feature TOML. Preserve `is_start_word` as manual-source recognition so
+these mode commands do not cause quoted-message retrieval.
 
 File collection prefers raw `file_id` for internal `file` resolution while
 retaining the original basename from raw `file_name`/`name`/`file` as `name`.
@@ -93,6 +106,21 @@ Existing HTTPS/cache source restrictions, per-file/batch caps, `0640` file
 permissions, result quote targets, confirmation, and retry contracts remain
 effective. No historical-file migration occurs.
 
+An enabled automatic forward uses the incoming message ID as its durable source
+identity. Reuse the existing extraction, `add_setu`/`prepare_source` claim and
+direct-save path, rather than fabricating a command or another downloader.
+Quote the incoming forward for the pending-kind start notice and final result;
+use the final direct-save result as the failed-item retry selector. Empty or
+unexpandable sources must not claim files are being saved when there are no
+supported attachments. Default-off forwards do not expand or download anything.
+Manual quoted sources and confirmations retain their existing behavior.
+
+Existing per-conversation ordering determines acceptance: `/setu off` can be
+handled after the preceding accepted save finishes and affects later events.
+Do not cancel batches, reset saved checkpoints, or create a parallel queue.
+Recreating Setu resets only activation; durable batch recovery/manual retries
+retain their existing rules, with no automatic replay of interrupted saves.
+
 For local sources, resolve symlinks and require an existing file inside
 `local_media_root`. The existing `nt_qq*/nt_data/{Video,Pic,Audio,File,Record}/...`
 media allowlist remains. Explicit file-kind attachments also accept direct
@@ -162,6 +190,12 @@ only renewed source intent can open a new window. No schema reset is needed.
 | Source is saving, saved, mismatched or its metadata was pruned | Truthful status/guidance; no duplicate or unrelated save |
 | Confirmed/direct/retry save starts | Pending-kind notice before resolution, then final archive result |
 | Start notice send fails | Save still runs and checkpoints normally; no success inferred from notice |
+| Authorized `/setu on` or `/setu off`, including repeats | Set the isolated memory mode and report its resulting state |
+| Received merged forward while mode is on | Existing direct save with incoming-source notice/result quotes; no extra confirmation |
+| Received forward while mode is off, or standalone media in either mode | No new automatic extraction/download |
+| Mode command/forward from denied user or group | Existing permission rejection before native effects |
+| New service over the same persistent state | Automatic mode off; stored files and batch checkpoints retained |
+| Transport reconnect with the same service | Retain activation; no automatic replay of stored batches |
 
 ### 5. Good / base / bad cases
 
@@ -169,6 +203,9 @@ Good: save two different `资料.tar.gz` files as the original and a timestamp
 variant, then reuse the correct variant on repeat. Base: a quoted ZIP follows
 the existing confirmation flow. Bad: change an image's hash filename or add
 timestamp copies of images as part of this feature.
+For automatic mode, good: enable once and save two independently quoted
+incoming forwards. Base: mode off retains manual quoted saving. Bad: persist
+activation despite the selected restart reset, or start saving a standalone file.
 
 ### 6. Required tests
 
@@ -203,6 +240,13 @@ truthful processing/completed/missing statuses.
 Verify start-notice send/resolver/result order and command quote in service and
 protocol tests, retry counts exclude saved entries, notice IDs cannot confirm
 anything, and send failure does not prevent a claimed attempt from completing.
+Cover on/off and repeats, user/instance isolation, newly constructed service
+over retained batches, same-service reconnect, consecutive forwards, source
+deduplication, empty/unexpandable forwards, partial retry, standalone-media and
+denied/group rejection, and manual source/confirmation/direct compatibility in
+both modes. Protocol fixtures must assert actual source reply IDs and the
+notice-before-transfer order without an extra confirmation or `get_msg` lookup
+for automatic forwards. Keep export priority and conversation ordering intact.
 
 ### 7. Wrong versus correct
 
@@ -217,3 +261,6 @@ response, and distinguish bot deadlines from native download failures.
 Wrong: treat a retained seen key as saved work or weaken the cache mount to
 read owner-only files. Correct: use the actual batch state and explicit renewed
 source intent; read inaccessible native file bytes through validated chunks.
+Wrong: synthesize “直接保存” events, put automatic state in TOML/SQLite, or
+clear batches on `/setu off`. Correct: keep activation in service memory and
+reuse the actual received source with the existing batch claim and save path.

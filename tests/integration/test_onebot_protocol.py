@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import json
+import sqlite3
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -533,6 +534,80 @@ async def _test_quoted_image_from_another_private_chat_is_rejected() -> None:
     await task
 
 
+def test_automatic_setu_receives_raw_forwards_and_stops_in_conversation_order(tmp_path: Path) -> None:
+    """Raw on/forward/forward/off/forward events retain ordered native behavior."""
+    async def scenario() -> None:
+        """Expand each admitted source and acknowledge exact quoted save feedback."""
+        adapter = _adapter(timeout=2)
+        adapter._allowed_users = frozenset({"123"})
+        config = replace(
+            SetuConfig.disabled(), enabled=True, allowed_users=frozenset({"123"}),
+            save_root=tmp_path / "archive", local_media_root=tmp_path / "cache",
+        )
+        source = config.local_media_root / "nt_qq_test" / "nt_data" / "Pic" / "automatic.jpg"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"automatic-protocol-bytes")
+        adapter._setu = Setu(config, str(tmp_path / "state"))
+        websocket = FakeWebSocket()
+        adapter._websocket = websocket
+        for identifier, segment in (
+            (100, {"type": "text", "data": {"text": "/setu on"}}),
+            (101, {"type": "forward", "data": {"id": "first"}}),
+            (102, {"type": "forward", "data": {"id": "second"}}),
+            (103, {"type": "text", "data": {"text": "/setu off"}}),
+            (104, {"type": "forward", "data": {"id": "after-off"}}),
+        ):
+            adapter._handle_packet({
+                "post_type": "message", "message_type": "private", "self_id": 999,
+                "user_id": 123, "message_id": identifier, "message": [segment],
+            })
+        tasks = tuple(adapter._message_tasks)
+        await _wait_for_requests(websocket, 1, delay=0.01)
+        enabled = websocket.sent[0]
+        assert enabled["action"] == "send_private_msg"
+        assert "已开启" in enabled["params"]["message"][0]["data"]["text"]
+        adapter._resolve_pending({"echo": enabled["echo"], "status": "ok", "retcode": 0,
+                                  "data": {"message_id": 500}})
+        index = 1
+        for identifier, forward_id in (("101", "first"), ("102", "second")):
+            await _wait_for_requests(websocket, index + 1, delay=0.01)
+            lookup = websocket.sent[index]
+            assert lookup["action"] == "get_forward_msg"
+            assert lookup["params"] == {"message_id": forward_id, "id": forward_id}
+            adapter._resolve_pending({
+                "echo": lookup["echo"], "status": "ok", "retcode": 0,
+                "data": {"messages": [{"message": [{"type": "image", "data": {
+                    "file": source.name, "url": str(source),
+                }}]}]},
+            })
+            index = await _ack_save_start(adapter, websocket, index + 1, identifier,
+                                          "正在保存以上 1 张图片。")
+            await _wait_for_requests(websocket, index + 1, delay=0.01)
+            result = websocket.sent[index]
+            assert result["action"] == "send_private_msg"
+            assert result["params"]["message"][0] == {"type": "reply", "data": {"id": identifier}}
+            assert "已保存 1 项，失败 0 项" in result["params"]["message"][1]["data"]["text"]
+            adapter._resolve_pending({"echo": result["echo"], "status": "ok", "retcode": 0,
+                                      "data": {"message_id": 700 + index}})
+            index += 1
+        await _wait_for_requests(websocket, index + 1, delay=0.01)
+        disabled = websocket.sent[index]
+        assert disabled["action"] == "send_private_msg"
+        assert "已关闭" in disabled["params"]["message"][0]["data"]["text"]
+        adapter._resolve_pending({"echo": disabled["echo"], "status": "ok", "retcode": 0,
+                                  "data": {"message_id": 800}})
+        await asyncio.wait_for(asyncio.gather(*tasks), 5)
+        assert len(websocket.sent) == index + 1
+        assert next(config.save_root.rglob(source.name)).read_bytes() == source.read_bytes()
+        assert all(request["action"] != "get_msg" for request in websocket.sent)
+        with sqlite3.connect(str(tmp_path / "state" / "setu.sqlite3")) as database:
+            assert database.execute("SELECT first_message_id FROM batches ORDER BY first_message_id").fetchall() == [
+                ("101",), ("102",),
+            ]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("word", ["保存", "setu", "/setu"])
 def test_quoted_setu_prompts_once_for_source_forward(tmp_path: Path, word: str) -> None:
     """Each quoted start word prompts once for its source forward."""
@@ -921,7 +996,7 @@ def test_direct_save_rejects_quoted_forward_from_another_private_chat(tmp_path: 
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("command", ["/setu", "\u76f4\u63a5\u4fdd\u5b58", "\u4fdd\u5b58"])
+@pytest.mark.parametrize("command", ["/setu", "\u76f4\u63a5\u4fdd\u5b58", "\u4fdd\u5b58", "/setu on", "/setu off"])
 @pytest.mark.parametrize("with_quote", [False, True])
 def test_global_denial_blocks_feature_allowed_guidance_and_pending_confirmation(
     tmp_path: Path, command: str, with_quote: bool,

@@ -92,6 +92,256 @@ def _forward_image(source: Path) -> MessageSegment:
     ]}]})
 
 
+def test_automatic_forwards_save_separately_until_off(tmp_path: Path) -> None:
+    """On admits successive forwards without confirmation; off stops new work."""
+    async def scenario() -> None:
+        """Exercise default-off, repeated switches, duplicate delivery and bytes."""
+        config = _config(tmp_path)
+        source = _cache_file(config, "Pic", "automatic.jpg")
+        source.write_bytes(b"automatic-image")
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        forward = _forward_image(source)
+        assert not await workflow.handle(_event("before", (forward,)), gateway)
+        assert not gateway.sent
+        for identifier in ("on", "on-again"):
+            assert await workflow.handle(_event(identifier, (), "/setu on"), gateway)
+            assert "已开启" in gateway.sent[-1][1]
+        for identifier in ("first", "second"):
+            before = len(gateway.sent)
+            assert await workflow.handle(_event(identifier, (forward,)), gateway)
+            assert len(gateway.sent) == before + 2
+            assert gateway.sent[before][1:] == ("正在保存以上 1 张图片。", identifier)
+            assert "已保存 1 项，失败 0 项" in gateway.sent[-1][1]
+            assert gateway.sent[-1][2] == identifier
+        archived = next(config.save_root.rglob(source.name))
+        assert archived.read_bytes() == source.read_bytes()
+        inode = archived.stat().st_ino
+        assert await workflow.handle(_event("first", (forward,)), gateway)
+        assert gateway.sent[-1][1] == "这批附件已经保存完成。"
+        assert archived.stat().st_ino == inode
+        with sqlite3.connect(str(tmp_path / "state" / "setu.sqlite3")) as database:
+            assert database.execute("SELECT first_message_id, state FROM batches ORDER BY first_message_id").fetchall() == [
+                ("first", "saved"), ("second", "saved"),
+            ]
+        for identifier in ("off", "off-again"):
+            assert await workflow.handle(_event(identifier, (), "/setu off"), gateway)
+            assert "已关闭" in gateway.sent[-1][1]
+        before = len(gateway.sent)
+        assert not await workflow.handle(_event("after", (forward,)), gateway)
+        assert len(gateway.sent) == before
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("change", [
+    {"sender_id": "user-2", "conversation_id": "user-2"}, {"instance_id": "other"},
+])
+def test_automatic_activation_isolated_by_user_and_instance(
+    tmp_path: Path, change: Dict[str, str],
+) -> None:
+    """One allowed user/instance activation cannot authorize another key."""
+    async def scenario() -> None:
+        """Enable separate keys and disable only one of them."""
+        config = replace(_config(tmp_path), allowed_users=frozenset({"user-1", "user-2"}))
+        source = _cache_file(config, "Pic", "isolation.jpg")
+        source.write_bytes(b"isolation")
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        other = replace(_event("other-source", (_forward_image(source),)), **change)
+        assert not await workflow.handle(other, gateway)
+        assert await workflow.handle(replace(_event("other-on", (), "/setu on"), **change), gateway)
+        assert await workflow.handle(_event("off", (), "/setu off"), gateway)
+        assert not await workflow.handle(_event("disabled", (_forward_image(source),)), gateway)
+        assert await workflow.handle(other, gateway)
+        assert "已保存 1 项，失败 0 项" in gateway.sent[-1][1]
+
+    asyncio.run(scenario())
+
+
+def test_restart_resets_automatic_activation_without_losing_saved_batches(tmp_path: Path) -> None:
+    """A new service defaults off even when its existing archive state is reused."""
+    async def scenario() -> None:
+        """Keep same-service activation across scheduler reconnection, then restart."""
+        config = _config(tmp_path)
+        source = _cache_file(config, "Pic", "restart.jpg")
+        source.write_bytes(b"retained")
+        state_dir = str(tmp_path / "state")
+        workflow = Setu(config, state_dir)
+        gateway = FakeGateway()
+        assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        for _ in range(2):
+            scheduler = asyncio.create_task(workflow.run(gateway))
+            await asyncio.sleep(0)
+            scheduler.cancel()
+            await asyncio.gather(scheduler, return_exceptions=True)
+        forward = _forward_image(source)
+        assert await workflow.handle(_event("source", (forward,)), gateway)
+        archived = next(config.save_root.rglob(source.name))
+        inode = archived.stat().st_ino
+        workflow = Setu(config, state_dir)
+        before = len(gateway.sent)
+        assert not await workflow.handle(_event("after-restart", (forward,)), gateway)
+        assert len(gateway.sent) == before
+        assert await workflow.handle(_event("manual", (forward,), "直接保存", "source", "source"), gateway)
+        assert gateway.sent[-1][1] == "这批附件已经保存完成。"
+        assert archived.stat().st_ino == inode
+        assert archived.read_bytes() == b"retained"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize("direct", [False, True])
+def test_manual_saves_keep_their_confirmation_behavior_in_either_mode(
+    tmp_path: Path, automatic: bool, direct: bool,
+) -> None:
+    """Enabling automatic reception never turns a manual normal save into direct."""
+    async def scenario() -> None:
+        """Create a manual source and optionally confirm it after switching off."""
+        config = _config(tmp_path)
+        source = _cache_file(config, "Pic", "manual.jpg")
+        source.write_bytes(b"manual")
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        if automatic:
+            assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        word = "直接保存" if direct else "/setu"
+        before = len(gateway.sent)
+        assert await workflow.handle(_event("request", (_forward_image(source),), word,
+                                           "source", "source"), gateway)
+        if not direct:
+            assert len(gateway.sent) == before + 1
+            assert '引用这条消息并回复 "保存"' in gateway.sent[-1][1]
+            assert not config.save_root.exists()
+            prompt_id = "prompt-{}".format(len(gateway.sent))
+            assert await workflow.handle(_event("off", (), "/setu off"), gateway)
+            assert await workflow.handle(_event("confirm", (), "保存", prompt_id), gateway)
+        assert "已保存 1 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == ("request" if direct else "confirm")
+        assert next(config.save_root.rglob(source.name)).read_bytes() == b"manual"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("kind", ["image", "video", "record", "file", "text"])
+def test_automatic_mode_does_not_accept_standalone_media(tmp_path: Path, kind: str) -> None:
+    """Only incoming forwards acquire automatic acceptance."""
+    async def scenario() -> None:
+        """Send ordinary media or unrelated text with activation enabled."""
+        workflow = Setu(_config(tmp_path), str(tmp_path / "state"))
+        gateway = FakeGateway()
+        assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        assert not await workflow.handle(_event("plain", (MessageSegment(kind, {
+            "file": "plain", "text": "/ping",
+        }),)), gateway)
+        assert len(gateway.sent) == 1
+        assert not workflow._store.due(float("inf"))
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("change", [
+    {"sender_id": "denied"}, {"conversation_kind": "group"}, {"engine": "telegram"},
+])
+def test_automatic_switches_and_forwards_require_feature_permission(
+    tmp_path: Path, change: Dict[str, str],
+) -> None:
+    """Rejected mode commands and forwards have no feature side effects."""
+    async def scenario() -> None:
+        """Check on/off and extraction rejection even after legitimate activation."""
+        workflow = Setu(_config(tmp_path), str(tmp_path / "state"))
+        gateway = FakeGateway()
+        for word in ("/setu on", "/setu off"):
+            assert not await workflow.handle(replace(_event(word, (), word), **change), gateway)
+        assert not gateway.sent
+        assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        forward = MessageSegment("forward", {"id": "must-not-fetch"})
+        assert not await workflow.handle(replace(_event("denied", (forward,)), **change), gateway)
+        assert len(gateway.sent) == 1
+        assert not workflow._store.due(float("inf"))
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("data", [{"id": "empty", "content": []}, {}, {"id": "unavailable"}])
+def test_automatic_empty_or_unsupported_forward_does_not_claim_a_save(
+    tmp_path: Path, data: Dict[str, Any],
+) -> None:
+    """Empty and unexpandable forwards get guidance without saving/completion."""
+    async def scenario() -> None:
+        """Verify no batch, notice or success result is fabricated."""
+        config = _config(tmp_path)
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        assert await workflow.handle(_event("empty", (MessageSegment("forward", data),)), gateway)
+        assert gateway.sent[-1][1] == "这条消息中没有可保存的附件。"
+        assert len(gateway.sent) == 2
+        assert not workflow._store.due(float("inf"))
+        assert not config.save_root.exists()
+
+    asyncio.run(scenario())
+
+
+def test_automatic_partial_result_retry_survives_switching_off(tmp_path: Path) -> None:
+    """Automatic attempts retain direct-result selectors and saved checkpoints."""
+    async def scenario() -> None:
+        """Fail one nested image, disable mode, and retry only that failed item."""
+        config = _config(tmp_path)
+        first = _cache_file(config, "Pic", "first.jpg")
+        second = _cache_file(config, "Pic", "second.jpg")
+        first.write_bytes(b"first")
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        gateway.nodes["nested"] = [{"message": [
+            {"type": "image", "data": {"file": second.name, "url": str(second)}},
+        ]}]
+        forward = MessageSegment("forward", {"id": "outer", "content": [{"message": [
+            {"type": "image", "data": {"file": first.name, "url": str(first)}},
+            {"type": "forward", "data": {"id": "nested"}},
+        ]}]})
+        assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        assert await workflow.handle(_event("source", (forward,)), gateway)
+        assert gateway.sent[-2][1:] == ("正在保存以上 2 张图片。", "source")
+        assert "已保存 1 项，失败 1 项" in gateway.sent[-1][1]
+        archived = next(config.save_root.rglob(first.name))
+        inode = archived.stat().st_ino
+        assert await workflow.handle(_event("off", (), "/setu off"), gateway)
+        second.write_bytes(b"second")
+        assert await workflow.handle(_event("bad-selector", (), "保存", "prompt-2"), gateway)
+        assert not list(config.save_root.rglob(second.name))
+        assert await workflow.handle(_event("retry", (), "保存", "prompt-3"), gateway)
+        assert gateway.sent[-2][1:] == ("正在保存以上 1 张图片。", "retry")
+        assert "已保存 2 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "retry"
+        assert archived.stat().st_ino == inode
+        assert next(config.save_root.rglob(second.name)).read_bytes() == b"second"
+
+    asyncio.run(scenario())
+
+
+def test_automatic_notice_failure_still_finishes_the_claimed_save(tmp_path: Path) -> None:
+    """The automatic entry preserves best-effort notice delivery semantics."""
+    async def scenario() -> None:
+        """Fail the notice send after enabling and still save real bytes."""
+        config = _config(tmp_path)
+        source = _cache_file(config, "Pic", "notice.jpg")
+        source.write_bytes(b"notice")
+        workflow = Setu(config, str(tmp_path / "state"))
+        gateway = FakeGateway()
+        assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+        gateway.fail_count = 1
+        assert await workflow.handle(_event("source", (_forward_image(source),)), gateway)
+        assert len(gateway.sent) == 2
+        assert "已保存 1 项，失败 0 项" in gateway.sent[-1][1]
+        assert gateway.sent[-1][2] == "source"
+        assert next(config.save_root.rglob(source.name)).read_bytes() == b"notice"
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("mode", ["date_original", "timestamp_hash"])
 def test_nested_forward_confirmation_saves_in_selected_layout(
     tmp_path: Path, mode: str,
@@ -331,14 +581,16 @@ def test_reported_file_sizes_reject_before_resolver(tmp_path: Path, limit: str) 
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("direct", [False, True])
+@pytest.mark.parametrize("mode", ["normal", "direct", "automatic"])
 def test_save_start_notice_counts_categories_and_precedes_resolution_and_copy(
-    tmp_path: Path, direct: bool,
+    tmp_path: Path, mode: str,
 ) -> None:
     """Only claimed saves announce their pending files before the first side effect."""
     async def scenario() -> None:
         """Check the real mixed-category text and order in normal and direct workflows."""
         config = _config(tmp_path)
+        direct = mode != "normal"
+        source_id = "direct" if mode == "automatic" else "source"
         source = _cache_file(config, "File", "cache-id")
         source.write_bytes(b"media")
         order: List[str] = []
@@ -369,7 +621,7 @@ def test_save_start_notice_counts_categories_and_precedes_resolution_and_copy(
                     with sqlite3.connect(str(tmp_path / "state" / "setu.sqlite3")) as database:
                         state, prompt_id = database.execute("SELECT state, prompt_id FROM batches").fetchone()
                     assert state == "saving"
-                    assert prompt_id == ("source" if direct else "prompt-1")
+                    assert prompt_id == (source_id if direct else "prompt-1")
                     await asyncio.sleep(0)
                     notice_delivered[0] = True
                     order.append("start")
@@ -391,8 +643,13 @@ def test_save_start_notice_counts_categories_and_precedes_resolution_and_copy(
                  for index in range(count)]
         forward = MessageSegment("forward", {"id": "mixed", "content": [{"message": nodes}]})
         command = "\u76f4\u63a5\u4fdd\u5b58" if direct else "/setu"
-        assert await workflow.handle(_event("direct" if direct else "request", (forward,), command,
-                                           "source", "source"), gateway)
+        if mode == "automatic":
+            assert await workflow.handle(_event("on", (), "/setu on"), gateway)
+            event = _event("direct", (forward,))
+        else:
+            event = _event("direct" if direct else "request", (forward,), command,
+                           source_id, source_id)
+        assert await workflow.handle(event, gateway)
         if not direct:
             assert not order
             assert not config.save_root.exists()
@@ -400,7 +657,7 @@ def test_save_start_notice_counts_categories_and_precedes_resolution_and_copy(
         assert order == ["start"] + [entry for _ in range(7) for entry in ("resolve", "copy")] + ["final"]
         assert "\u5df2\u4fdd\u5b58 7 \u9879\uff0c\u5931\u8d25 0 \u9879" in gateway.sent[-1][1]
         notices_before = sum(text.startswith("\u6b63\u5728\u4fdd\u5b58") for _, text, _ in gateway.sent)
-        assert await workflow.handle(_event("duplicate", (forward,), "\u76f4\u63a5\u4fdd\u5b58", "source", "source"), gateway)
+        assert await workflow.handle(_event("duplicate", (forward,), "\u76f4\u63a5\u4fdd\u5b58", source_id, source_id), gateway)
         assert sum(text.startswith("\u6b63\u5728\u4fdd\u5b58") for _, text, _ in gateway.sent) == notices_before == 1
 
     asyncio.run(scenario())

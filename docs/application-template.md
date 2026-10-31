@@ -87,7 +87,7 @@ OneBot 在进入普通分发前，还会处理已授权用户的引用图片导�
 | 定时新闻推送 | OneBot 适配器的 `_run_daily_news()`；`infrastructure/persistence/news_delivery.py` | 仅 OneBot；`push_groups` 与个人 QQ 号 `push_users` 共用中国标准时间 `push_time`；群和个人完成记录在 SQLite 中分别去重，个人推送不要求开启群功能 |
 | `/recall` | `bot/dispatcher.py` 与 OneBot 适配器 | 仅 OneBot；引用机器人消息，群内需管理员、群主或配置的管理员用户 |
 | `/export-img`、`导出`、`转图片` 等 | `application/services/export_img.py`；OneBot 适配器 | 仅 OneBot；将被引用的图片作为文件附件发送，无持久化 |
-| `保存`、`setu`、`/setu`、`直接保存` | `application/services/setu.py`；`infrastructure/persistence/setu.py`、`setu_files.py` | 仅 OneBot 私聊；引用合并转发 → 引用 bot 提示回复“保存”（默认 60s 超时自动取消）→ 下载保存；“直接保存”跳过询问并返回保存结果；SQLite 记录批次，文件另存 |
+| `保存`、`setu`、`/setu`、`直接保存`、`/setu on`、`/setu off` | `application/services/setu.py`; `infrastructure/persistence/setu.py`, `setu_files.py` | Authorized OneBot private chats only. Manual quoted forwards/files retain confirmation (default 60s) or direct-save behavior. `/setu on` automatically saves subsequent merged forwards with source-quoted start/result notices; `/setu off` stops new automatic acceptance. Activation is per instance/user in memory, survives reconnect and resets on process restart. Standalone media/files do not auto-save. Existing SQLite batch checkpoints and result-based failed-item retries remain unchanged. |
 | `/tgsetu [on\|off\|status\|retry <source-message-id>]` | `application/services/tgsetu.py`；`infrastructure/persistence/tgsetu.py`、`tgsetu_files.py` | Telegram 授权私聊；开启后发送或转发图片、视频、附件自动逐文件归档；本地 Bot API 提供大文件缓存；部分失败保留成功项，重试只处理失败项；不开启批次确认流程 |
 
 旧中文和 `#` 命令别名由 `bot/dispatcher.py` 中的 `_normalize_legacy_command()` 处理；支持范围以该函数和 `docs/legacy-migration.md` 为准。外部 API 的真实可用性仍取决于服务方、网络和运行配置，不能仅凭离线测试判断。

@@ -2,15 +2,19 @@
 
 Copy config/onebot/features/setu/config.toml.example to config.toml, enable it, and
 list allowed_users already present in KISARA_ALLOWED_USERS. A missing file
-disables the feature. Ordinary media and unquoted forwards get no automatic
-archive reply. Quote a merged forward or file message with 保存, setu, or /setu to create one
+disables the feature. Automatic mode defaults to off. In an authorized private
+chat, /setu on saves each subsequent merged forward without another confirmation;
+/setu off stops new automatic acceptance. Activation is isolated by instance and
+user in service memory: reconnect preserves it, but process restart resets it.
+Standalone media/files do not auto-save. Quote a merged forward or file message with 保存, setu, or /setu to create one
 confirmation prompt; nested forwards obey max_depth and max_nodes. Quote the
 prompt and reply 保存 to save before confirm_timeout_seconds (default 60s).
 Quote either source with direct_confirm_words (default 直接保存) to save immediately
 without a question. The prompt displays the first configured confirmation word;
 later words and 确认 remain accepted aliases. Cancellation words are ignored.
 Legacy cancel_words config is accepted but inert. Setu replies use pangu spacing.
-Downloads start only after confirmation; the result reports saved and failed
+Downloads start only after manual confirmation, direct save, or enabled automatic
+acceptance; the result reports saved and failed
 counts and the actual save directory, quoting the user command that started the save.
 Once saving is claimed, a start notice quotes that command and counts only
 unfinished attachments before their first lookup or transfer. Its best-effort
@@ -22,6 +26,9 @@ confirmation window from completion keeps that file retry actionable.
 After expiry, a fresh command quoting the original source rearms its unfinished
 batch with matching metadata and preserved checkpoints; old confirmations stay
 expired. Direct duplicate replies distinguish active saves from completion.
+Automatic attempts quote the received forward for both the start notice and
+result, and use direct-result retry selection. Switching off leaves accepted
+batches, saved files, and all manual workflows intact.
 
 save_mode=date_original uses YYYY-MM-DD/original-name; timestamp_hash uses a
 China Standard Time timestamp and SHA-256 filename for non-archive media.
@@ -58,7 +65,7 @@ import threading
 import time
 import tempfile
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Union
+from typing import Any, BinaryIO, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Tuple, Union
 
 from kisara.bot.contracts import MessageEvent, MessageSegment
 from kisara.config.setu import SetuConfig
@@ -100,7 +107,7 @@ class SetuProcessor(Protocol):
 
 
 class Setu:
-    """Own one confirmation and save workflow per quoted forward or file message."""
+    """Own manual archive workflows and opt-in automatic merged-forward saving."""
 
     def __init__(self, config: SetuConfig, state_dir: str,
                  processor: Optional[SetuProcessor] = None) -> None:
@@ -110,6 +117,7 @@ class Setu:
         self._saver = processor or SetuFileSaver(config)
         self._transfer_slots: Optional[asyncio.Semaphore] = None
         self._transfer_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._automatic_users: Set[Tuple[str, str]] = set()
 
     def is_start_word(self, text: str) -> bool:
         """Share quoted-source trigger recognition with the transport adapter."""
@@ -122,48 +130,64 @@ class Setu:
                 event.sender_id in self._config.allowed_users)
 
     async def handle(self, event: MessageEvent, gateway: SetuGateway) -> bool:
-        """Consume an authorized quoted source or a pending confirmation."""
+        """Consume mode commands, manual archive actions, or enabled forwards."""
         if not self.is_authorized(event):
             return False
         now = time.time()
         word = event.text.strip().casefold()
-        sources = tuple(segment for segment in event.segments if segment.kind in {"forward", "file"})
-        if self.is_start_word(word) and event.reply_context.get("setu_source_id") and sources:
-            media, unsupported = await self._extract(sources, gateway)
-            if not media and not unsupported:
-                await self._reply(gateway, event.sender_id, "这条消息中没有可保存的附件。")
-                return True
-            source_id = str(event.reply_context["setu_source_id"])
-            self._store.add_setu(
-                event.instance_id, event.sender_id, source_id, media, unsupported, now,
-            )
-            direct = word in self._config.direct_confirm_words
-            action, batch = self._store.prepare_source(
-                event.instance_id, event.sender_id, source_id, media, now,
-                self._config.confirm_timeout_seconds, direct,
-            )
-            if action == "save" and batch is not None:
-                await self._save(batch, gateway, event.message_id, direct=True)
-            elif action == "prompt" and batch is not None:
-                await self._prompt(batch, gateway, now)
-                _log.info("Prompted setu for private user %s", event.sender_id)
-            elif direct or action in {"changed", "missing", "expired"}:
-                replies = {
-                    "saving": "这批附件正在保存，请稍后再试。",
-                    "saved": "这批附件已经保存完成。",
-                    "changed": "原附件信息已变化，无法安全续存；请引用新的文件消息。",
-                    "missing": "这条消息的归档记录已过期，无法续存；请重新发送文件后引用保存。",
-                    "expired": "这批附件无法续存，请引用新的文件消息。",
-                }
-                await self._reply(gateway, event.sender_id, replies[action])
+        user_key = (event.instance_id, event.sender_id)
+        if word == "/setu on":
+            self._automatic_users.add(user_key)
+            await self._reply(gateway, event.sender_id,
+                              "已开启自动保存合并转发，发送 /setu off 关闭；机器人重启后自动关闭。")
             return True
-        if word in self._config.confirm_words or word in {"保存", "确认"}:
+        if word == "/setu off":
+            self._automatic_users.discard(user_key)
+            await self._reply(gateway, event.sender_id, "已关闭自动保存合并转发，仍可引用消息手动保存。")
+            return True
+        sources = tuple(segment for segment in event.segments if segment.kind in {"forward", "file"})
+        source_id = str(event.reply_context.get("setu_source_id") or "")
+        automatic = False
+        if self.is_start_word(word) and source_id and sources:
+            direct = word in self._config.direct_confirm_words
+        elif word in self._config.confirm_words or word in {"保存", "确认"}:
             await self._confirmation(event, gateway, now)
             return True
-        if self.is_start_word(word):
+        elif self.is_start_word(word):
             await self._reply(gateway, event.sender_id, "请引用合并转发或文件消息并发送保存、setu 或 /setu。")
             return True
-        return False
+        else:
+            sources = tuple(segment for segment in event.segments if segment.kind == "forward")
+            if user_key not in self._automatic_users or not sources:
+                return False
+            source_id = event.message_id
+            direct = automatic = True
+        media, unsupported = await self._extract(sources, gateway)
+        if not media and (automatic or not unsupported):
+            await self._reply(gateway, event.sender_id, "这条消息中没有可保存的附件。")
+            return True
+        self._store.add_setu(
+            event.instance_id, event.sender_id, source_id, media, unsupported, now,
+        )
+        action, batch = self._store.prepare_source(
+            event.instance_id, event.sender_id, source_id, media, now,
+            self._config.confirm_timeout_seconds, direct,
+        )
+        if action == "save" and batch is not None:
+            await self._save(batch, gateway, event.message_id, direct=True)
+        elif action == "prompt" and batch is not None:
+            await self._prompt(batch, gateway, now)
+            _log.info("Prompted setu for private user %s", event.sender_id)
+        elif direct or action in {"changed", "missing", "expired"}:
+            replies = {
+                "saving": "这批附件正在保存，请稍后再试。",
+                "saved": "这批附件已经保存完成。",
+                "changed": "原附件信息已变化，无法安全续存；请引用新的文件消息。",
+                "missing": "这条消息的归档记录已过期，无法续存；请重新发送文件后引用保存。",
+                "expired": "这批附件无法续存，请引用新的文件消息。",
+            }
+            await self._reply(gateway, event.sender_id, replies[action])
+        return True
 
     async def run(self, gateway: SetuGateway) -> None:
         """Retry interrupted prompts while the adapter is connected."""
