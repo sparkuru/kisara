@@ -116,10 +116,10 @@ all five archived context manifests, task state, local ancestry and attribution.
 
 ## Approved Setu automatic-mode work
 
-- task: [setu-auto-mode](tasks/10-31-setu-auto-mode/task.json).
-- source: [PRD](tasks/10-31-setu-auto-mode/prd.md),
-  [design](tasks/10-31-setu-auto-mode/design.md),
-  [execution plan](tasks/10-31-setu-auto-mode/implement.md).
+- task: [setu-auto-mode](tasks/archive/2026-10/10-31-setu-auto-mode/task.json).
+- source: [PRD](tasks/archive/2026-10/10-31-setu-auto-mode/prd.md),
+  [design](tasks/archive/2026-10/10-31-setu-auto-mode/design.md),
+  [execution plan](tasks/archive/2026-10/10-31-setu-auto-mode/implement.md).
 - owner decisions: on 2026-10-31 the user requested task creation for
   `/setu on` / `/setu off`, selected activation resetting after process restart
   with “重启关闭吧”, and approved the final planning summary with “开始”.
@@ -128,10 +128,12 @@ all five archived context manifests, task state, local ancestry and attribution.
   default-off and restart-off behavior, and preserved manual archive flows.
 - state: implementation, independent review and owner acceptance complete;
   user reported “验收通过；可以提交” on 2026-10-31 and authorized local delivery.
+  Delivered as `3caa750` on `feat/setu-auto-mode`; completed and archived
+  as `e013ca3` with exactly one required Codex trailer.
   Focused Setu/protocol gate: 276 passed. Full run:
   1342 passed, 7 skipped, one unrelated preview process-cleanup assertion failed;
   exact isolated retry passed (1 passed). Full run is not wholly green; no
-  deployment code was changed. [Evidence](tasks/10-31-setu-auto-mode/validation.md).
+  deployment code was changed. [Evidence](tasks/archive/2026-10/10-31-setu-auto-mode/validation.md).
 - boundaries: local work commit and normal archive/session record are now
   authorized. No Telegram/group/standalone-media expansion, schema changes,
   live service operations, deployment or push. This task does not resume the

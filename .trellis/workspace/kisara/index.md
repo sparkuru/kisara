@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 29
+- **Total Sessions**: 30
 - **Last Active**: 2026-10-31
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~977 | Active |
+| `journal-1.md` | ~1021 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-10-31 | Setu automatic mode delivery and archive | `3caa750c5f196edc0d07b11539215de8e0631e83` | `feat/setu-auto-mode` |
 | 29 | 2026-10-31 | Deliver and archive Bilibili video export | `bb228b3` | `feat/export-linked-video` |
 | 28 | 2026-10-31 | Deliver and archive QQ login terminal QR | `bc74135` | `feat/export-linked-video` |
 | 27 | 2026-10-26 | Repair QQ PNG reader runtime acceptance | - | `feat/export-linked-video` |

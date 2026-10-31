@@ -975,3 +975,47 @@ Owner confirmed QQ native return and authorized local delivery. Committed quoted
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: Setu automatic mode delivery and archive
+<!-- trellis-session: v=2 fp=82da30069ddb7ab9 -->
+
+**Date**: 2026-10-31
+**Task**: Setu automatic mode delivery and archive
+**Branch**: `feat/setu-auto-mode`
+
+### Summary
+
+Owner accepted memory-only Setu automatic mode; committed implementation and archived the task with validation limits retained.
+
+### Main Changes
+
+Delivered and owner-accepted Setu automatic mode in work commit 3caa750c5f196edc0d07b11539215de8e0631e83.
+Task archived in e013ca394dabb56d561a40fd655d532afdcecb08 under
+.trellis/tasks/archive/2026-10/10-31-setu-auto-mode with the required single
+Codex co-author trailer.
+
+Private /setu on/off state is isolated by instance and user in memory; process
+restart resets it and reconnect retains it. Incoming merged forwards reuse
+source-quoted start/result notices and partial retry. Manual archive behavior,
+permissions, saved files and the SQLite schema remain intact.
+
+Checks retained: focused service/OneBot suite 276 passed; full run 1342 passed,
+7 skipped and one unrelated preview process-cleanup assertion failed. The exact
+failed case passed alone (1 passed in 4.98s). This is not a wholly green full
+gate or a fix for the preview issue. No source/test changes followed these runs.
+Owner reported acceptance passed and authorized local submission.
+
+Only this task was archived. Paused Telegram tasks and live bot services were
+left unchanged. No deployment, account operation, merge or push was performed.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3caa750c5f196edc0d07b11539215de8e0631e83` | feat(setu): add automatic merged-forward saving |
+
+### Status
+
+[OK] **Completed**
