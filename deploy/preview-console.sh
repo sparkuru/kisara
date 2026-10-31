@@ -8,6 +8,22 @@ readonly STYLE_PREVIEW_WARNING=$'\033[0;33m'
 readonly STYLE_PREVIEW_ERROR=$'\033[0;31m'
 readonly STYLE_PREVIEW_RESET=$'\033[0m'
 
+preview_write() {
+	local fd=$1 text=$2 lock_fd status=0
+	if [[ -n ${preview_output_lock:-} ]]; then
+		exec {lock_fd}>"$preview_output_lock" || return 1
+		if flock "$lock_fd"; then
+			printf '%s\n' "$text" >&"$fd" || status=$?
+		else
+			status=$?
+		fi
+		exec {lock_fd}>&-
+		return "$status"
+	else
+		printf '%s\n' "$text" >&"$fd"
+	fi
+}
+
 preview_message() {
 	local role=$1 fd=$2 text=$3 style=''
 	if [[ ! -v NO_COLOR && ${TERM:-} != dumb && -t $fd ]]; then
@@ -21,9 +37,9 @@ preview_message() {
 		esac
 	fi
 	if [[ -n $style ]]; then
-		printf '%s%s%s\n' "$style" "$text" "$STYLE_PREVIEW_RESET" >&"$fd"
+		preview_write "$fd" "$style$text$STYLE_PREVIEW_RESET"
 	else
-		printf '%s\n' "$text" >&"$fd"
+		preview_write "$fd" "$text"
 	fi
 }
 
@@ -48,6 +64,7 @@ preview_usage() {
 		'  status   Show current readiness (warn if unready), then follow bot IO as platform | log.' \
 		'           Status never builds, installs or starts services.' \
 		'           Both views show the last 80 lines and fresh logs, with credentials redacted.' \
+		'           QQ login PNG events display a scannable QR block in a suitable terminal.' \
 		'           Ctrl+C stops viewing only; bot containers keep running.' \
 		'  build    Explicit rebuild/preparation; never start the service group.' \
 		'  down     Stop and remove selected repository containers; preserve volumes/data.' \
@@ -61,7 +78,7 @@ preview_usage() {
 		'  cp .env.example .env (only if absent); edit selected engine credentials/access lists.' \
 		'  OneBot: ONEBOT_ALLOWED_USERS, ONEBOT_ACCESS_TOKEN, NAPCAT_WEBUI_TOKEN; log into NapCat.' \
 		'  Telegram: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS. Official: OFFICIAL_APP_ID/SECRET.' \
-		'  Required host tools: Bash 4.4+, Docker/Compose, timeout, sed, mkfifo; ip for wildcard local publishing.' \
+		'  Required host tools: Bash 4.4+, Docker/Compose, timeout, sed, mkfifo, flock, stty; ip for wildcard local publishing.' \
 		'  Root .env is data; inherited environment wins by presence, including empty values.' \
 		'  First start may download missing images and pinned Python 3.12 packages; no host Python required.' \
 		'  KISARA_PREVIEW_OFFLINE=true forbids automatic build/pull/install; prepare explicitly when online.' \
@@ -72,10 +89,14 @@ preview_usage() {
 }
 
 preview_section() {
-	local heading=$1
+	local heading=$1 text='' item
 	shift
 	[[ $# -gt 0 ]] || return 0
-	printf '\n'
-	preview_message section 1 "$heading:"
-	printf '%s\n' "$@"
+	if [[ ! -v NO_COLOR && ${TERM:-} != dumb && -t 1 ]]; then
+		heading="$STYLE_PREVIEW_SECTION$heading:$STYLE_PREVIEW_RESET"
+	else
+		heading="$heading:"
+	fi
+	for item in "$@"; do text+=$'\n'"$item"; done
+	preview_write 1 $'\n'"$heading$text"
 }

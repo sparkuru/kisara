@@ -251,7 +251,7 @@ def fixture(tmp_path: Path, profile: str = "onebot") -> tuple[dict, Path]:
     (tmp_path / "deploy").mkdir()
     for name in ("engines.sh", "onebot.sh", "lifecycle.sh", "compose.yaml", "Dockerfile", "dotenv.sh", "preview-runtime.sh",
                  "telegram-bot-api.Dockerfile", "telegram-bot-api-entrypoint.sh", "telegram-bot-api-probe.sh",
-                 "preview-console.sh", "preview-deps.py", "preview-probe.py", "preview-listeners.js", "preview-constraints-py312.txt"):
+                 "preview-console.sh", "qq-login-logs.sh", "qq-login-png.py", "preview-deps.py", "preview-probe.py", "preview-listeners.js", "preview-constraints-py312.txt"):
         shutil.copy2(ROOT / "deploy" / name, tmp_path / "deploy" / name)
     for name in ("kisara.sh", "hako", "pyproject.toml"):
         shutil.copy2(ROOT / name, tmp_path / name)
@@ -1625,9 +1625,12 @@ def test_onebot_forwarder_diagnostics_cover_dev_mode_without_effects(
     operations = calls(log)
     if foreign:
         assert not any("compose" in call and ("logs" in call or "ps" in call) for call in operations)
+    elif action == "logs":
+        diagnostic = [call for call in operations if "logs" in call and "--follow" in call]
+        assert {call[-1] for call in diagnostic} == {"napcat", "kisara-dev"}
+        assert all("--tail" in call and call[call.index("--tail") + 1] == "100" for call in diagnostic)
     else:
-        diagnostic = next(call for call in operations if "compose" in call and
-                          ("logs" in call if action == "logs" else "ps" in call))
+        diagnostic = next(call for call in operations if "compose" in call and "ps" in call)
         assert diagnostic[-3:] == ["napcat", "kisara", "kisara-dev"]
     assert state(tmp_path) == previous
     assert not any(any(operation in call for operation in ("up", "build", "run", "pull", "stop", "rm"))

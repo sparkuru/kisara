@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared policy and relevant document routing"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Delegation, task loading and delivery boundaries"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Scope discipline and preservation of pending changes"}
+{"file": ".trellis/spec/trellis-plus/cli-entrypoints.md", "reason": "Canonical preview lifecycle, streaming and ownership contracts"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Docker checks, privacy and real-account acceptance"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavioral tests and focused/full verification"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Credential privacy and explicit interactive QR exception"}
+{"file": ".trellis/tasks/10-26-qq-login-terminal-qr/design.md", "reason": "Installed NapCat evidence, QR protocol and presentation design"}

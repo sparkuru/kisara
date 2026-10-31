@@ -175,7 +175,14 @@ main() {
 		[[ ${#auxiliary_services[@]} -eq 0 ]] || run_compose restart "${auxiliary_services[@]}"
 		[[ ${#bot_services[@]} -eq 0 ]] || run_compose restart "${bot_services[@]}"
 		;;
-	logs) run_compose logs --follow --tail "${KISARA_LOG_TAIL:-100}" "${diagnostic_services[@]}" ;;
+	logs)
+		if [[ -n ${lifecycle_ids[napcat]:-} ]]; then
+			source "$REPO_ROOT/deploy/qq-login-logs.sh"
+			qq_login_attached_logs
+		else
+			run_compose logs --follow --tail "${KISARA_LOG_TAIL:-100}" "${diagnostic_services[@]}"
+		fi
+		;;
 	ps | status) run_compose ps "${diagnostic_services[@]}" ;;
 	pull) run_compose pull --ignore-buildable "${services[@]}" ;;
 	down-all)

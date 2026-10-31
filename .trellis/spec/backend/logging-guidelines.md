@@ -61,10 +61,22 @@ tracebacks for the same error.
 Keep tokens, `.env` contents, raw events, message bodies, login QR codes,
 provider credentials, and full private URLs out of logs by default. The
 explicit Telegram summary opt-in below is the authorized exception for bounded
-message previews and sender/chat IDs. Existing operational
+message previews and sender/chat IDs. The approved
+[QQ login presentation](../trellis-plus/cli-entrypoints.md#8-qq-login-png-in-attached-logs)
+is a separate interactive exception: a login/PNG-saved event renders its PNG
+inside the attached terminal log view. Captured diagnostics and redirected
+logs retain QR/URL suppression; no authentication payload or image belongs in
+application logs, task evidence or tracked files. Existing operational
 logs can contain group IDs, quoted message IDs, and official bot display names;
 they are not anonymous telemetry. Keep logs private and avoid expanding their
 identifying content.
+
+Display redaction must not rewrite structural metadata that later controls a
+reader, freshness check or replay boundary. In the QQ log path, preserve only
+the validated private Docker timestamp prefix until its consumer removes it;
+redact the message normally. Discover credentials by semantic field names:
+`*_URL` is a configured URL, while `EXPORT_MAX_URLS` is a public integer count.
+Test short numeric credential collisions separately from nonsecret counts.
 
 Configured setu media storage is an opt-in persistence exception, not permission
 to log or archive general chat history. Safe wrapper exception text does not
@@ -144,6 +156,74 @@ invalid values and engine isolation. Synthetic tests do not log real messages.
 Wrong: truncate incoming content before token replacement, or emit `sent`
 before awaiting the SDK. Correct: sanitize before bounding and emit success
 only after a receipt. User opt-in changes observability, not authorization.
+
+## Terminal-control redaction locale
+
+### 1. Scope and trigger
+
+Applies to shared preview/attached QQ sanitization, captured diagnostics,
+stream preflight/filtering and login snapshots. Terminal ANSI ranges describe
+ASCII bytes; caller collation must not change their meaning.
+
+### 2. Signatures
+
+`preview_filter_logs [sed-options]` executes the shared filter array with
+`LC_ALL=C` scoped to sed for diagnostics, preflight and snapshots.
+`preview_replace_secrets` scopes `LC_ALL=C` locally for OSC/CSI and remaining
+ASCII control normalization before literal replacement. The background streaming sanitizer launches
+`LC_ALL=C sed -u -E ... &` directly so its recorded PID remains sed itself.
+
+### 3. Contracts
+
+Normalize before replacing secrets: later ANSI/control stripping can reconstruct
+a credential separated by escape sequences, CR, backspace, tab or DEL. Both Bash's CSI
+matcher and sed need deterministic byte semantics. Preserve the caller's locale,
+including an unset LC_ALL, and ordinary UTF-8 text. QR suppression matches whole
+UTF-8 symbols with alternatives. Controlled interactive PNG rendering remains
+the separately authorized path. No global locale export or new dependency.
+Do not wrap a tracked background sanitizer in a helper shell that hides its PID.
+Before removing remaining controls, canonicalize only valid Bearer prefixes and
+their whitespace to a plain separator, retaining token bytes for later literal
+replacement. Otherwise tab-separated generic tokens lose their recognizer.
+Do not pre-redact a partial token before normalizing a split configured secret,
+or make separators optional and overredact ordinary `Bearerword` text. The
+rest-scanning loop must advance past each match rather than rescan inserted text.
+
+### 4. Validation and error matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| C/POSIX/C.UTF-8/en_US/zh_CN caller | Same byte-defined sanitizer behavior |
+| ANSI/control-interleaved synthetic credential | Normalize then redact before display |
+| Chinese ordinary message | Preserve complete UTF-8 text |
+| Caller LC_ALL set/unset | Preserve caller state after processing |
+| sed unavailable/fails | Nonzero fail-closed path; no raw fallback |
+| Reader cleanup | Track and terminate the actual sanitizer process |
+
+### 5. Good, base and bad cases
+
+Good: en_US startup/snapshot/stream preserves Chinese and redacts hidden secrets.
+Base: C.UTF-8 output is unchanged. Bad: fix only sed while Bash preprocessing
+can still miss an escape-separated credential, or leave a hidden sed child.
+
+### 6. Tests required
+
+Use `test_preview_redaction_locale.py` for the three production boundaries,
+internal locale observations, caller restoration, ANSI/OSC/CR/tab/DEL hidden secrets,
+Unicode, failure closure and sanitizer PID identity. Test real installed
+en_US/zh_CN collations when available; missing-locale fallback to C is not
+evidence. Report container skips and use bounded actual host shell probes when
+those locales exist. Preserve QR/preview/export redaction regressions.
+Cover known/unknown Bearer values with tab/CR/VT/FF separators, control-split
+known values, multiple/already-redacted/empty/non-token words and quote/comma/
+semicolon boundaries. Preserve strict existing generic syntax.
+
+### 7. Wrong versus correct
+
+Wrong: run byte ranges under arbitrary collation, globally change the user's
+locale, or background a helper whose PID differs from the sanitizer.
+Correct: scope byte semantics to internal processing and preserve direct
+background-process ownership plus the surrounding terminal locale.
 
 ## Verification
 

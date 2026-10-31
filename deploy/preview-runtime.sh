@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Preview operations for the existing engine lifecycle; no top-level effects.
+source "${BASH_SOURCE[0]%/*}/qq-login-logs.sh"
 
 preview_capture() {
 	local label=$1 status=0
@@ -25,7 +26,7 @@ preview_redact_values() {
 			secret=${!key}
 			[[ -n $secret ]] || continue
 			case $key in
-			*TOKEN* | *SECRET* | *HASH* | *API_ID* | *KEY* | *PASSWORD* | *ACCOUNT* | *APP_ID* | *USERS* | *GROUPS* | *URL* | AppID | AppSecret)
+			*TOKEN* | *SECRET* | *SESSDATA* | *HASH* | *API_ID* | *KEY* | *PASSWORD* | *ACCOUNT* | *APP_ID* | *USERS* | *GROUPS* | *_URL | AppID | AppSecret)
 				preview_secrets+=("$secret")
 				IFS=, read -r -a pieces <<<"$secret"
 				for part in "${pieces[@]}"; do [[ -z $part ]] || preview_secrets+=("$part"); done
@@ -35,12 +36,15 @@ preview_redact_values() {
 		esac
 	done < <(compgen -e)
 	preview_filters=(
+		-e $'s#\033\\][^\007]*(\007|\033\\\\)##g'
+		-e $'s#\033\\[[0-?]*[ -/]*[@-~]##g'
 		-e 's#(https?|wss?)://[^ /]+@[^ ]+#\1://[redacted]#g'
 		-e 's#[Bb]earer[[:space:]]+[^[:space:]"\x27,;]+#Bearer [redacted]#g'
 		-e 's#(https?://api.telegram.org/bot)[^/[:space:]]+#\1[redacted]#g'
 		-e 's#([?&](token|access_token|secret|password|key|code)=)[^&[:space:]]+#\1[redacted]#Ig'
 		# Match whole UTF-8 symbols even when sed uses a byte-oriented locale.
 		-e '/▀|▄|█/d'
+		-e 's#https://txz\.qq\.com/[^[:space:]]+#[login-qr]#g'
 		-e 's/[[:cntrl:]]//g'
 	)
 	if [[ $identifiers != show ]]; then
@@ -52,11 +56,38 @@ preview_redact_values() {
 	fi
 }
 
+preview_filter_logs() {
+	# Terminal-control ranges describe bytes, independent of caller collation.
+	LC_ALL=C sed "$@" -E "${preview_filters[@]}"
+}
+
 preview_replace_secrets() {
-	local line secret
+	local LC_ALL=C
+	local preserve_timestamps=${1:-false} timestamp_prefix='' timestamp
+	local line secret csi=$'\033''\[[0-?]*[ -/]*[@-~]' osc=$'\033''\][^'$'\007\033'']*('$'\007''|'$'\033''\\)' qr_url='https://txz[.]qq[.]com/[^[:space:]]+'
+	local bearer=$'([Bb]earer)[[:space:]]+([^[:space:]"\x27,;]+)' rest match prefix token
 	while IFS= read -r line || [[ -n $line ]]; do
+		timestamp_prefix=''
+		if [[ $preserve_timestamps == true && $line == *' '* ]]; then
+			timestamp=${line%% *}
+			if qq_login_timestamp_valid "$timestamp"; then
+				timestamp_prefix="$timestamp " line=${line#* }
+			fi
+		fi
+		while [[ $line =~ $osc ]]; do line=${line/"${BASH_REMATCH[0]}"/}; done
+		while [[ $line =~ $csi ]]; do line=${line/"${BASH_REMATCH[0]}"/}; done
+		while [[ $line =~ $qr_url ]]; do line=${line/"${BASH_REMATCH[0]}"/'[login-qr]'}; done
+		# Keep Bearer separators recognizable without consuming a split secret.
+		rest=$line line=''
+		while [[ $rest =~ $bearer ]]; do
+			match=${BASH_REMATCH[0]} prefix=${BASH_REMATCH[1]} token=${BASH_REMATCH[2]}
+			line+=${rest%%"$match"*}"$prefix $token"
+			rest=${rest#*"$match"}
+		done
+		line+=$rest
+		line=${line//[[:cntrl:]]/}
 		for secret in "${preview_secrets[@]}"; do line=${line//"$secret"/[redacted]}; done
-		printf '%s\n' "$line"
+		printf '%s%s\n' "$timestamp_prefix" "$line"
 	done
 }
 
@@ -66,21 +97,21 @@ preview_redact() {
 	preview_redact_values
 	# Failure diagnostics stay quiet; status explicitly exposes bot IO summaries.
 	preview_filters+=(-e '/(Received|Replying|No reply).*message user=/d')
-	preview_replace_secrets <"$file" | sed -E "${preview_filters[@]}" >"${preview_tmp}/safe.log" || return 1
+	preview_replace_secrets <"$file" | preview_filter_logs >"${preview_tmp}/safe.log" || return 1
 	cat -- "${preview_tmp}/safe.log" >&2
 }
 
-preview_log_lines() {
-	local platform line
-	platform=$(preview_platform "$1")
-	while IFS= read -r line || [[ -n $line ]]; do
-		printf '%s | %s\n' "$platform" "$line"
-	done
-}
+preview_log_lines() { qq_login_log_lines "$@"; }
 
 preview_stop_readers() {
-	local pid
+	local pid attempt active
 	for pid in "${preview_log_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || :; done
+	for attempt in {1..10}; do
+		active=false
+		for pid in "${preview_log_pids[@]}"; do if kill -0 "$pid" 2>/dev/null; then active=true; break; fi; done
+		[[ $active == true ]] || break
+		sleep 0.02
+	done
 	# Readers hold no state. Force termination also bounds cleanup of a stuck CLI.
 	for pid in "${preview_log_pids[@]}"; do kill -KILL "$pid" 2>/dev/null || :; done
 	for pid in "${preview_log_pids[@]}"; do wait "$pid" 2>/dev/null || :; done
@@ -88,27 +119,44 @@ preview_stop_readers() {
 }
 
 preview_start_log_readers() {
-	local service id
+	local service id running qq_snapshot qq_boundary qq_boundary_count preserve_timestamps
+	local -a log_args=()
 	local -a targets=("${services[@]}") preview_secrets=() preview_filters=()
 	preview_redact_values show
 	for service in "${targets[@]}"; do
-		case $service in napcat | kisara | kisara-dev | telegram | official | bot) ;; *) continue ;; esac
+		case $service in
+		napcat | kisara | kisara-dev | telegram | official | bot) ;;
+		*) [[ ${qq_follow_auxiliary:-false} == true ]] || continue ;;
+		esac
 		id=${preview_ids[$service]}
 		preview_owned "$id" "$service" || { preview_error "Cannot follow $service logs: ownership mismatch/unavailable."; return 1; }
-		sed -u -E "${preview_filters[@]}" </dev/null >/dev/null 2>/dev/null || {
+		qq_snapshot='' qq_boundary='' qq_boundary_count=0 preserve_timestamps=false
+		log_args=(--follow --tail "${qq_log_tail:-80}")
+		if [[ $service == napcat && -t 1 && ${TERM:-} != dumb ]]; then
+			running=$(timeout 5 "${preview_docker_command[@]}" inspect --format '{{.State.Running}}' "$id" 2>"${preview_tmp}/qr-error") || {
+				preview_error 'Cannot inspect QQ log runtime state.'; return 1;
+			}
+			if [[ $running == true ]]; then
+				qq_login_snapshot "$id" || return $?
+				log_args=(--follow --timestamps --tail all --since "$qq_boundary")
+				preserve_timestamps=true
+			fi
+		fi
+		preview_filter_logs -u </dev/null >/dev/null 2>/dev/null || {
 			preview_error 'Bot logs suppressed: streaming redaction unavailable; check sed support.'; return 1;
 		}
 		mkfifo -- "${preview_tmp}/$service.raw" "${preview_tmp}/$service.replaced" "${preview_tmp}/$service.safe" || {
 			preview_error "Cannot create private log pipes for $service."; return 1;
 		}
 		preview_log "Following $(preview_platform "$service") logs (last 80 lines; Ctrl+C stops viewing only)."
-		"${preview_docker_command[@]}" logs --follow --tail 80 "$id" >"${preview_tmp}/$service.raw" 2>&1 &
+		"${preview_docker_command[@]}" logs "${log_args[@]}" "$id" >"${preview_tmp}/$service.raw" 2>&1 &
 		preview_log_pids+=("$!")
-		preview_replace_secrets <"${preview_tmp}/$service.raw" >"${preview_tmp}/$service.replaced" 2>/dev/null &
+		preview_replace_secrets "$preserve_timestamps" <"${preview_tmp}/$service.raw" >"${preview_tmp}/$service.replaced" 2>/dev/null &
 		preview_log_pids+=("$!")
-		sed -u -E "${preview_filters[@]}" <"${preview_tmp}/$service.replaced" >"${preview_tmp}/$service.safe" 2>/dev/null &
+		# Track sed itself so cleanup does not leave an untracked child shell.
+		LC_ALL=C sed -u -E "${preview_filters[@]}" <"${preview_tmp}/$service.replaced" >"${preview_tmp}/$service.safe" 2>/dev/null &
 		preview_log_pids+=("$!")
-		preview_log_lines "$service" <"${preview_tmp}/$service.safe" 2>/dev/null &
+		preview_log_lines "$service" "$qq_snapshot" "$qq_boundary" "$qq_boundary_count" <"${preview_tmp}/$service.safe" 2>/dev/null &
 		preview_log_pids+=("$!")
 		preview_logs_started=true
 	done
@@ -660,9 +708,10 @@ preview_run() {
 		command -v "$arg" >/dev/null 2>&1 || { preview_error "Required host command: $arg"; return 127; }
 	done
 	if [[ $preview_action == start || $preview_action == status ]]; then
-		command -v mkfifo >/dev/null 2>&1 || { preview_error 'Required host command: mkfifo'; return 127; }
+		for arg in mkfifo flock stty; do command -v "$arg" >/dev/null 2>&1 || { preview_error "Required host command: $arg"; return 127; }; done
 	fi
 	preview_tmp=$(mktemp -d /tmp/kisara-preview.XXXXXXXXXX)
+	preview_output_lock="${preview_tmp}/output.lock"
 	preview_started=false
 	preview_logs_started=false preview_cancelled=false
 	preview_log_pids=()

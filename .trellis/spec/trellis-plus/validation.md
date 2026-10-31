@@ -62,6 +62,12 @@ or silently add a new toolchain. The manifest declares Python >=3.8 while the
 wrapper exercises Python 3.12; that runtime alone is not compatibility proof
 for every declared Python version.
 
+For QQ login PNG work, also execute the injected reader in the actual cached
+NapCat image: its Python3.10 timestamp parser differs from hako Python3.12.
+Use synthetic PNG data and nine-digit Docker RFC3339 timestamps in an isolated
+offline, read-only container with no account mounts. A real-image geometry
+probe or successful decoder check does not exercise the timestamp reader.
+
 For future Python/shell changes, load the available `code-python` or
 `code-shellscript` skill respectively. Shell validation should match the actual
 interpreter; run syntax checks and ShellCheck/shfmt when available and relevant.
@@ -119,7 +125,7 @@ labels. Public stop aliases are removed; down stops/removes objects, keeping dat
 ### First setup and commands
 
 Host requirements: Bash 4.4+, Docker with a reachable daemon, Compose plugin or
-legacy docker-compose, timeout, sed, mktemp, mkfifo, cat and id.
+legacy docker-compose, timeout, sed, mktemp, mkfifo, flock, stty, cat and id.
 Local wildcard publishing additionally requires ip. No host application Python
 or global SDK/browser installation is required. Python probes/install helpers
 run in the existing Python 3.12 images/wrapper.
@@ -272,6 +278,20 @@ redacting credentials. Account and access-list configuration values are not
 credentials in these live streams. Captured diagnostics retain identifier
 redaction. The Telegram adapter's message-summary opt-in remains required;
 neither start nor status enables application logging.
+QQ login PNG display is the explicit interactive authentication exception in
+[the CLI contract](cli-entrypoints.md#8-qq-login-png-in-attached-logs), shared
+by preview and ordinary attached QQ logs. Validate saved-PNG event ordering,
+whole-block geometry and independently decoded output, replacement/deduplication,
+bounded recent-snapshot/live overlap, completed-login stale-PNG suppression,
+terminal fallback, fixed-path/ownership bounds and image-helper cancellation.
+Do not treat a decoded fixture as real QQ authorization. No status watcher,
+WebUI login session, extra QR command or encoder dependency is required.
+Terminal-control redaction also needs real non-C collation coverage:
+en_US/zh_CN when installed, alongside C/POSIX/C.UTF-8. Unsupported-locale
+fallback to C is not a pass for those cases. Verify internal byte-locale
+scoping, unchanged caller locale, ANSI-interleaved credential replacement,
+Chinese preservation and direct sanitizer PID tracking under the
+[logging contract](../backend/logging-guidelines.md#terminal-control-redaction-locale).
 Failure diagnostics continue suppressing incoming/reply/no-reply message lines.
 Auxiliary-only selection returns after the summary. Redact each line before
 display, flush promptly, and keep memory/scratch bounded independently of log history. Never

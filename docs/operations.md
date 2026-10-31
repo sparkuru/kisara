@@ -317,6 +317,15 @@ QQ login is still a manual first-run step. NapCat state is persisted in
 `data/napcat/QQ` and its configuration in `data/napcat/config`; stopping the
 stack does not remove these directories.
 
+QQ login is part of the attached log flow. When NapCat reports that its login
+PNG has been saved, `./kisara.sh preview start onebot`, `preview status onebot`
+and `./kisara.sh logs onebot` display a complete QR block in a suitable terminal.
+The same applies to `onebot-dev`. Scan it with mobile QQ and authorize login;
+a refreshed PNG appears with the next login event. No extra login command is
+needed. Keep the terminal wide/tall enough for the whole block. Redirected
+logs omit the QR and login URL; unavailable images or unsuitable terminals
+show recovery guidance for the existing WebUI/SSH-tunnel route below.
+
 Preview and deployment use the same Compose project (`kisara` by default),
 NapCat service, and login directories. NapCat's hostname and MAC address are
 fixed by `NAPCAT_HOSTNAME` (default `kisara-qq`) and `NAPCAT_MAC_ADDRESS`

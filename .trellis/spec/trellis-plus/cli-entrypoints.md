@@ -120,7 +120,10 @@ and avoid unbounded raw log storage. Match QR block symbols as complete symbols
 (for example, `/▀|▄|█/d`), not a multibyte bracket class: under `LC_ALL=C` or
 `POSIX`, `/[▀▄█]/d` also matches bytes in ordinary Chinese text and silently
 drops receive/send lines. Preserve non-QR UTF-8 log lines in both byte and UTF-8
-locales. Do not follow Music or local Bot API streams; include the owned NapCat gateway.
+locales. This suppresses native art in generic text; the intentional PNG-derived
+login block below uses its own whole-block output path. Strip complete ANSI
+CSI/OSC sequences, rather than removing ESC alone and leaving `[33m` fragments.
+Do not follow Music or local Bot API streams; include the owned NapCat gateway.
 Both views preserve user/chat/account IDs, bot names and ordinary numbers; captured
 failure/verbose diagnostics retain identifier redaction.
 Ctrl+C/TERM exits 130/143 and reaps only this command's readers; containers and
@@ -255,3 +258,101 @@ as proof that continuous preview following was reached. Correct: distinguish
 status, and reproduce ready, starting and unready command states before closing
 a streaming defect. A ready-only or finite-log fixture cannot prove startup
 output visibility or sustained following.
+
+## 8. QQ login PNG in attached logs
+
+### Scope / trigger
+
+The approved QQ login task integrates PNG presentation into normal login logs.
+The event is `二维码已保存到 /app/napcat/cache/qrcode.png` from the selected
+NapCat's login sequence, emitted after its PNG write completes. Rendering is
+event-driven; file existence alone does not establish that login is needed.
+
+### Signatures
+
+Existing entry points remain `./kisara.sh preview start|status onebot` (or
+`onebot-dev`) and `./kisara.sh logs onebot` (or `onebot-dev`). Shared internal
+presentation belongs in `deploy/qq-login-logs.sh`; the existing application
+Python/Pillow runtime runs `deploy/qq-login-png.py` on supplied image bytes.
+There is no extra public command, QR encoder dependency or configuration key.
+
+### Contracts
+
+Read only the fixed PNG path from the exactly owned NapCat container through
+the effective Docker endpoint. Bound read duration, bytes and image dimensions;
+use the verified selected OneBot application for existing Pillow rendering.
+The image must be a regular non-symlink PNG of at most 1 MiB and 2048 pixels
+per edge; its stable modification time may precede the saved-event timestamp
+by at most two seconds. Reject a newer image except for one microsecond of
+timestamp conversion precision. Parse whole-second UTC plus explicit integer
+fractional nanoseconds: actual NapCat Python3.10 rejects Docker's nine-digit
+fractional timestamps in `datetime.fromisoformat`. Compare with `st_mtime_ns`
+without converting the fractional part to float. Read/render calls have
+five-second limits. Recognize the
+actual `MM-DD HH:mm:ss [level]` logger envelope, including its optional nickname
+prefix, before interpreting login events. Construct non-ASCII Bash match
+constants with UTF-8 byte escapes: `$'\xE4\xBA\x8C'` matches the intended marker
+in C/POSIX as well as UTF-8 locales, while `$'\u4e8c'` stays a literal Unicode
+escape in a byte locale. Preserve whole-module geometry and
+a four-module quiet margin. Serialize the entire terminal QR
+block with other command output; omit per-row prefixes inside the matrix.
+Preserve NO_COLOR and terminal-size checks. Redirected output and captured
+diagnostics contain sanitized text, not QR images or decoded login URLs.
+
+Preserve the strictly validated Docker RFC3339 prefix as private transport
+metadata before redacting message text. `qq_login_record` consumes/removes it
+before presentation; freshness and snapshot/follow deduplication must never
+parse sanitized display text. Scope preservation to timestamped NapCat
+snapshot/live pipes, not generic logs or captured diagnostics. Genuine message
+credentials remain redacted even when their digits collide with the private
+prefix. Credential discovery uses actual `*_URL` fields, not `*URL*`: a public
+count such as `ONEBOT_EXPORT_MAX_URLS=3` must not damage ordinary numbers,
+timestamps or retry intervals through blanket credential replacement.
+
+For a recent-log tail, evaluate the bounded ordered snapshot before replaying
+a PNG: later scan/expiry/success events invalidate earlier saved events. Avoid
+snapshot/follow gaps and reject saved events referring to a different overwritten
+PNG. Display changed codes on fresh saved events, suppress duplicate output,
+and preserve readiness deadlines and Ctrl+C/TERM viewing-only cleanup.
+Do not add periodic status/file polling, WebUI authentication, account mutation
+or changes to upstream NapCat. Logs/status never build or restart services.
+
+### Validation / error matrix
+
+| Event or state | Expected outcome |
+| --- | --- |
+| Current login PNG saved, suitable TTY | Intact scan block at that login event |
+| New PNG saved / duplicate image event | Replacement once / no duplicate block |
+| Historical saved event followed by login completion | No residual PNG replay |
+| Missing/corrupt/oversized PNG or unavailable renderer | Categorized recovery hint; normal logs continue |
+| Invalid timestamp / permission / read timeout | Distinct controlled category, no raw traceback or generic missing-file claim |
+| Owned NapCat stopped | Retain available bounded logs without executing its QR clock/helper or starting it |
+| Non-TTY/dumb/narrow terminal | Safe recovery text; no authentication bitmap |
+| Foreign container or sanitizer/writer failure | Explicit failure; no raw fallback |
+| INT/TERM during image work or viewing | Owned helpers reaped; services/state retained |
+
+### Good / base / bad cases
+
+Good: the saved-PNG login event displays a complete terminal code in the
+existing logs view. Base: ordinary bot lines continue with existing redaction.
+Bad: reading a leftover PNG merely because it exists or opening a new login API
+session to decide when to draw it.
+
+### Required tests
+
+Decode rendered terminal cells from real PNG fixtures independently; exercise
+first login, reauthentication, refresh, snapshot/live overlap, stale success,
+overwritten images, concurrent output, terminal fallbacks, read failures,
+ownership, redaction/locales and cancellation through the actual CLI/PTY path.
+Include timestamp-colliding real secret values and public URL counts in both
+snapshot and fresh-event cases. Execute the exact reader with a nine-digit
+timestamp in the actual cached NapCat Python3.10 image using synthetic PNG
+data and no account/network state; hako Python3.12 alone is not evidence of
+reader compatibility.
+Real phone authorization remains separate from fixture rendering evidence.
+
+### Wrong versus correct
+
+Wrong: add another QR command/watcher or generate a new QR from a logged URL.
+Correct: the existing login log event renders its corresponding PNG using the
+existing dependency and output lifecycle.
