@@ -23,10 +23,13 @@ from kisara.bot.contracts import (
     MessageEvent, MessageHandler, MessageSegment, OutgoingMessage,
 )
 from kisara.application.services.export_img import handle_export_img
+from kisara.application.services.export_video import VideoExport
 from kisara.application.services.setu import Setu
 from kisara.config import Settings
 from kisara.bot.preview_readiness import publish as publish_readiness
 from kisara.infrastructure.persistence.news_delivery import NewsDeliveryStore
+from kisara.infrastructure.integrations.bilibili import VideoSendError
+from kisara.infrastructure.integrations.video_download import DownloadedVideo
 
 
 _log = logging.getLogger("kisara.onebot")
@@ -46,6 +49,11 @@ REQUEST_ACTIONS = frozenset({
 class OneBotError(RuntimeError):
     """Raised when a OneBot connection or API request cannot complete."""
 
+    def __init__(self, message: str, uncertain: bool = True) -> None:
+        """Expose outcome certainty without retaining raw protocol payloads."""
+        self.uncertain = uncertain
+        super().__init__(message)
+
 
 class OneBotV11Adapter:
     """Receive OneBot 11 events and send replies through API echo requests."""
@@ -61,6 +69,7 @@ class OneBotV11Adapter:
         delivery_store: Optional[NewsDeliveryStore] = None,
         setu: Optional[Setu] = None,
         command_authorizer: Optional[Callable[[MessageEvent, str], bool]] = None,
+        video_exporter: Optional[VideoExport] = None,
     ) -> None:
         """Create a forward-WebSocket adapter for the selected OneBot instance."""
 
@@ -88,6 +97,7 @@ class OneBotV11Adapter:
         self._groups_enabled = settings.groups_enabled
         self._setu = setu
         self._command_authorizer = command_authorizer
+        self._video_exporter = video_exporter
 
     def start(self) -> None:
         """Run the reconnecting adapter loop until interrupted or closed."""
@@ -246,8 +256,11 @@ class OneBotV11Adapter:
         """Run shared routing and reply through the source conversation."""
 
         try:
-            if self._is_authorized(event) and await handle_export_img(event, self):
-                return
+            if self._is_authorized(event):
+                handled_export = (await self._video_exporter.handle(event, self)
+                                  if self._video_exporter is not None else await handle_export_img(event, self))
+                if handled_export:
+                    return
             if (self._setu is not None and self._is_authorized(event) and
                     self._setu.is_authorized(event)):
                 if (event.reply_context.get("quoted_message_id") and
@@ -408,7 +421,9 @@ class OneBotV11Adapter:
 
         await self._send_message(event, self._encode_message(content))
 
-    async def _send_message(self, event: MessageEvent, message: Any) -> None:
+    async def _send_message(
+        self, event: MessageEvent, message: Any, timeout_seconds: Optional[float] = None,
+    ) -> Mapping[str, Any]:
         """Route one prepared OneBot message to the source conversation."""
         if event.conversation_kind == "private":
             action = "send_private_msg"
@@ -422,7 +437,24 @@ class OneBotV11Adapter:
                 "group_id": _as_api_identifier(event.conversation_id),
                 "message": message,
             }
-        await self._request(action, params)
+        if timeout_seconds is not None:
+            params["timeout"] = int(timeout_seconds * 1000)
+        return await self._request(action, params, timeout_seconds=timeout_seconds)
+
+    async def send_exported_video(self, event: MessageEvent, video: DownloadedVideo) -> None:
+        """Send complete local media and require an actual native message receipt."""
+        try:
+            response = await self._send_message(event, [{
+                "type": "video", "data": {"file": video.path.as_uri()},
+            }], timeout_seconds=_file_request_timeout(video.size))
+        except OneBotError as error:
+            raise VideoSendError(error.uncertain) from None
+        except (OSError, ConnectionClosed):
+            raise VideoSendError(True) from None
+        data = response.get("data")
+        if (response.get("status", "ok") != "ok" or not isinstance(data, dict)
+                or not _as_identifier(data.get("message_id"))):
+            raise VideoSendError(True)
 
     async def send_exported_files(
         self, event: MessageEvent, files: Sequence[Tuple[str, str]],
@@ -584,7 +616,7 @@ class OneBotV11Adapter:
         websocket = self._websocket
         if websocket is None:
             _log.warning("OneBot API request failed: action=%s reason=disconnected", log_action)
-            raise OneBotError("OneBot WebSocket is not connected")
+            raise OneBotError("OneBot WebSocket is not connected", uncertain=False)
 
         echo = uuid.uuid4().hex
         future = asyncio.get_running_loop().create_future()
@@ -618,7 +650,7 @@ class OneBotV11Adapter:
                 raise OneBotError(
                     "OneBot API request failed: {} (retcode={})".format(
                         log_action, log_retcode
-                    )
+                    ), uncertain=status == "async",
                 )
             return response
         except asyncio.TimeoutError as error:
@@ -779,7 +811,30 @@ def _read_segments(raw_segments: Any) -> Tuple[MessageSegment, ...]:
         data = raw_segment.get("data") or {}
         if kind and isinstance(data, dict):
             segments.append(MessageSegment(kind=kind, data=dict(data)))
+            if kind == "json":
+                segments.extend(_mini_program_links(data))
     return tuple(segments)
+
+
+def _mini_program_links(data: Mapping[str, Any]) -> Tuple[MessageSegment, ...]:
+    """Project a Bilibili QQ card into a protocol-neutral link segment."""
+    raw = data.get("data")
+    if isinstance(raw, str) and len(raw) > 65536:
+        return ()
+    try:
+        card = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError, RecursionError):
+        return ()
+    if not isinstance(card, dict) or card.get("app") != "com.tencent.miniapp_01":
+        return ()
+    meta = card.get("meta")
+    detail = meta.get("detail_1") if isinstance(meta, dict) else None
+    if not isinstance(detail, dict) or str(detail.get("appid")) != "1109937557":
+        return ()
+    url = detail.get("qqdocurl")
+    if not isinstance(url, str) or len(url) > 2048:
+        return ()
+    return (MessageSegment("link", {"url": url, "provider": "bilibili"}),)
 
 
 def _as_identifier(value: Any) -> str:

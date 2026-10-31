@@ -71,6 +71,7 @@ class Dispatcher:
         self._public_features = {engine: frozenset(names) for engine, names in (public_features or {}).items()}
         switches = {
             "tgsetu": False,
+            "export_video": False,
             "chat": chat_responder is not None, "tarot": tarot_reader is not None,
             "news": daily_news is not None,
             "news_push": daily_news is not None,
@@ -79,7 +80,7 @@ class Dispatcher:
         self._disabled_features = frozenset(name for name, enabled in (feature_switches or {}).items()
                                             if not enabled)
         for name, enabled in (feature_switches or {}).items():
-            switches[name] = enabled if name == "tgsetu" else switches.get(name, True) and enabled
+            switches[name] = enabled if name in {"tgsetu", "export_video"} else switches.get(name, True) and enabled
         self.router = FeatureRouter(tuple(
             RegisteredFeature(definition, self._native_feature if definition.trigger == "native"
                               else self._shared_feature if definition.name in

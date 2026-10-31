@@ -1,6 +1,7 @@
 """Independent TOML files for configurable bot features."""
 
 from pathlib import Path
+import re
 from typing import Any, Callable, FrozenSet, Mapping
 
 try:
@@ -22,6 +23,7 @@ FEATURE_KEYS = {
     "source": frozenset({"api_key"}),
     "music": frozenset({"enabled", "api_url"}),
     "love": frozenset({"api_key"}),
+    "export": frozenset({"video_enabled", "max_file_bytes", "timeout_seconds", "max_urls"}),
 }
 
 
@@ -31,6 +33,18 @@ class ConfigurationError(ValueError):
 
 class FeatureFileError(ConfigurationError):
     """A feature TOML file is malformed or contains unsupported options."""
+
+
+def size_bytes(value: object, name: str, feature: str) -> int:
+    """Convert the shared positive whole K/M/G configuration grammar to bytes."""
+    match = re.fullmatch(r"([0-9]+)([KMGkmg])", value) if isinstance(value, str) else None
+    try:
+        count = int(match.group(1)) if match is not None else 0
+    except ValueError:
+        count = 0
+    if count == 0:
+        raise ConfigurationError("{} {} must be a positive size such as 10M or 1G.".format(feature, name))
+    return count * 1024 ** {"K": 1, "M": 2, "G": 3}[match.group(2).upper()]
 
 
 def engine_config_root(engine: str) -> Path:

@@ -7,6 +7,7 @@ no build backend, dev extra, runtime credential injection, or port publication.
 import importlib
 import importlib.metadata
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -15,6 +16,7 @@ def requirements(extra: str) -> list[str]:
     """Select the runtime closure observed in the installed distribution metadata."""
     groups = {
         "": ["pillow", "websockets"],
+        "video": ["yt-dlp"],
         "official": ["qq-botpy", "aiohttp", "PyYAML", "APScheduler", "tzlocal",
                      "aiohappyeyeballs", "aiosignal", "attrs", "frozenlist",
                      "multidict", "propcache", "typing_extensions", "yarl", "idna"],
@@ -44,8 +46,10 @@ def check(extra: str, constraints: pathlib.Path) -> bool:
         for name in requirements(extra):
             if importlib.metadata.version(name) != versions[name.lower().replace("_", "-")]:
                 return False
-        for module in ["PIL", "websockets"] + ({"official": ["botpy"], "telegram": ["telegram"]}.get(extra, [])):
+        for module in ["PIL", "websockets"] + ({"official": ["botpy"], "telegram": ["telegram"], "video": ["yt_dlp"]}.get(extra, [])):
             importlib.import_module(module)
+        if extra == "video" and any(shutil.which(binary) is None for binary in ("ffmpeg", "ffprobe")):
+            return False
     except (ImportError, KeyError):
         return False
     return True

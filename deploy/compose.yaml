@@ -21,6 +21,12 @@ services:
       - ../data/napcat/config:/app/napcat/config
       - ../data/napcat/QQ:/app/.config/QQ
       - ../data/kisara/tarotCards:/app/tarot-cards:ro
+      - type: volume
+        source: onebot_export
+        target: /tmp/kisara/export
+        read_only: true
+        volume:
+          nocopy: true
     networks:
       - kisara_network
 
@@ -37,6 +43,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        KISARA_EXTRA: video
     restart: unless-stopped
     group_add:
       - "${ONEBOT_SETU_GID-${KISARA_SETU_GID:-${KISARA_HOST_GID:-1000}}}"
@@ -75,6 +83,11 @@ services:
       KISARA_NEWS_PUSH_RETRY_SECONDS: ${ONEBOT_NEWS_PUSH_RETRY_SECONDS-${KISARA_NEWS_PUSH_RETRY_SECONDS-60}}
       KISARA_NEWS_CACHE_DIR: /app/state/daily-news
       KISARA_STATE_DIR: /app/state
+      KISARA_BILIBILI_SESSDATA: ${ONEBOT_BILIBILI_SESSDATA-}
+      KISARA_EXPORT_VIDEO_ENABLED: ${ONEBOT_EXPORT_VIDEO_ENABLED-true}
+      KISARA_EXPORT_MAX_FILE_BYTES: ${ONEBOT_EXPORT_MAX_FILE_BYTES-512M}
+      KISARA_EXPORT_TIMEOUT_SECONDS: ${ONEBOT_EXPORT_TIMEOUT_SECONDS-600}
+      KISARA_EXPORT_MAX_URLS: ${ONEBOT_EXPORT_MAX_URLS-3}
       ONEBOT_WS_URL: ${ONEBOT_WS_URL:-ws://napcat:3001}
       ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}
     depends_on:
@@ -85,6 +98,7 @@ services:
       - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - ../data/napcat/QQ:/app/.config/QQ:ro
       - kisara_state:/app/state
+      - onebot_export:/tmp/kisara/export
       - ../data/kisara/setu:/app/setu
     networks:
       - kisara_network
@@ -94,6 +108,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        KISARA_EXTRA: video
     restart: unless-stopped
     group_add:
       - "${ONEBOT_SETU_GID-${KISARA_SETU_GID:-${KISARA_HOST_GID:-1000}}}"
@@ -133,6 +149,11 @@ services:
       KISARA_NEWS_PUSH_RETRY_SECONDS: ${ONEBOT_NEWS_PUSH_RETRY_SECONDS-${KISARA_NEWS_PUSH_RETRY_SECONDS-60}}
       KISARA_NEWS_CACHE_DIR: /app/state/daily-news
       KISARA_STATE_DIR: /app/state
+      KISARA_BILIBILI_SESSDATA: ${ONEBOT_BILIBILI_SESSDATA-}
+      KISARA_EXPORT_VIDEO_ENABLED: ${ONEBOT_EXPORT_VIDEO_ENABLED-true}
+      KISARA_EXPORT_MAX_FILE_BYTES: ${ONEBOT_EXPORT_MAX_FILE_BYTES-512M}
+      KISARA_EXPORT_TIMEOUT_SECONDS: ${ONEBOT_EXPORT_TIMEOUT_SECONDS-600}
+      KISARA_EXPORT_MAX_URLS: ${ONEBOT_EXPORT_MAX_URLS-3}
       ONEBOT_WS_URL: ${ONEBOT_WS_URL:-ws://napcat:3001}
       ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}
       PYTHONPATH: /app/src
@@ -145,6 +166,7 @@ services:
       - ../data/kisara/tarotCards:/app/tarot-cards:ro
       - ../data/napcat/QQ:/app/.config/QQ:ro
       - kisara_state:/app/state
+      - onebot_export:/tmp/kisara/export
       - ../data/kisara/setu:/app/setu
     depends_on:
       - napcat
@@ -251,6 +273,7 @@ networks:
     driver: bridge
 
 volumes:
+  onebot_export:
   kisara_state:
   telegram_state:
   telegram_bot_api_cache:

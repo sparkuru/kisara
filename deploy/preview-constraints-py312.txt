@@ -23,4 +23,5 @@ qq-botpy==1.2.1
 typing_extensions==4.16.0
 tzlocal==5.4.4
 websockets==13.1
+yt-dlp==2026.10.21
 yarl==1.25.1

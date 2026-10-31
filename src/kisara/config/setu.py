@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import FrozenSet, Tuple
 
 try:
@@ -11,6 +10,7 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 from kisara.config.settings import ConfigurationError
+from kisara.config.feature_files import size_bytes
 
 
 @dataclass(frozen=True)
@@ -117,16 +117,7 @@ def _positive_int(value: object, name: str) -> int:
 
 def _size_bytes(value: object, name: str) -> int:
     """Convert a positive K, M, or G size to a byte count."""
-    match = re.fullmatch(r"([0-9]+)([KMGkmg])", value) if isinstance(value, str) else None
-    try:
-        count = int(match.group(1)) if match is not None else 0
-    except ValueError:
-        count = 0
-    if count == 0:
-        raise ConfigurationError(
-            "Setu {} must be a positive size such as 10M or 1G.".format(name)
-        )
-    return count * 1024 ** {"K": 1, "M": 2, "G": 3}[match.group(2).upper()]
+    return size_bytes(value, name, "Setu")
 
 
 def _path(value: object, name: str) -> Path:

@@ -20,4 +20,9 @@ Commands absent from the public list require the shared sender and, in groups,
 group allowlists. Native archives and scheduled delivery retain strict access.
 Legacy aliases include ahelp for help and Chinese recall commands; consult the
 dispatcher for the complete accepted spelling set.
+export_img.py retains original-image file attachments. export_video.py owns
+OneBot quoted Bilibili video export and source selection for generic 导出;
+the adapter normalizes mini-program links and sends native video receipts.
+Temporary media is shared with NapCat through the dedicated export spool,
+without exposing credentials or other application state.
 """

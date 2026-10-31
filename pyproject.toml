@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+video = [
+    "yt-dlp==2026.10.21; python_version>='3.10'",
+]
 telegram = [
     "python-telegram-bot==22.8",
 ]

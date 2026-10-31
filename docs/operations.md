@@ -928,3 +928,72 @@ configured music provider, one near-term private/group push, and restart without
 replaying confirmed sends. Check QQ while Telegram runs and after targeted
 Telegram down/rebuild. Real credentials/accounts/provider/network behavior needs
 human acceptance; tests do not start real bot services.
+
+## Quoted Bilibili video export (OneBot)
+
+Quote a Bilibili mini-program card, a `b23.tv` share, or an ordinary BV/av video
+URL and send `导出` or `/export-video`. `/export` also selects the quoted source.
+Generic export selects a supported video link when present; `/export-img` and
+image-specific phrases retain original-image/sticker file attachments. Merely
+sending a link never starts a download. Strict sender/group allowlists apply;
+the native `export_video` feature cannot be included in public command lists.
+
+The exporter selects the highest quality accessible to the configured session,
+or anonymously when no session is configured. It does not impose a fixed
+resolution cap or silently reduce quality to fit a limit. The returned MP4 is
+merged without local re-encoding and sent as a native video. QQ may apply its
+own media processing; a successful local merge does not prove client playback.
+For a multi-part video, `p` selects the part and its absence means part1.
+Distinct targets are processed sequentially; whole playlists, other sites,
+live streams and premium access beyond the session's entitlement are unsupported.
+
+Set `ONEBOT_BILIBILI_SESSDATA` in the ignored repository `.env` to an optional
+Bilibili SESSDATA cookie. Leave it explicitly empty for anonymous access.
+This is a deployment credential shared by strictly authorized native export
+requests; there is no chat-based/per-user credential registration. Never paste
+it into commands, tracked TOML examples, diagnostics or conversation fixtures.
+Expired/rejected sessions require updating the credential rather than silently
+claiming an authenticated success. Environment changes require targeted
+OneBot recreation; the supplied bootstrap credential file is not a runtime path.
+
+`config/onebot/features/export/config.toml` can override these operational
+defaults; copy its example only when the private file does not exist:
+
+```toml
+video_enabled = true
+max_file_bytes = "512M"
+timeout_seconds = 600
+max_urls = 3
+```
+
+Corresponding environment inputs are `ONEBOT_EXPORT_VIDEO_ENABLED`,
+`ONEBOT_EXPORT_MAX_FILE_BYTES`, `ONEBOT_EXPORT_TIMEOUT_SECONDS` and
+`ONEBOT_EXPORT_MAX_URLS`. Explicit TOML wins. File sizes use positive whole
+K/M/G units (1024 multipliers), capped at1G to fit the2G temporary workspace.
+Timeout/count values must be positive integers; the target count is capped
+at20. Only one video request downloads at a time; concurrent requests receive
+a busy reply. The timeout bounds each video download/merge worker; native
+upload has its own size-based bounded wait. Oversized, truncated or failed
+outputs are not sent as successful exports.
+
+OneBot images select the `video` extra, pinned yt-dlp, and FFmpeg/ffprobe.
+Direct video tooling needs Python3.10+ (`.[video]`) and both binaries; the base
+application's older Python declaration and image-only export remain intact.
+Use the existing `./kisara.sh preview build onebot` preparation route, followed
+by the approved targeted OneBot preview update. Do not install packages into a
+running bot container. Other engines do not receive the Bilibili credential.
+
+The dedicated `onebot_export` volume is mounted at `/tmp/kisara/export`,
+read/write for the application and read-only with `nocopy` for NapCat. Its
+initial ownership comes from the application image's UID10001 directory;
+verify that user can create jobs and the configured NapCat user can read the
+completed MP4 after a first deployment. This mapping requires reconciliation
+of the selected OneBot/NapCat containers, retaining their login/state volumes.
+It exposes neither application databases nor a new HTTP port.
+
+Normal sends clean their owned temporary jobs after a receipt or a definite
+rejection. An uncertain timeout or cancellation during native sending retains
+the media for one hour to avoid racing the gateway and never automatically
+resends it. Expired owned jobs are pruned before new work; unknown files are
+preserved and still count toward the bounded spool budget. This is temporary
+transport, not a permanent video archive or restart-resumable export queue.

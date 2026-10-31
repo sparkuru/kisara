@@ -360,7 +360,10 @@ preview_collect() {
 
 preview_prepare_image() {
 	local service=$1 image=$2 extra=''
-	case $service in telegram | official) extra=$service ;; esac
+	case $service in
+	telegram | official) extra=$service ;;
+	kisara | kisara-dev) extra=video ;;
+	esac
 	if ! preview_docker image inspect "$image" >"${preview_tmp}/inspect.log" 2>&1; then
 		[[ ${KISARA_PREVIEW_OFFLINE:-false} != true ]] || { preview_error "Missing image for $service; disable offline mode and run ./kisara.sh preview build $preview_target explicitly."; return 1; }
 		case $service in

@@ -26,6 +26,7 @@ Pulse; policy discovery does not authorize task creation or implementation.
 | Document | Read when |
 | --- | --- |
 | [Architecture and feature contracts](architecture.md) | Changing routing, services, adapters, utilities, or documentation |
+| [Bilibili video export](video-export.md) | Changing quoted video export, Bilibili sessions, worker limits, native receipts, or shared media transport |
 | [Public command features](public-features.md) | Changing per-engine public lists, command allow exceptions or Telegram /tguid |
 | [Configuration and storage](configuration-storage.md) | Changing configuration, HTTP, cache, SQLite, files, or deployment paths |
 | [Engine configuration roots](engine-config.md) | Changing config directories, entrypoint selection, mounts or private-file migration |

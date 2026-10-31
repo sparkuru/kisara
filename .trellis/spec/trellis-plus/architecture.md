@@ -96,6 +96,10 @@ Unconfirmed media is not downloaded.
 Plain images and unsolicited forwards do not trigger archive replies.
 Image export has a separate authorization gate, precedes archive handling, and
 returns original bytes as file attachments without archive persistence.
+Linked Bilibili video export shares the strict native gate and source-aware
+quote preparation; generic export selects supported video links while explicit
+image wording retains original-file behavior. Its worker, configuration and
+receipt-dependent media lifetime are defined in [video export](video-export.md).
 
 Telegram has a separate opt-in `/tgsetu on` automatic private media flow, with
 global and feature allowlists, durable activation/jobs and individual-file

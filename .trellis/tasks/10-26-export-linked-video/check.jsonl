@@ -1,0 +1,17 @@
+{"file": ".trellis/spec/trellis-plus/index.md", "reason": "Shared project policy"}
+{"file": ".trellis/spec/trellis-plus/workflow.md", "reason": "Planning, context loading and delivery boundaries"}
+{"file": ".trellis/spec/trellis-plus/development-principles.md", "reason": "Scope and evidence contracts"}
+{"file": ".trellis/spec/trellis-plus/architecture.md", "reason": "Native export authorization and service boundaries"}
+{"file": ".trellis/spec/trellis-plus/configuration-storage.md", "reason": "Private SESSDATA and runtime configuration contracts"}
+{"file": ".trellis/spec/trellis-plus/validation.md", "reason": "Docker, protocol and live verification"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality requirements"}
+{"file": ".trellis/tasks/10-26-export-linked-video/research/preview-samples.md", "reason": "Observed mini-program and URL input formats"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Service, adapter and integration ownership"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Safe provider and native-operation errors"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Credential-safe logs"}
+{"file": ".trellis/tasks/10-26-export-linked-video/research/bilibili-provider.md", "reason": "Authorized session probes and pinned provider research"}
+{"file": ".trellis/spec/trellis-plus/public-features.md", "reason": "Native command help and strict public-feature exclusion"}
+{"file": ".trellis/spec/trellis-plus/engine-config.md", "reason": "Selected OneBot feature root and private config boundary"}
+{"file": ".trellis/spec/trellis-plus/cli-entrypoints.md", "reason": "Preserve canonical preview and dependency preparation contracts"}
+{"file": ".trellis/spec/trellis-plus/video-export.md", "reason": "Executable native video export and transport contracts"}
+{"file": ".trellis/tasks/10-26-export-linked-video/research/preview-redaction-locale.md", "reason": "Reproduced non-C locale sed blocker and shared QR preservation boundary"}

@@ -1,0 +1,6 @@
+# Operational values override matching ONEBOT_EXPORT_* environment inputs.
+# Authentication stays in ONEBOT_BILIBILI_SESSDATA, never in chat messages.
+video_enabled = true
+max_file_bytes = "512M"
+timeout_seconds = 600
+max_urls = 3

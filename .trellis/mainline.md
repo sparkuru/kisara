@@ -26,6 +26,42 @@
   Video export retains its own acceptance and delivery record.
   This delivery performed no push, merge or service/account operation.
 
+## Approved Bilibili video export — 2026-10-26
+
+- Task: [export-linked-video](tasks/10-26-export-linked-video/task.json),
+  [requirements](tasks/10-26-export-linked-video/prd.md),
+  [design](tasks/10-26-export-linked-video/design.md),
+  [execution plan](tasks/10-26-export-linked-video/implement.md).
+- Owner decisions: explicitly requested task creation and use of recent
+  preview examples, approved Bilibili-only first scope, supplied a temporary
+  session file for use, then approved the final planning summary with “开始”.
+- Approved scope: OneBot quoted mini-program/short-link/video-URL export,
+  session-aware highest available quality, complete MP4/native video return,
+  preserved image export/auth boundaries, bounded temporary transport and
+  targeted OneBot/NapCat preview verification preserving login/state.
+- State: implemented and independently checked on `feat/export-linked-video`;
+  full Docker gate1254 passed/1 missing-Git skip/3 existing SDK warnings.
+  The skipped ignore fixture was verified separately. Real extractor/download/
+  merge probes produced complete1080p30 audio/video for both supplied source
+  videos; final-image source comparison and complete decoding passed.
+- Preview follow-up: the user's actual startup exposed non-C collation failure
+  in shared ANSI redaction. Scoped byte-locale processing, control normalization
+  and strict Bearer separator preservation now pass independent review,
+  19 actual-host probes and real read-only CLI follow/cleanup checks. Current
+  earlier combined full gate1305 passed/7 dependency-or-locale skips/3 existing
+  warnings. Final unchanged-source combined gate1316 passed/7 skips/3 existing
+  warnings is reused; delivery-time video/OneBot focus209 passed.
+  Host Git/real locale supplements cover absent tooling/locales. No rebuild,
+  service/account mutation or private-config change was needed for this fix.
+- Acceptance: on 2026-10-31 the user confirmed “qq 回传确认了。通过”,
+  closing the prior native return gate, and explicitly authorized commit/archive.
+  All ACs are closed; this is user-reported acceptance, without newly collected
+  receipt IDs or playback measurements. See
+  [evidence](tasks/10-26-export-linked-video/validation.md).
+- Delivery boundaries: no other providers/engines, playlist expansion, per-user
+  credential management, unrelated Telegram work or push. The separate QQ
+  terminal-QR task has its own completed delivery above.
+
 ## Ready-task delivery and archival — 2026-10-26
 
 The user requested “将可归档/提交归档的，全部归档/提交归档”, authorizing
@@ -286,6 +322,7 @@ parent/child relationship or serial execution is inferred.
 | 7 | [Preview status continuous output](tasks/archive/2026-10/10-22-preview-status-streaming/task.json) | completed, archived | Work 2e477fb; archive 44dcd31; actual readiness regressions 8 failed before/8 passed after; 289 focused and 1115 full passes/1 existing skip/3 existing warnings; strengthened post-ready cases 4 passed |
 | 8 | [Telegram startup recovery](tasks/archive/2026-10/10-22-telegram-startup-recovery/task.json) | completed, archived | Work 2e477fb; archive a2b17f3; bounded startup recovery and safe categories verified; 173 focused and 1107 full passes/1 existing skip/3 existing warnings; no live operation |
 | 9 | [Configurable scheduled news retry](tasks/archive/2026-10/10-26-news-push-retry/task.json) | completed, archived | Work 2e477fb; archive 6cd1c1e; 386 focused and 1179 independent full passes/1 existing skip/3 existing warnings; default/configurable retry and delivery-state protections verified; no live deployment |
+| 10 | [Quoted Bilibili video export](tasks/10-26-export-linked-video/task.json) | accepted; delivery authorized | Branch feat/export-linked-video; full regression and real1080p30 MP4/decoding/shared-volume checks passed; user confirmed native QQ return on 2026-10-31 and authorized commit/archive; separate QQ terminal-QR work excluded |
 
 ## Evidence and decisions
 

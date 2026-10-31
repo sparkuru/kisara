@@ -6,8 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+ARG KISARA_EXTRA=""
 RUN apt-get update \
     && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && if [ "${KISARA_EXTRA}" = video ]; then apt-get install -y --no-install-recommends ffmpeg; fi \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml readme.md ./
@@ -15,15 +17,14 @@ COPY src ./src
 COPY deploy/kisara-dev-watch.sh /opt/kisara/kisara-dev-watch.sh
 COPY deploy/preview-deps.py deploy/preview-probe.py deploy/preview-constraints-py312.txt /opt/kisara/
 
-ARG KISARA_EXTRA=""
 RUN python /opt/kisara/preview-deps.py install-system "${KISARA_EXTRA}" \
     && python /opt/kisara/preview-deps.py check "${KISARA_EXTRA}"
 
 RUN chmod 755 /opt/kisara/kisara-dev-watch.sh \
     && groupadd --gid 10001 kisara \
     && useradd --create-home --uid 10001 --gid 10001 kisara \
-    && mkdir -p /app/state /app/setu /app/tgsetu /var/lib/telegram-bot-api \
-    && chown -R kisara:kisara /app /opt/kisara /var/lib/telegram-bot-api
+    && mkdir -p /app/state /app/setu /app/tgsetu /var/lib/telegram-bot-api /tmp/kisara/export \
+    && chown -R kisara:kisara /app /opt/kisara /var/lib/telegram-bot-api /tmp/kisara
 USER kisara
 
 CMD ["python", "-m", "kisara"]

@@ -8,7 +8,7 @@ setu is disabled. It stores no application files or database records.
 """
 
 from pathlib import PurePosixPath
-from typing import Any, Mapping, Protocol, Sequence, Tuple
+from typing import Any, Mapping, Optional, Protocol, Sequence, Tuple
 from urllib.parse import urlsplit
 
 from kisara.bot.contracts import MessageEvent, MessageSegment, is_image_segment
@@ -42,15 +42,19 @@ def is_export_intent(event: MessageEvent) -> bool:
     )
 
 
-async def handle_export_img(event: MessageEvent, gateway: ExportImgGateway) -> bool:
+async def handle_export_img(
+    event: MessageEvent, gateway: ExportImgGateway,
+    quoted: Optional[Tuple[MessageSegment, ...]] = None,
+) -> bool:
     """Export only images from the quoted message when the command matches."""
-    if not is_export_intent(event):
+    if not is_export_intent(event) and quoted is None:
         return False
     if not event.reply_context.get("quoted_message_id"):
         await gateway.send_reply(event, "请引用要导出的图片或表情包。")
         return True
 
-    quoted, _ = await gateway.quoted_message(event)
+    if quoted is None:
+        quoted, _ = await gateway.quoted_message(event)
     images = tuple(segment for segment in quoted if is_image_segment(segment))
     if not images:
         await gateway.send_reply(event, "引用的消息中没有图片。")

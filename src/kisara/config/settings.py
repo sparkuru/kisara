@@ -8,6 +8,7 @@ from typing import Dict, FrozenSet, Mapping, Optional, Tuple
 from urllib.parse import urlsplit
 
 from kisara.bot.features import FEATURES
+from .export import ExportConfig
 
 from .feature_files import (
     ConfigurationError, boolean, engine_config_root, groups, load_feature,
@@ -80,6 +81,7 @@ class Settings:
     telegram_local_mode: bool = False
     public_features: FrozenSet[str] = frozenset()
     news_push_retry_seconds: int = 60
+    export_video: ExportConfig = field(default_factory=ExportConfig)
 
     @property
     def config_root(self) -> Path:
@@ -293,6 +295,7 @@ class Settings:
                 allowed_groups=allowed_groups,
                 onebot_ws_url=onebot_ws_url,
                 onebot_access_token=onebot_access_token,
+                export_video=ExportConfig.load(config_root, environment),
                 **chat_options,
                 **tarot_options,
                 **public_options,
@@ -370,6 +373,8 @@ def _engine_environment(source: Mapping[str, str], engine: str) -> Mapping[str, 
             "CHAT_TRIGGER_RATE", "CHAT_SIMILARITY_RATE", "CHAT_IGNORED_PHRASES",
             "CHAT_BANNED_USERS", "CHAT_ALWAYS_REPLY_USERS", "CHAT_REPLY_TO_MENTIONS",
             "TAROT_ENABLED", "TAROT_SPREAD_RATE", "TAROT_IMAGE_DIR", "GROUP_CONFIG_PATH",
+            "BILIBILI_SESSDATA", "EXPORT_VIDEO_ENABLED", "EXPORT_MAX_FILE_BYTES",
+            "EXPORT_TIMEOUT_SECONDS", "EXPORT_MAX_URLS",
         )
     for suffix in suffixes:
         alias = "{}_{}".format(engine.upper(), suffix)

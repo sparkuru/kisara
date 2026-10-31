@@ -39,6 +39,7 @@ FEATURES = (
     FeatureDefinition("recall", ("recall",), "/recall — recall a quoted bot message (OneBot)", ("onebot",)),
     FeatureDefinition("news", ("news", "brief", "news-clear"), "/news — today's daily news\n清除新闻缓存 — clear today's news PNG and HTML cache"),
     FeatureDefinition("tgsetu", ("tgsetu",), "/tgsetu [on|off|status|retry <message-id>] — archive received media", ("telegram",), "native"),
+    FeatureDefinition("export_video", ("export-video", "export"), "/export-video — quote a Bilibili card/link and export its best available video; 导出 also selects images", ("onebot",), "native"),
     FeatureDefinition("news_push", (), "Scheduled daily news (configured recipients only)", ("onebot", "telegram"), "scheduled"),
 )
 

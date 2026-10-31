@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from kisara.application.services.chat import ChatPolicy, ChatResponder
 from kisara.application.services.daily_news import DailyNews
+from kisara.application.services.export_video import VideoExport
 from kisara.application.services.public import PublicServices
 from kisara.application.services.setu import Setu
 from kisara.application.services.tarot import TarotReader
@@ -44,6 +45,7 @@ def create_adapter(
             delivery_store=store,
             setu=setu,
             command_authorizer=command_authorizer,
+            video_exporter=VideoExport(settings.export_video),
         )
     elif settings.engine == "telegram":
         module = importlib.import_module("kisara.bot.adapters.telegram")
@@ -143,6 +145,7 @@ def main() -> int:
         public_features={settings.engine: settings.public_features},
         feature_switches={
             "tgsetu": tgsetu_config.enabled,
+            "export_video": settings.engine == "onebot" and settings.export_video.video_enabled,
             "ping": settings.ping_enabled, "help": settings.help_enabled,
             "music": settings.music_enabled, "news": settings.news_enabled,
             "news_push": settings.news_push_enabled and settings.engine in {"onebot", "telegram"},
