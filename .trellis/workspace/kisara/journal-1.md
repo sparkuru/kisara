@@ -790,3 +790,131 @@ User authorized local delivery of three checked changes and archival of all five
 ### Next Steps
 
 - Only the two paused TgSetu parent/child tasks remain; resume their pending local Bot API/account acceptance only after explicit user direction.
+
+
+## Session 25: QQ login PNG in existing logs
+<!-- trellis-session: v=2 fp=75e145fd677fb556 -->
+
+**Date**: 2026-10-26
+**Task**: QQ login PNG in existing logs
+**Branch**: `feat/export-linked-video`
+
+### Summary
+
+Implemented the approved event-driven PNG presentation and independent review; actual phone scan remains pending.
+
+### Main Changes
+
+- Shared PNG-saved login-event handling across QQ preview and ordinary attached logs, using existing Pillow with no watcher/API/encoder dependency.
+- Preserved redaction, locales, fixed-path image bounds, stopped-container diagnostics and viewing-only cancellation; synchronized specs and task evidence.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Final-source focused gate: 47 passed; independent decoder: 8/8; existing147x147 PNG format probe: renderable.
+- [OK] Full regression: 1289 passed,1 skipped,1 unrelated preexisting video cleanup timing failure; isolated rerun passed. No green full gate claimed.
+- [OK] Final Bash syntax, whitespace and both eight-entry task manifests passed; ShellCheck/shfmt unavailable and no lint/type command configured.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Human-required: scan the terminal QR through ./kisara.sh logs onebot or preview status onebot; verify mobile authorization. No live account/service changes or delivery performed.
+
+
+## Session 26: Fix preview ANSI collation and redaction ordering
+<!-- trellis-session: v=2 fp=71de36df5845db68 -->
+
+**Date**: 2026-10-26
+**Task**: Fix preview ANSI collation and redaction ordering
+**Branch**: `feat/export-linked-video`
+
+### Summary
+
+Repaired the user-reported sed Invalid range end blocker under real non-C locales; preserved QR logs and caller locale, completed independent review and final full regression.
+
+### Main Changes
+
+- Scoped byte locale to Bash normalization and sed boundaries, preserving direct background sanitizer PID tracking and existing QR work.
+- Normalized ASCII controls before literal secrets while retaining strict Bearer prefix separators and complete token bytes; added adversarial regression payloads and executable logging contract.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Final full gate: 1305 passed, 7 Git/real-locale skips, 3 existing PTB warnings in 677.45s; earlier known video cleanup race did not recur and was not modified.
+- [OK] Final real-host matrix: 19 probes, all 19 Bearer cross-cases per payload, installed en_US/zh_CN, three pipeline boundaries, exact Unicode/redaction and PID/locale preservation passed.
+- [OK] Actual read-only en_US preview status followed logs, exited130, left no viewer process group and preserved all related container IDs/start times.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- No image rebuild needed for this host-script repair; user can retry the existing preview command and complete QQ login.
+- Original task AC1 remains pending native video return/playback; keep in_progress and do not commit/archive/push without authorization.
+
+
+## Session 27: Repair QQ PNG reader runtime acceptance
+<!-- trellis-session: v=2 fp=6776b2c460f32e0c -->
+
+**Date**: 2026-10-26
+**Task**: Repair QQ PNG reader runtime acceptance
+**Branch**: `feat/export-linked-video`
+
+### Summary
+
+Fixed the real PNG-unavailable acceptance failure caused by timestamp redaction and NapCat Python3.10 parsing; independent final full gate passed.
+
+### Main Changes
+
+- Kept validated Docker timestamps as private metadata, preserved message redaction and stopped treating MAX_URLS counts as credentials.
+- Parsed fractional timestamps as integer nanoseconds on actual NapCat Python3.10; added controlled reader errors and failing-before regressions.
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] Independent actualcachedNapCat3.10 current reader exited0 and private PNG byte comparison passed with nine-digit timestamp; no account mounts or network.
+- [OK] Final focused QR/locale/Bearer gate:62 passed,6 optional locale skips. Final full suite:1316 passed,7 skipped,3 existing warnings,exit0.
+- [OK] Bash syntax, whitespace, docs and task context checks passed; prior verification history retained.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Human-required: rerun the original QQ preview/log command and verify actual mobile QR authorization; code remains uncommitted and task unarchived.
+
+
+## Session 28: Deliver and archive QQ login terminal QR
+<!-- trellis-session: v=2 fp=f9feafab247051c9 -->
+
+**Date**: 2026-10-31
+**Task**: Deliver and archive QQ login terminal QR
+**Branch**: `feat/export-linked-video`
+
+### Summary
+
+Owner accepted terminal QQ login flow and authorized local delivery. Committed event-driven PNG presentation and shared sanitizer regressions; archived as 6b03a23 with Codex attribution. Reused final 1316-pass gate and actual NapCat Python3.10 reader proof. Unrelated video export remains uncommitted; no push or service/account operation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bc74135` | feat(onebot): render login QR PNGs in attached logs |
+
+### Status
+
+[OK] **Completed**

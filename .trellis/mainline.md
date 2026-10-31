@@ -1,5 +1,31 @@
 # Trellis Mainline
 
+## Completed QQ login QR logs — 2026-10-31
+
+- Task: [qq-login-terminal-qr](tasks/archive/2026-10/10-26-qq-login-terminal-qr/task.json),
+  [requirements](tasks/archive/2026-10/10-26-qq-login-terminal-qr/prd.md),
+  [design](tasks/archive/2026-10/10-26-qq-login-terminal-qr/design.md).
+- Owner accepted the delivered terminal login flow with “通过；可以提交、归档”.
+  Human acceptance is recorded by owner report, not an agent-observed phone scan.
+- Delivered: existing QQ preview/log commands render the actual saved PNG at
+  login events, with bounded ownership-checked reads, whole-block output,
+  refresh/deduplication, terminal fallbacks and locale-safe credential redaction.
+  No additional QR command, encoder, WebUI session or polling watcher.
+- Runtime repair: keep Docker timestamps private from display sanitization,
+  exclude public MAX_URLS counts from secret discovery, and parse nanosecond
+  fractions using integer arithmetic on actual NapCat Python3.10.
+- Verification: final focused62 passed/6 optional locale skips; full1316 passed/
+  7 skipped/3 existing warnings. Exact cached Python3.10 reader and synthetic
+  PNG byte comparison passed. Historical failures and their narrower evidence
+  remain in the [review records](tasks/archive/2026-10/10-26-qq-login-terminal-qr/runtime-check-evidence.md).
+- Work commit: `bc74135`; archive commit: `6b03a23`; completed and archived on
+  2026-10-31 at `tasks/archive/2026-10/10-26-qq-login-terminal-qr`.
+  This was direct work on existing `feat/export-linked-video`, never PR-backed;
+  the documented archive branch-validation exception records that fact.
+- Unrelated video-export implementation and paused Telegram tasks are retained.
+  Video export retains its own acceptance and delivery record.
+  This delivery performed no push, merge or service/account operation.
+
 ## Ready-task delivery and archival — 2026-10-26
 
 The user requested “将可归档/提交归档的，全部归档/提交归档”, authorizing
