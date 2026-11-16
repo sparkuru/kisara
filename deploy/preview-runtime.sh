@@ -423,7 +423,7 @@ preview_prepare() {
 	local service image
 	for service in "${services[@]}"; do
 		case $service in
-		napcat) image=${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest} ;;
+		napcat) image=${NAPCAT_IMAGE:-kisara/napcat:local} ;;
 		music) image=${KISARA_MUSIC_IMAGE:-moefurina/ncm-api:latest} ;;
 		*) image=${preview_images[$service]} ;;
 		esac

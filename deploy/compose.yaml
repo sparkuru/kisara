@@ -1,7 +1,7 @@
 services:
   napcat:
     profiles: [onebot, onebot-dev]
-    image: ${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
+    image: ${NAPCAT_IMAGE:-kisara/napcat:local}
     hostname: ${NAPCAT_HOSTNAME:-kisara-qq}
     mac_address: ${NAPCAT_MAC_ADDRESS:-02:42:0a:a0:d0:02}
     restart: unless-stopped

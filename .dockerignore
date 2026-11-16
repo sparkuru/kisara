@@ -6,5 +6,6 @@ __pycache__
 *.py[cod]
 *.egg-info
 data
+docker/napcat/repo
 tests
 design.md
